@@ -3,14 +3,12 @@
 </p>
 
 </br>
-</br>
-</br>
 
 <p align="center">
     <img align=center src="https://raw.githubusercontent.com/PowerShell/PowerShell/master/assets/ps_black_64.svg?sanitize=true" alt="PS7 logo" width="75" />  </br>
     <strong>TweakList</strong> </br>
     </br>
-    Make your very own tweaking/debloating script, with one line per tweak   </br>
+    Make your very own tweaking/debloating script, one tweak per line   </br>
     <i>Tweak interpreter based in PowerShell</i></br>
     <a href="#overview">Overview</a>
     •
