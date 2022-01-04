@@ -38,7 +38,7 @@ if (Get-Command curl.exe -Ea Ignore){ # unlike Invoke-WebRequest, curl.exe does 
 
 }
 
-Write-Verbose "Parsed GitHub's API in $($ParseTime.Elapsed.Milliseconds)ms" -Verbose
+Write-Verbose "Parsed GitHub's API in $($ParseTime.Elapsed.Milliseconds)ms"
 Remove-Variable -Name ParseTime
 
 
@@ -105,7 +105,7 @@ $Parameters = @{
 Get-ChildItem @Parameters | ForEach-Object { # Gets every function
 
     try{
-        Write-Verbose "Importing $((Get-Item $PSItem).BaseName)" -Verbose
+        Write-Verbose "Importing $((Get-Item $PSItem).BaseName)"
         . $(Get-Item $PSItem).FullName
     }catch{
         ''
@@ -116,4 +116,4 @@ Get-ChildItem @Parameters | ForEach-Object { # Gets every function
 }
 
 Write-Host 'Done!' -ForegroundColor Green
-Write-Verbose "Imported $Functions functions in $($ImportTime.ElapsedMilliseconds)ms, $($FunctionTime.ElapsedMilliseconds)ms in total" -Verbose
+Write-Verbose "Imported $Functions functions in $($ImportTime.ElapsedMilliseconds)ms, $($FunctionTime.ElapsedMilliseconds)ms in total"
