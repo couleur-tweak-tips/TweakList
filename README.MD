@@ -1,5 +1,5 @@
 <p align="center">
-👋 <strong>Contributors:</strong> if you'd like to contribute, feel free to <a href="https://github.com/couleur-tweak-tips/TweakScript/issues/new/choose">make an issue </a> to suggest a relevant tweak
+👋 <strong>Contributors:</strong> if you'd like to contribute, feel free to <a href="https://github.com/couleur-tweak-tips/TweakList/issues/new/choose">make an issue </a> to suggest a relevant tweak
 </p>
 
 </br>
@@ -8,7 +8,7 @@
 
 <p align="center">
     <img align=center src="https://raw.githubusercontent.com/PowerShell/PowerShell/master/assets/ps_black_64.svg?sanitize=true" alt="PS7 logo" width="75" />  </br>
-    <strong>Tweak Script</strong> </br>
+    <strong>TweakList</strong> </br>
     </br>
     Make your very own tweaking/debloating script, with one line per tweak   </br>
     <i>Tweak interpreter based in PowerShell</i></br>
@@ -16,20 +16,20 @@
     •
     <a href="https://dsc.gg/ctt">Discord Server</a>
     •
-    <a href="https://github.com/couleur-tweak-tips/TweakScript/tree/main/Docs">Docs</a>
+    <a href="https://github.com/couleur-tweak-tips/TweakList/tree/main/Docs">Docs</a>
 </p>
 <p align="center">
-    <a href="https://github.com/couleur-tweak-tips/TweakScript">
-        <img src="https://img.shields.io/github/languages/code-size/couleur-tweak-tips/TweakScript.svg" alt="Code Size" />
+    <a href="https://github.com/couleur-tweak-tips/TweakList">
+        <img src="https://img.shields.io/github/languages/code-size/couleur-tweak-tips/TweakList.svg" alt="Code Size" />
     </a>
-    <a href="https://github.com/couleur-tweak-tips/TweakScript">
-        <img src="https://img.shields.io/github/repo-size/couleur-tweak-tips/TweakScript.svg" alt="Repository size" />
+    <a href="https://github.com/couleur-tweak-tips/TweakList">
+        <img src="https://img.shields.io/github/repo-size/couleur-tweak-tips/TweakList.svg" alt="Repository size" />
     </a>
     <a href="https://discord.com/invite/aPVMJy78Pa">
         <img src="https://img.shields.io/badge/chat-on%20discord-7289DA.svg" alt="Discord Chat" />
     </a>
-    <a href="https://github.com/couleur-tweak-tips/TweakScript/blob/master/LICENSE">
-        <img src="https://img.shields.io/github/license/couleur-tweak-tips/TweakScript.svg" alt="License" />
+    <a href="https://github.com/couleur-tweak-tips/TweakList/blob/master/LICENSE">
+        <img src="https://img.shields.io/github/license/couleur-tweak-tips/TweakList.svg" alt="License" />
     </a>
 
 </p>
@@ -37,7 +37,7 @@
 
 [logo]: https://raw.githubusercontent.com/PowerShell/PowerShell/master/assets/ps_black_64.svg?sanitize=true
 
-TweakScript is a PowerShell module aiming to regroup every impactful tweaks for fine tuning, stripping and optimizing Windows, each tweaks has it's own file **and can be put together as a [tweaklist](https://gist.github.com/couleurm/68d272edc5fb930c31b96b667813e373 "tweaklist example")**
+TweakList is a PowerShell module aiming to regroup every impactful tweaks for fine tuning, stripping and optimizing Windows, each tweaks has it's own file **and can be put together as a "[TweakScript](https://gist.github.com/couleurm/68d272edc5fb930c31b96b667813e373 "TweakList example")"**
 
 </br>
 
