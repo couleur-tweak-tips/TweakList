@@ -106,7 +106,7 @@ Get-ChildItem @Parameters | ForEach-Object { # Gets every function
 
     try{
         Write-Verbose "Importing $((Get-Item $PSItem).BaseName)" -Verbose
-        Import-Module $(Get-Item $PSItem).FullName
+        . $(Get-Item $PSItem).FullName
     }catch{
         ''
         Write-Host "Failed to Import function $((Get-Item $PSItem).BaseName)" -ForegroundColor Red
