@@ -42,7 +42,7 @@ Write-Verbose "Parsed GitHub's API in $($ParseTime.Elapsed.Milliseconds)ms" -Ver
 Remove-Variable -Name ParseTime
 
 
-if ($CommitCount -in '',$null -or $CommitCount -IsNot [int]){
+if ($CommitCount -in '',$null -or $CommitCount -NotIn 0..9999){
     Write-Host "Failed to parse TweakList commit count" -ForegroundColor DarkRed
     ''
     pause
