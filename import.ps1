@@ -46,7 +46,7 @@ if ($CommitCount -in '',$null -or $CommitCount -IsNot [int]){
     Write-Host "Failed to parse TweakList commit count" -ForegroundColor DarkRed
     ''
     pause
-    exit
+    return
 }
 
 $folder = Join-Path $env:TEMP "$Repo-$CommitCount"
@@ -81,7 +81,7 @@ if (Test-Path $folder){
                 Write-Host "Failed to extract the zip, exiting" -ForegroundColor DarkRed
                 ''
                 pause
-                exit
+                return
             }
         }
         Remove-Item $ZipFile -Force -ErrorAction Inquire
