@@ -71,11 +71,11 @@ if (Test-Path $folder){
         Invoke-WebRequest -UseBasicParsing $URL -OutFile $Zip
 
         if (Get-Command 7z.exe -ErrorAction Ignore){
-            7z.exe x "$ZipFile" -o"$folder"
+            7z.exe x "$Zip" -o"$folder"
         }else{
 
             try{
-                Expand-Archive -LiteralPath $ZipFile -DestinationPath $Folder -Force
+                Expand-Archive -LiteralPath $Zip -DestinationPath $Folder -Force
             }catch{
 
                 Write-Host "Failed to extract the zip, exiting" -ForegroundColor DarkRed
@@ -84,7 +84,7 @@ if (Test-Path $folder){
                 return
             }
         }
-        Remove-Item $ZipFile -Force -ErrorAction Inquire
+        Remove-Item $Zip -Force -ErrorAction Inquire
     }
 }
 
