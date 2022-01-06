@@ -29,4 +29,4 @@ jobs:
         uses: Amadevus/pwsh-script@v2.0.1
         with:
           # PowerShell script to execute in Actions-hydrated context
-          script: pwsh -ep bypass -command "ls"
+          script: pwsh -file ./build.ps1
