@@ -29,4 +29,9 @@ jobs:
         uses: Amadevus/pwsh-script@v2.0.1
         with:
           # PowerShell script to execute in Actions-hydrated context
-          script: pwsh -command "gci"
+          script: |
+            Get-ChildItem
+            $pwd
+            $PSScriptRoot
+            $MyInvocation
+
