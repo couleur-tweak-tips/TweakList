@@ -4,4 +4,4 @@
 - run: .\build.ps1
 
 - uses: stefanzweifel/git-auto-commit-action@v4
-commit_message: Automated Change
+  commit_message: Automated Change
