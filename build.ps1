@@ -1,7 +1,7 @@
 [Array]$Functions = @() # Makes a fresh empty array
 Get-ChildItem modules -Recurse -Include *.ps1 | ForEach-Object {
 
-    Write-Output "- $($PSItem.FullName -replace '/home/runner/work/TweakList/TweakList/modules/','')" # Cleans the output of the github actions
+    Write-Output "- $($PSItem.FullName -replace '/home/runner/work/TweakList/TweakList/modules','')" # Cleans the output of the github actions
     $Functions += Get-Content $PSItem
 
 }
