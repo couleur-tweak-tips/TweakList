@@ -15,18 +15,10 @@ jobs:
         shell: pwsh
         run: ./build.ps1
       - name: "🌊 Upload new build to Releases"
-        uses: fnkr/github-action-ghr@v1
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GHR_PATH: ./Master.ps1
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#       uses: ncipollo/release-action@v1
-#       with:
-#         artifacts: "Master.ps1"
-#         token: ${{ secrets.GITHUB_TOKEN }}
-#     - name: Upload the combined file into artifacts
-#       uses: actions/upload-artifact@v3.0.0
-#       with:
-#         name: tweakfuncs-compiled
-#         path: ./Master.ps1
-#
+        uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "latest"
+          prerelease: true
+          title: "Automated functions build"
+          files: Master.ps1
