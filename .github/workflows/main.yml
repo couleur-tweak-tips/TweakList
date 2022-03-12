@@ -11,12 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: Amadevus/pwsh-script@v2
-        id: script
-        with:
-          script: |
-            & ./build.ps1
-      - name: Upload a Build Artifact
+      - name: run the build script
+        shell: pwsh
+        run: ./build.ps1
+      - name: Upload the combined file into artifacts
         uses: actions/upload-artifact@v3.0.0
         with:
           name: build
