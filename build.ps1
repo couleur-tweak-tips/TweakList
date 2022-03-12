@@ -1,6 +1,6 @@
 Get-ChildItem -Recurse
 [Array]$Functions = @() # Makes a fresh empty array
-Get-ChildItem Modules -Recurse -Include *.ps1 | ForEach-Object {
+Get-ChildItem modules -Recurse -Include *.ps1 | ForEach-Object {
 
 $Functions += Get-Content $PSItem
 
