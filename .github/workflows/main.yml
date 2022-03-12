@@ -15,7 +15,7 @@ jobs:
         shell: pwsh
         run: ./build.ps1
       - name: "🌊 Upload new build to Releases"
-      - uses: ncipollo/release-action@v1
+        uses: ncipollo/release-action@v1
         with:
           artifacts: "Master.ps1"
           token: ${{ secrets.GITHUB_TOKEN }}
