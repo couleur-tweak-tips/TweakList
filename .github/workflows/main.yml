@@ -11,12 +11,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: run the build script
+      - name: "🛠 Run the build script"
         shell: pwsh
         run: ./build.ps1
-      - name: Upload the combined file into artifacts
-        uses: actions/upload-artifact@v3.0.0
+      - name: "🌊 Upload new build to Releases"
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: build
-          path: ./Master.ps1
-
+          files: Master.ps1
+#     - name: Upload the combined file into artifacts
+#       uses: actions/upload-artifact@v3.0.0
+#       with:
+#         name: tweakfuncs-compiled
+#         path: ./Master.ps1
+#
