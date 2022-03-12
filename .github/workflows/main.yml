@@ -4,21 +4,21 @@ on:
   pull_request:
   push:
     branches:
-      - "master"
+      - master
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: "🛠 Run the build script"
+      - name: 🛠 Run the build script
         shell: pwsh
         run: ./build.ps1
-      - name: "🌊 Upload new build to Releases"
-        uses: "marvinpinto/action-automatic-releases@latest"
+      - name: 🌊 Upload new build to Releases
+        uses: marvinpinto/action-automatic-releases@latest
         with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "latest"
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          automatic_release_tag: latest
           prerelease: true
-          title: "Automated functions build"
+          title: Automated functions build
           files: Master.ps1
