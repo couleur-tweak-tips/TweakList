@@ -1,4 +1,4 @@
-cd ..
+Get-ChildItem
 [Array]$Functions = @() # Makes a fresh empty array
 Get-ChildItem Modules -Recurse -Include *.ps1 | ForEach-Object {
 
