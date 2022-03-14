@@ -58,7 +58,7 @@ function Invoke-Driver {
         $DriverLink = "https://international.download.nvidia.com/Windows/$Version/$Version-desktop-win10-win11-64bit-international-nsd-dch-whql.exe" 
     }
     else {
-        $Type = "Studio"
+        $Type = "Game Ready"
         $DriverLink = "https://international.download.nvidia.com/Windows/$Version/$Version-desktop-win10-win11-64bit-international-dch-whql.exe"
     }    
     Write-Output "Checking Download..."
