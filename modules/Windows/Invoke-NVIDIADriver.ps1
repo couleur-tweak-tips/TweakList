@@ -1,4 +1,4 @@
-function Get-Driver {
+function Get-NVIDIADriver {
     <#
         .SYNOPSIS
         Get all available driver versions.
@@ -29,7 +29,7 @@ function Get-Driver {
     else {return $GameReadyVersions}
 }
 
-function Invoke-Driver {
+function Invoke-NVIDIADriver {
     <#
         .SYNOPSIS
         Download an NVIDIA driver package.
@@ -50,8 +50,8 @@ function Invoke-Driver {
                     "setup.cfg", 
                     "setup.exe") -join " "
     if ($Version.ToLower() -eq 'latest') {
-        if ($Studio.IsPresent -eq $true) {$Version = (Get-Driver -Studio)[0]}
-        else {$Version = (Get-Driver)[0]}
+        if ($Studio.IsPresent -eq $true) {$Version = (Get-NVIDIADriver -Studio)[0]}
+        else {$Version = (Get-NVIDIADriver)[0]}
     } 
     if ($Studio.IsPresent -eq $True) {
         $Type = "Studio"
