@@ -1,3 +1,6 @@
+#Made by Aetopia.
+# Ported NVIDIA Driver Downloader Functions: https://github.com/Aetopia/NVIDIA-Driver-Downloader/blob/main/nvddl.py
+
 function Get-NVIDIADriver {
     <#
         .SYNOPSIS
@@ -76,7 +79,7 @@ function Invoke-NVIDIADriver {
             else {
                 Write-Output "Unpacking driver package with minimal components..."
                 Invoke-Expression """$7Zip"" x -bso0 -bsp1 -bse1 -aoa ""$env:TEMP/$Type - $Version.exe"" $Components -o""$env:TEMP/$Type - $Version"""
-                Write-Output "Unpacked $Type - $Version!"
+                Write-Output "Unpacked ($Type - $Version)!"
                 Start-Process "$env:TEMP/$Type - $Version/setup.exe" -ErrorAction 'silentlycontinue'
             }
         }
