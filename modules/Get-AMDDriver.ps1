@@ -1,3 +1,5 @@
+# Completely inspired from Felipe: dsc.gg/Felipe
+# Reference video: https://www.youtube.com/watch?v=hJfxTXYpSLI
 function Get-AMDDriver {
     [alias('gamd')]
     param(

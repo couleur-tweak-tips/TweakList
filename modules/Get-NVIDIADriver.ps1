@@ -1,4 +1,4 @@
-# Made by Aetopia
+# Made by Aetopia, rewrote by Couleur
 
 function Get-NVIDIADriver {
     [alias('gnvd')]
