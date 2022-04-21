@@ -2,7 +2,7 @@
 
 ## Setting up VSCode
 
-If you want to make your very own list of tweaks, I strongly recommend you install [VSCode](https://code.visualstudio.com/) with the [PowerShell extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode.PowerShell), import the functions one time to get them loaded so you have the function's parameters' autocompletion.
+If you want to be comfortable while making your very own list of tweaks, I strongly recommend you install [VSCode](https://code.visualstudio.com/) with the [PowerShell extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode.PowerShell), import the functions one time to get them loaded so you have the function's parameters' autocompletion.
 
 Alternatively you can use [Notepad++](https://notepad-plus-plus.org/) which have some syntax highlighting.
 

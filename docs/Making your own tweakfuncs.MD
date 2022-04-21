@@ -1,4 +1,4 @@
-# Making your own functions
+# Making your own tweakfuncs
 
 Every code in the functions must be inside of a function declaration (so it does not run when dot-sourcing the function at import)
 
