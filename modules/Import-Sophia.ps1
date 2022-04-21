@@ -34,7 +34,7 @@ function Import-Sophia {
     Write-Verbose $RawURL
     Try
     {
-    $SophiaFunctions = (Invoke-RestMethod $RawURL -ErrorAction Stop -Verbose)
+    $SophiaFunctions = (Invoke-RestMethod $RawURL -ErrorAction Stop)
     } 
     Catch 
     {
