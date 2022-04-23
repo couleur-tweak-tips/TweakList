@@ -1,6 +1,6 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
-$CommitCount = 55
+$CommitCount = 59
 $FuncsCount = 34
 <#
 The MIT License (MIT)
@@ -611,10 +611,11 @@ function Get-ScoopApp {
     $ToInstall = $Apps | Where-Object {$PSItem -NotIn (Get-ChildItem "$Scoop\apps")}
     $Available = (Get-ChildItem "$Scoop\buckets\*\bucket\*").BaseName
     $Buckets = (Get-ChildItem "$Scoop\buckets" -Directory).Name
+    $Installed = (Get-ChildItem "$Scoop\apps" -Directory).Name
     $script:FailedToInstall = @()
 
     function Get-Git {
-        if ('git' -NotIn $Available){
+        if ('git' -NotIn $Installed){
             scoop install git
             if ($LASTEXITCODE -ne 0){
                 Write-Host "Failed to install Git." -ForegroundColor Red
@@ -801,12 +802,10 @@ function Install-Scoop {
     Try {
         scoop -ErrorAction Stop | Out-Null
     } Catch {
-        Write-Warning "Something went wrong with installing Scoop"
-        ''
-        Write-Host $PSItem -ForegroundColor Red
-        ''
-        Pause
-        exit
+        Write-Host "Failed to install Scoop" -ForegroundColor DarkRed
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        return
+
     }
 }
 <# Here's some example hashtables you can mess with:
@@ -1120,7 +1119,7 @@ function Get-GraalVM {
 
     $URL = 'https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-21.2.0/graalvm-ce-java16-windows-amd64-21.2.0.zip'
     $SHA256 = 'DAE2511ABFF8EAD3EBC90CD9FC81A8E84B762FC91462B198C3EDDF28F81A937E'
-    $Zip =  "$env:TMP\GraalVM.zip"
+    $Zip = "$env:TMP\GraalVM.zip"
 
 
     if (-Not(Test-Path $Zip)){
@@ -1130,9 +1129,10 @@ function Get-GraalVM {
 
     if ((Get-FileHash $Zip).Hash -ne $SHA256){
         return "Failed to download GraalVM (SHA256 checksum mismatch, not the expected file)"
-
     }
+
     if (Get-Command 7z -ErrorAction Ignore){
+
         Invoke-Expression "& `"7z`" x -bso0 -bsp1 -bse1 -aoa `"$env:TMP\GraalVM.zip`" -o`"$env:ProgramData\GraalVM`""
     } else {
         Expand-Archive -Path $Zip -Destination "$env:ProgramData\GraalVM"
