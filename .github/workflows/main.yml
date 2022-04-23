@@ -14,11 +14,15 @@ jobs:
       - name: 🛠 Run the build script
         shell: pwsh
         run: ./build.ps1
-      - name: 🌊 Upload new build to Releases
-        uses: marvinpinto/action-automatic-releases@latest
+      - name: 🌊 Commit the new 'compiled' build
+        uses: stefanzweifel/git-auto-commit-action@v4
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          automatic_release_tag: latest
-          prerelease: true
-          title: Automated functions build
-          files: Master.ps1
+          commit_message: Autobuild
+#     - name: 🌊 Upload new build to Releases
+#       uses: marvinpinto/action-automatic-releases@latest
+#       with:
+#         repo_token: ${{ secrets.GITHUB_TOKEN }}
+#         automatic_release_tag: nightly
+#         prerelease: false
+#         title: TweakList AutoBuild
+#         files: Master.ps1

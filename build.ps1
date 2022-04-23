@@ -33,4 +33,3 @@ FuncsCount: $FuncsCount
 Autobuild size: $([Math]::Round($AutoBuildSize, 2))
 Aotubuild lines: $((Get-Content ./Master.ps1).Count)
 "@
-pause
