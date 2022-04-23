@@ -13,7 +13,7 @@ function Get-GraalVM {
 
     $URL = 'https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-21.2.0/graalvm-ce-java16-windows-amd64-21.2.0.zip'
     $SHA256 = 'DAE2511ABFF8EAD3EBC90CD9FC81A8E84B762FC91462B198C3EDDF28F81A937E'
-    $Zip =  "$env:TMP\GraalVM.zip"
+    $Zip = "$env:TMP\GraalVM.zip"
 
 
     if (-Not(Test-Path $Zip)){
@@ -23,9 +23,10 @@ function Get-GraalVM {
 
     if ((Get-FileHash $Zip).Hash -ne $SHA256){
         return "Failed to download GraalVM (SHA256 checksum mismatch, not the expected file)"
-
     }
+
     if (Get-Command 7z -ErrorAction Ignore){
+
         Invoke-Expression "& `"7z`" x -bso0 -bsp1 -bse1 -aoa `"$env:TMP\GraalVM.zip`" -o`"$env:ProgramData\GraalVM`""
     } else {
         Expand-Archive -Path $Zip -Destination "$env:ProgramData\GraalVM"
