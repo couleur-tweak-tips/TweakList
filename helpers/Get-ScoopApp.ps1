@@ -13,10 +13,11 @@ function Get-ScoopApp {
     $ToInstall = $Apps | Where-Object {$PSItem -NotIn (Get-ChildItem "$Scoop\apps")}
     $Available = (Get-ChildItem "$Scoop\buckets\*\bucket\*").BaseName
     $Buckets = (Get-ChildItem "$Scoop\buckets" -Directory).Name
+    $Installed = (Get-ChildItem "$Scoop\apps" -Directory).Name
     $script:FailedToInstall = @()
 
     function Get-Git {
-        if ('git' -NotIn $Available){
+        if ('git' -NotIn $Installed){
             scoop install git
             if ($LASTEXITCODE -ne 0){
                 Write-Host "Failed to install Git." -ForegroundColor Red
