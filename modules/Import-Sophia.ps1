@@ -1,15 +1,18 @@
 <#
     .SYNOPSIS
-    Scraps the latest version of Sophia for W10/11/LTSC/PS7 and invokes it, as if it were importing it as a module
+    Scraps the latest version of Sophia edition weither you have W10/11/LTSC/PS7, changes all function scopes and invokes it, as if it were importing it as a module
 
-    It returns all the functions as raw code, so you need to execute it with Invoke-Expression (iex)
+    You can find farag's dobonhonkerosly big Sophia Script at https://github.com/farag2/Sophia-Script-for-Windows
+    And if you'd like using it as a GUI, try out SophiApp:  https://github.com/Sophia-Community/SophiApp
+    
     .EXAMPLE
-    Invoke-Expression (Import-Sophia)
+    Import-Sophia
     # Or for short:
-    ipso|iex
+    ipso
 #>
 function Import-Sophia {
     [alias('ipso')]
+    param()
 
     $SophiaVer = "Sophia Script for " # This will get appended later on
     $PSVer = $PSVersionTable.PSVersion.Major
@@ -32,34 +35,15 @@ function Import-Sophia {
 
     $RawURL = "https://raw.githubusercontent.com/farag2/Sophia-Script-for-Windows/master/Sophia%20Script/$($SophiaVer -Replace ' ','%20')/Module/Sophia.psm1"
     Write-Verbose $RawURL
-    Try
-    {
+
     $SophiaFunctions = (Invoke-RestMethod $RawURL -ErrorAction Stop)
-    } 
-    Catch 
-    {
-        Write-Host "[!] Failed to import Sophia Script Functions, press any key to continue (may likely fail)" -ForegroundColor Red
-        $PSItem
-        PauseNul
-    }
+
     While ($SophiaFunctions[0] -ne '<'){
         $SophiaFunctions = $SophiaFunctions.Substring(1) # BOM ((
     } 
-    $SophiaFunctions += @'
 
-
-
-
-<# IMPORT-SOPHIA / IPSO Instructions:
-
-Did you expect this to import all Sophia Script functions by itself? Here's the correct syntax:
-
-Invoke-Expression (Import-Sophia)
-
-or, for short:
-ipso|iex
-
-good luck tweaklisting :) #>
-'@
-    return $SophiaFunctions
+    $SophiaFunctions = $SophiaFunctions -replace 'RestartFunction','tempchannge' # farag please forgive me
+    $SophiaFunctions = $SophiaFunctions -replace 'function ','function global:'
+    $SophiaFunctions = $SophiaFunctions -replace 'tempchange','RestartFunction'
+    Invoke-Expression $SophiaFunctions
 }

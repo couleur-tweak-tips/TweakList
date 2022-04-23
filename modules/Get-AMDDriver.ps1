@@ -15,6 +15,7 @@ You can then call this function again with the -DriverFilePath parameter, exampl
 
 Get-AMDDriver -DriverFilePath 'C:\Users\$env:USERNAME\Downloads\amd-software-adrenalin-edition-22.4.1-win10-win11-april5.exe'
 "@ -ForegroundColor Red
+return
     }
 
     Try {

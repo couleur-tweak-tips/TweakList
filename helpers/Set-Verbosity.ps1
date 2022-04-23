@@ -11,9 +11,11 @@ function Set-Verbosity {
     
     switch ($PSCmdlet.ParameterSetName){
         "Enabled" {
+            $script:Verbose = $True
             $script:VerbosePreference = 'Continue'
         }
         "Disabled" {
+            $script:Verbose = $True
             $script:VerbosePreference = 'SilentlyContinue'
         }
     }
