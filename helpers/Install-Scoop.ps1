@@ -23,11 +23,9 @@ function Install-Scoop {
     Try {
         scoop -ErrorAction Stop | Out-Null
     } Catch {
-        Write-Warning "Something went wrong with installing Scoop"
-        ''
-        Write-Host $PSItem -ForegroundColor Red
-        ''
-        Pause
-        exit
+        Write-Host "Failed to install Scoop" -ForegroundColor DarkRed
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        return
+
     }
 }
