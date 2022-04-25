@@ -1,6 +1,6 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
-$CommitCount = 59
+$CommitCount = 61
 $FuncsCount = 34
 <#
 The MIT License (MIT)
@@ -1110,7 +1110,7 @@ function Get-GraalVM {
     )
 
     if ((Test-Path "$env:ProgramData\GraalVM") -and !$Reinstall){
-        "GraalVM is already installed, run with -Reinstall to force reinstallation"
+        return "GraalVM is already installed, run with -Reinstall to force reinstallation"
     }
     if (-Not(Get-Command curl.exe -ErrorAction Ignore)){
         return "curl is not found (comes with windows per default?)"
@@ -1128,7 +1128,9 @@ function Get-GraalVM {
     }
 
     if ((Get-FileHash $Zip).Hash -ne $SHA256){
+        Remove-Item "$env:TMP\GraalVM.zip"
         return "Failed to download GraalVM (SHA256 checksum mismatch, not the expected file)"
+        
     }
 
     if (Get-Command 7z -ErrorAction Ignore){
