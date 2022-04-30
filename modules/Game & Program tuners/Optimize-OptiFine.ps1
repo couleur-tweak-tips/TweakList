@@ -101,12 +101,12 @@ foreach ($file in 'options','optionsof'){
 
     $Hash = (Get-Content "$CustomDirectory\$file.txt") -Replace ':','=' | ConvertFrom-StringData
     $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.$file
-    Set-Content "$CustomDirectory\$file.txt" -Value (ConvertTo-MCSetting $Hash) -Force -Verbose
+    Set-Content "$CustomDirectory\$file.txt" -Value (ConvertTo-MCSetting $Hash) -Force
 }
 $Hash = (Get-Content "$CustomDirectory\optionsLC.txt") -Replace ',"maxFps":"260"','' | ConvertFrom-Json
 $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.optionsof
 $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.options
 $Hash.maxFPS = 260
-Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force -Verbose
+Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force
 
 }
