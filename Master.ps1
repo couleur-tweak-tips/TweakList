@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
-$CommitCount = 61
-$FuncsCount = 34
+$CommitCount = 74
+$FuncsCount = 40
 <#
 The MIT License (MIT)
 
@@ -501,6 +501,7 @@ function Get-7zPath {
 }
 function Get-Boolean ($Message){
     $null = $Response
+    $Response = Read-Host $Message
     While ($Response -NotIn 'yes','y','n','no'){
         Write-Host "Answer must be 'yes','y','n' or 'no'" -ForegroundColor Red
         $Response = Read-Host $Message
@@ -808,9 +809,69 @@ function Install-Scoop {
 
     }
 }
+$Original = @{
+    lets = 'go'
+    Sub = @{
+      Foo =  'bar'
+      big = 'ya'
+    }
+    finish = 'fish'
+}
+$Patch = @{
+    lets = 'arrive'
+    Sub = @{
+      Foo =  'baz'
+    }
+    finish ='cum'
+}
+
+function Merge-Hashtables {
+    param(
+        $Original,
+        $Patch
+    )
+    $Merged = @{} # Final Merged settings
+
+    if (!$Original){$Original = @{}}
+
+    if ($Original.GetType().Name -in 'PSCustomObject','PSObject'){
+        $Temp = [ordered]@{}
+        $Original.PSObject.Properties | ForEach-Object { $Temp[$_.Name] = $_.Value }
+        $Original = $Temp
+        Remove-Variable Temp #fck temp vars
+    }
+
+    foreach ($Key in [object[]]$Original.Keys) {
+
+        if ($Original.$Key -is [HashTable]){
+            $Merged.$Key += [HashTable](Merge-Hashtables $Original.$Key $Patch.$Key)
+            continue
+        }
+
+        if ($Patch.$Key -and !$Merged.$Key){ # If the setting exists in the patch
+            $Merged.Remove($Key)
+            $Merged += @{$Key = $Patch.$Key} # Then add it to the final settings
+        }else{ # Else put in the unchanged normal setting
+            $Merged += @{$Key = $Original.$Key}
+        }
+    }
+
+    ForEach ($Key in [object[]]$Patch.Keys) {
+        if ($Patch.$Key -is [HashTable] -and ($Key -NotIn $Original.Keys)){
+            $Merged.$Key += [HashTable](Merge-Hashtables $Original.$Key $Patch.$Key)
+            continue
+        }
+        if ($Key -NotIn $Original.Keys){
+            $Merged.$Key += $Patch.$Key
+        }
+    }
+
+    return $Merged
+}
+
 <# Here's some example hashtables you can mess with:
 
-$Original = @{ # Original settings
+$Original = [Ordered]@{ # Original settings
     potato = $true
     avocado = $false
 }
@@ -819,17 +880,27 @@ $Patch = @{ # Fixes
     avocado = $true
 }
 
-#>
+
 function Merge-Hashtables {
     param(
         [Switch]$ShowDiff,
-        [HashTable]$Original,
-        [HashTable]$Patch
+        $Original,
+        $Patch
     )
+
+    if (!$Original){$Original = @{}}
+
+    if ($Original.GetType().Name -in 'PSCustomObject','PSObject'){
+        $Temp = [ordered]@{}
+        $Original.PSObject.Properties | ForEach-Object { $Temp[$_.Name] = $_.Value }
+        $Original = $Temp
+        Remove-Variable Temp #fck temp vars
+    }
 
     $Merged = @{} # Final Merged settings
 
     foreach($Key in $Original.Keys){ # Loops through all OG settings
+        $Merging = $True
 
         if ($Patch.$Key){ # If the setting exists in the new settings
             $Merged += @{$Key = $Patch.$Key} # Then add it to the final settings
@@ -837,7 +908,31 @@ function Merge-Hashtables {
             $Merged += @{$Key = $Original.$Key}
         }
     }
+    foreach($key in $Patch.Keys){ # If Patch has hashtables that Original does not
+        if (!$Merged.$key){
+            $Merged += @{$key = $Patch.$key}
+        }
+    }
+
+    if (!$Merging){$Merged = $Patch} # If no settings were merged (empty $Original), completely overwrite
     return $Merged
+}
+
+#>
+function Optimize{
+    [alias('opt')]
+    param(
+        $Script,
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [System.Collections.Arraylist]
+        $Arguments
+    )
+    switch ($Script){
+        'OBS'{Invoke-Expression "Optimize-OBS $Arguments"}
+        {$_ -in 'OF','Minecraft','Mc','OptiFine'}{Invoke-Expression "Optimize-OptiFine $Arguments"}
+        #{$_ -in 'LC','LunarClient'}{Optimize-LunarClient $Arguments}
+        #{$_ -in 'Apex','AL','ApexLegends'}{Optimize-ApexLegends $Arguments}
+    }
 }
 function PauseNul {
     $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null
@@ -864,7 +959,7 @@ function Set-Title ($Title) {
     Invoke-Expression "$Host.UI.RawUI.WindowTitle = `"TweakList - `$(`$MyInvocation.MyCommand.Name) [$Title]`""
 }
 function Set-Verbosity {
-    [alias('Verbose')]
+    [alias('Verbose','Verb')]
     param (
 
 		[Parameter(Mandatory = $true,ParameterSetName = "Enabled")]
@@ -885,6 +980,597 @@ function Set-Verbosity {
         }
     }
 }
+
+function Write-Menu {
+    <#
+        By QuietusPlus on GitHub: https://github.com/QuietusPlus/Write-Menu
+
+        .SYNOPSIS
+            Outputs a command-line menu which can be navigated using the keyboard.
+
+        .DESCRIPTION
+            Outputs a command-line menu which can be navigated using the keyboard.
+
+            * Automatically creates multiple pages if the entries cannot fit on-screen.
+            * Supports nested menus using a combination of hashtables and arrays.
+            * No entry / page limitations (apart from device performance).
+            * Sort entries using the -Sort parameter.
+            * -MultiSelect: Use space to check a selected entry, all checked entries will be invoked / returned upon confirmation.
+            * Jump to the top / bottom of the page using the "Home" and "End" keys.
+            * "Scrolling" list effect by automatically switching pages when reaching the top/bottom.
+            * Nested menu indicator next to entries.
+            * Remembers parent menus: Opening three levels of nested menus means you have to press "Esc" three times.
+
+            Controls             Description
+            --------             -----------
+            Up                   Previous entry
+            Down                 Next entry
+            Left / PageUp        Previous page
+            Right / PageDown     Next page
+            Home                 Jump to top
+            End                  Jump to bottom
+            Space                Check selection (-MultiSelect only)
+            Enter                Confirm selection
+            Esc / Backspace      Exit / Previous menu
+
+        .EXAMPLE
+            PS C:\>$menuReturn = Write-Menu -Title 'Menu Title' -Entries @('Menu Option 1', 'Menu Option 2', 'Menu Option 3', 'Menu Option 4')
+
+            Output:
+
+              Menu Title
+
+               Menu Option 1
+               Menu Option 2
+               Menu Option 3
+               Menu Option 4
+
+        .EXAMPLE
+            PS C:\>$menuReturn = Write-Menu -Title 'AppxPackages' -Entries (Get-AppxPackage).Name -Sort
+
+            This example uses Write-Menu to sort and list app packages (Windows Store/Modern Apps) that are installed for the current profile.
+
+        .EXAMPLE
+            PS C:\>$menuReturn = Write-Menu -Title 'Advanced Menu' -Sort -Entries @{
+                'Command Entry' = '(Get-AppxPackage).Name'
+                'Invoke Entry' = '@(Get-AppxPackage).Name'
+                'Hashtable Entry' = @{
+                    'Array Entry' = "@('Menu Option 1', 'Menu Option 2', 'Menu Option 3', 'Menu Option 4')"
+                }
+            }
+
+            This example includes all possible entry types:
+
+            Command Entry     Invoke without opening as nested menu (does not contain any prefixes)
+            Invoke Entry      Invoke and open as nested menu (contains the "@" prefix)
+            Hashtable Entry   Opened as a nested menu
+            Array Entry       Opened as a nested menu
+
+        .NOTES
+            Write-Menu by QuietusPlus (inspired by "Simple Textbased Powershell Menu" [Michael Albert])
+
+        .LINK
+            https://quietusplus.github.io/Write-Menu
+
+        .LINK
+            https://github.com/QuietusPlus/Write-Menu
+    #>
+
+    [CmdletBinding()]
+
+    <#
+        Parameters
+    #>
+
+    param(
+        # Array or hashtable containing the menu entries
+        [Parameter(Mandatory=$true, ValueFromPipeline = $true)]
+        [ValidateNotNullOrEmpty()]
+        [Alias('InputObject')]
+        $Entries,
+
+        # Title shown at the top of the menu.
+        [Parameter(ValueFromPipelineByPropertyName = $true)]
+        [Alias('Name')]
+        [string]
+        $Title,
+
+        # Sort entries before they are displayed.
+        [Parameter()]
+        [switch]
+        $Sort,
+
+        # Select multiple menu entries using space, each selected entry will then get invoked (this will disable nested menu's).
+        [Parameter()]
+        [switch]
+        $MultiSelect
+    )
+
+    <#
+        Configuration
+    #>
+
+    # Entry prefix, suffix and padding
+    $script:cfgPrefix = ' '
+    $script:cfgPadding = 2
+    $script:cfgSuffix = ' '
+    $script:cfgNested = ' >'
+
+    # Minimum page width
+    $script:cfgWidth = 30
+
+    # Hide cursor
+    [System.Console]::CursorVisible = $false
+
+    # Save initial colours
+    $script:colorForeground = [System.Console]::ForegroundColor
+    $script:colorBackground = [System.Console]::BackgroundColor
+
+    <#
+        Checks
+    #>
+
+    # Check if entries has been passed
+    if ($Entries -like $null) {
+        Write-Error "Missing -Entries parameter!"
+        return
+    }
+
+    # Check if host is console
+    if ($host.Name -ne 'ConsoleHost') {
+        Write-Error "[$($host.Name)] Cannot run inside current host, please use a console window instead!"
+        return
+    }
+
+    <#
+        Set-Color
+    #>
+
+    function Set-Color ([switch]$Inverted) {
+        switch ($Inverted) {
+            $true {
+                [System.Console]::ForegroundColor = $colorBackground
+                [System.Console]::BackgroundColor = $colorForeground
+            }
+            Default {
+                [System.Console]::ForegroundColor = $colorForeground
+                [System.Console]::BackgroundColor = $colorBackground
+            }
+        }
+    }
+
+    <#
+        Get-Menu
+    #>
+
+    function Get-Menu ($script:inputEntries) {
+        # Clear console
+        Clear-Host
+
+        # Check if -Title has been provided, if so set window title, otherwise set default.
+        if ($Title -notlike $null) {
+            #$host.UI.RawUI.WindowTitle = $Title # DISABLED FOR TWEAKLIST
+            $script:menuTitle = "$Title"
+        } else {
+            $script:menuTitle = 'Menu'
+        }
+
+        # Set menu height
+        $script:pageSize = ($host.UI.RawUI.WindowSize.Height - 5)
+
+        # Convert entries to object
+        $script:menuEntries = @()
+        switch ($inputEntries.GetType().Name) {
+            'String' {
+                # Set total entries
+                $script:menuEntryTotal = 1
+                # Create object
+                $script:menuEntries = New-Object PSObject -Property @{
+                    Command = ''
+                    Name = $inputEntries
+                    Selected = $false
+                    onConfirm = 'Name'
+                }; break
+            }
+            'Object[]' {
+                # Get total entries
+                $script:menuEntryTotal = $inputEntries.Length
+                # Loop through array
+                foreach ($i in 0..$($menuEntryTotal - 1)) {
+                    # Create object
+                    $script:menuEntries += New-Object PSObject -Property @{
+                        Command = ''
+                        Name = $($inputEntries)[$i]
+                        Selected = $false
+                        onConfirm = 'Name'
+                    }; $i++
+                }; break
+            }
+            'Hashtable' {
+                # Get total entries
+                $script:menuEntryTotal = $inputEntries.Count
+                # Loop through hashtable
+                foreach ($i in 0..($menuEntryTotal - 1)) {
+                    # Check if hashtable contains a single entry, copy values directly if true
+                    if ($menuEntryTotal -eq 1) {
+                        $tempName = $($inputEntries.Keys)
+                        $tempCommand = $($inputEntries.Values)
+                    } else {
+                        $tempName = $($inputEntries.Keys)[$i]
+                        $tempCommand = $($inputEntries.Values)[$i]
+                    }
+
+                    # Check if command contains nested menu
+                    if ($tempCommand.GetType().Name -eq 'Hashtable') {
+                        $tempAction = 'Hashtable'
+                    } elseif ($tempCommand.Substring(0,1) -eq '@') {
+                        $tempAction = 'Invoke'
+                    } else {
+                        $tempAction = 'Command'
+                    }
+
+                    # Create object
+                    $script:menuEntries += New-Object PSObject -Property @{
+                        Name = $tempName
+                        Command = $tempCommand
+                        Selected = $false
+                        onConfirm = $tempAction
+                    }; $i++
+                }; break
+            }
+            Default {
+                Write-Error "Type `"$($inputEntries.GetType().Name)`" not supported, please use an array or hashtable."
+                exit
+            }
+        }
+
+        # Sort entries
+        if ($Sort -eq $true) {
+            $script:menuEntries = $menuEntries | Sort-Object -Property Name
+        }
+
+        # Get longest entry
+        $script:entryWidth = ($menuEntries.Name | Measure-Object -Maximum -Property Length).Maximum
+        # Widen if -MultiSelect is enabled
+        if ($MultiSelect) { $script:entryWidth += 4 }
+        # Set minimum entry width
+        if ($entryWidth -lt $cfgWidth) { $script:entryWidth = $cfgWidth }
+        # Set page width
+        $script:pageWidth = $cfgPrefix.Length + $cfgPadding + $entryWidth + $cfgPadding + $cfgSuffix.Length
+
+        # Set current + total pages
+        $script:pageCurrent = 0
+        $script:pageTotal = [math]::Ceiling((($menuEntryTotal - $pageSize) / $pageSize))
+
+        # Insert new line
+        [System.Console]::WriteLine("")
+
+        # Save title line location + write title
+        $script:lineTitle = [System.Console]::CursorTop
+        [System.Console]::WriteLine("  $menuTitle" + "`n")
+
+        # Save first entry line location
+        $script:lineTop = [System.Console]::CursorTop
+    }
+
+    <#
+        Get-Page
+    #>
+
+    function Get-Page {
+        # Update header if multiple pages
+        if ($pageTotal -ne 0) { Update-Header }
+
+        # Clear entries
+        for ($i = 0; $i -le $pageSize; $i++) {
+            # Overwrite each entry with whitespace
+            [System.Console]::WriteLine("".PadRight($pageWidth) + ' ')
+        }
+
+        # Move cursor to first entry
+        [System.Console]::CursorTop = $lineTop
+
+        # Get index of first entry
+        $script:pageEntryFirst = ($pageSize * $pageCurrent)
+
+        # Get amount of entries for last page + fully populated page
+        if ($pageCurrent -eq $pageTotal) {
+            $script:pageEntryTotal = ($menuEntryTotal - ($pageSize * $pageTotal))
+        } else {
+            $script:pageEntryTotal = $pageSize
+        }
+
+        # Set position within console
+        $script:lineSelected = 0
+
+        # Write all page entries
+        for ($i = 0; $i -le ($pageEntryTotal - 1); $i++) {
+            Write-Entry $i
+        }
+    }
+
+    <#
+        Write-Entry
+    #>
+
+    function Write-Entry ([int16]$Index, [switch]$Update) {
+        # Check if entry should be highlighted
+        switch ($Update) {
+            $true { $lineHighlight = $false; break }
+            Default { $lineHighlight = ($Index -eq $lineSelected) }
+        }
+
+        # Page entry name
+        $pageEntry = $menuEntries[($pageEntryFirst + $Index)].Name
+
+        # Prefix checkbox if -MultiSelect is enabled
+        if ($MultiSelect) {
+            switch ($menuEntries[($pageEntryFirst + $Index)].Selected) {
+                $true { $pageEntry = "[X] $pageEntry"; break }
+                Default { $pageEntry = "[ ] $pageEntry" }
+            }
+        }
+
+        # Full width highlight + Nested menu indicator
+        switch ($menuEntries[($pageEntryFirst + $Index)].onConfirm -in 'Hashtable', 'Invoke') {
+            $true { $pageEntry = "$pageEntry".PadRight($entryWidth) + "$cfgNested"; break }
+            Default { $pageEntry = "$pageEntry".PadRight($entryWidth + $cfgNested.Length) }
+        }
+
+        # Write new line and add whitespace without inverted colours
+        [System.Console]::Write("`r" + $cfgPrefix)
+        # Invert colours if selected
+        if ($lineHighlight) { Set-Color -Inverted }
+        # Write page entry
+        [System.Console]::Write("".PadLeft($cfgPadding) + $pageEntry + "".PadRight($cfgPadding))
+        # Restore colours if selected
+        if ($lineHighlight) { Set-Color }
+        # Entry suffix
+        [System.Console]::Write($cfgSuffix + "`n")
+    }
+
+    <#
+        Update-Entry
+    #>
+
+    function Update-Entry ([int16]$Index) {
+        # Reset current entry
+        [System.Console]::CursorTop = ($lineTop + $lineSelected)
+        Write-Entry $lineSelected -Update
+
+        # Write updated entry
+        $script:lineSelected = $Index
+        [System.Console]::CursorTop = ($lineTop + $Index)
+        Write-Entry $lineSelected
+
+        # Move cursor to first entry on page
+        [System.Console]::CursorTop = $lineTop
+    }
+
+    <#
+        Update-Header
+    #>
+
+    function Update-Header {
+        # Set corrected page numbers
+        $pCurrent = ($pageCurrent + 1)
+        $pTotal = ($pageTotal + 1)
+
+        # Calculate offset
+        $pOffset = ($pTotal.ToString()).Length
+
+        # Build string, use offset and padding to right align current page number
+        $script:pageNumber = "{0,-$pOffset}{1,0}" -f "$("$pCurrent".PadLeft($pOffset))","/$pTotal"
+
+        # Move cursor to title
+        [System.Console]::CursorTop = $lineTitle
+        # Move cursor to the right
+        [System.Console]::CursorLeft = ($pageWidth - ($pOffset * 2) - 1)
+        # Write page indicator
+        [System.Console]::WriteLine("$pageNumber")
+    }
+
+    <#
+        Initialisation
+    #>
+
+    # Get menu
+    Get-Menu $Entries
+
+    # Get page
+    Get-Page
+
+    # Declare hashtable for nested entries
+    $menuNested = [ordered]@{}
+
+    <#
+        User Input
+    #>
+
+    # Loop through user input until valid key has been pressed
+    do { $inputLoop = $true
+
+        # Move cursor to first entry and beginning of line
+        [System.Console]::CursorTop = $lineTop
+        [System.Console]::Write("`r")
+
+        # Get pressed key
+        $menuInput = [System.Console]::ReadKey($false)
+
+        # Define selected entry
+        $entrySelected = $menuEntries[($pageEntryFirst + $lineSelected)]
+
+        # Check if key has function attached to it
+        switch ($menuInput.Key) {
+            # Exit / Return
+            { $_ -in 'Escape', 'Backspace' } {
+                # Return to parent if current menu is nested
+                if ($menuNested.Count -ne 0) {
+                    $pageCurrent = 0
+                    $Title = $($menuNested.GetEnumerator())[$menuNested.Count - 1].Name
+                    Get-Menu $($menuNested.GetEnumerator())[$menuNested.Count - 1].Value
+                    Get-Page
+                    $menuNested.RemoveAt($menuNested.Count - 1) | Out-Null
+                # Otherwise exit and return $null
+                } else {
+                    Clear-Host
+                    $inputLoop = $false
+                    [System.Console]::CursorVisible = $true
+                    return $null
+                }; break
+            }
+
+            # Next entry
+            'DownArrow' {
+                if ($lineSelected -lt ($pageEntryTotal - 1)) { # Check if entry isn't last on page
+                    Update-Entry ($lineSelected + 1)
+                } elseif ($pageCurrent -ne $pageTotal) { # Switch if not on last page
+                    $pageCurrent++
+                    Get-Page
+                }; break
+            }
+
+            # Previous entry
+            'UpArrow' {
+                if ($lineSelected -gt 0) { # Check if entry isn't first on page
+                    Update-Entry ($lineSelected - 1)
+                } elseif ($pageCurrent -ne 0) { # Switch if not on first page
+                    $pageCurrent--
+                    Get-Page
+                    Update-Entry ($pageEntryTotal - 1)
+                }; break
+            }
+
+            # Select top entry
+            'Home' {
+                if ($lineSelected -ne 0) { # Check if top entry isn't already selected
+                    Update-Entry 0
+                } elseif ($pageCurrent -ne 0) { # Switch if not on first page
+                    $pageCurrent--
+                    Get-Page
+                    Update-Entry ($pageEntryTotal - 1)
+                }; break
+            }
+
+            # Select bottom entry
+            'End' {
+                if ($lineSelected -ne ($pageEntryTotal - 1)) { # Check if bottom entry isn't already selected
+                    Update-Entry ($pageEntryTotal - 1)
+                } elseif ($pageCurrent -ne $pageTotal) { # Switch if not on last page
+                    $pageCurrent++
+                    Get-Page
+                }; break
+            }
+
+            # Next page
+            { $_ -in 'RightArrow','PageDown' } {
+                if ($pageCurrent -lt $pageTotal) { # Check if already on last page
+                    $pageCurrent++
+                    Get-Page
+                }; break
+            }
+
+            # Previous page
+            { $_ -in 'LeftArrow','PageUp' } { # Check if already on first page
+                if ($pageCurrent -gt 0) {
+                    $pageCurrent--
+                    Get-Page
+                }; break
+            }
+
+            # Select/check entry if -MultiSelect is enabled
+            'Spacebar' {
+                if ($MultiSelect) {
+                    switch ($entrySelected.Selected) {
+                        $true { $entrySelected.Selected = $false }
+                        $false { $entrySelected.Selected = $true }
+                    }
+                    Update-Entry ($lineSelected)
+                }; break
+            }
+
+            # Select all if -MultiSelect has been enabled
+            'Insert' {
+                if ($MultiSelect) {
+                    $menuEntries | ForEach-Object {
+                        $_.Selected = $true
+                    }
+                    Get-Page
+                }; break
+            }
+
+            # Select none if -MultiSelect has been enabled
+            'Delete' {
+                if ($MultiSelect) {
+                    $menuEntries | ForEach-Object {
+                        $_.Selected = $false
+                    }
+                    Get-Page
+                }; break
+            }
+
+            # Confirm selection
+            'Enter' {
+                # Check if -MultiSelect has been enabled
+                if ($MultiSelect) {
+                    Clear-Host
+                    # Process checked/selected entries
+                    $menuEntries | ForEach-Object {
+                        # Entry contains command, invoke it
+                        if (($_.Selected) -and ($_.Command -notlike $null) -and ($entrySelected.Command.GetType().Name -ne 'Hashtable')) {
+                            Invoke-Expression -Command $_.Command
+                        # Return name, entry does not contain command
+                        } elseif ($_.Selected) {
+                            return $_.Name
+                        }
+                    }
+                    # Exit and re-enable cursor
+                    $inputLoop = $false
+                    [System.Console]::CursorVisible = $true
+                    break
+                }
+
+                # Use onConfirm to process entry
+                switch ($entrySelected.onConfirm) {
+                    # Return hashtable as nested menu
+                    'Hashtable' {
+                        $menuNested.$Title = $inputEntries
+                        $Title = $entrySelected.Name
+                        Get-Menu $entrySelected.Command
+                        Get-Page
+                        break
+                    }
+
+                    # Invoke attached command and return as nested menu
+                    'Invoke' {
+                        $menuNested.$Title = $inputEntries
+                        $Title = $entrySelected.Name
+                        Get-Menu $(Invoke-Expression -Command $entrySelected.Command.Substring(1))
+                        Get-Page
+                        break
+                    }
+
+                    # Invoke attached command and exit
+                    'Command' {
+                        Clear-Host
+                        Invoke-Expression -Command $entrySelected.Command
+                        $inputLoop = $false
+                        [System.Console]::CursorVisible = $true
+                        break
+                    }
+
+                    # Return name and exit
+                    'Name' {
+                        Clear-Host
+                        return $entrySelected.Name
+                        $inputLoop = $false
+                        [System.Console]::CursorVisible = $true
+                    }
+                }
+            }
+        }
+    } while ($inputLoop)
+}
 function CB-CleanTaskbar {
 	Invoke-Expression (Import-Sophia)
 	CortanaButton -Hide
@@ -893,6 +1579,448 @@ function CB-CleanTaskbar {
 	TaskViewButton -Hide
 	UnpinTaskbarShortcuts Edge, Store, Mail
 }
+function Optimize-OBS {
+    [alias('optobs')]
+    param(
+        [Parameter(Mandatory)] # Override encoder check
+        [ValidateSet('x264','NVENC','AMF'<#,'QuickSync'#>)]
+        [String]$Encoder,
+        
+        [ValidateScript({Test-Path -Path $_ -Type Directory})]
+        [String]$OBS64Path, # Indicate your OBS installation by passing -OBS64Path "C:\..\bin\64bit\obs64.exe"
+
+        [String]$Preset = 'HighPerformance'
+    )
+
+    $OBSPatches = @{
+        HighPerformance = @{
+            NVENC = @{
+                basic = @{
+                    AdvOut = @{
+                        RecEncoder = 'jim_nvenc'
+                    }
+                }
+                recordEncoder = @{
+                    rate_control = 'CQP'
+                    cqp = 18
+                    preset = 'hp'
+                    psycho_aq = 'false'
+                    keyint_sec = 0
+                    profile = 'high'
+                    lookahead = 'false'
+                    bf = 0
+                }
+            }
+            AMF = @{
+                Basic = @{
+                    ADVOut = @{
+                        RecQuality='Small'
+                        RecEncoder='amd_amf_h265'
+                        FFOutputToFile='true'
+                    }
+                }
+                recordEncoder = @{
+                    'Interval.Keyframe'='0.0'
+                    'QP.IFrame'=18
+                    'QP.PFrame'=18
+                    'lastVideo.API'="Direct3D 11"
+                    'lastVideo.Adapter'=0
+                    RateControlMethod=0
+                    Version=6
+                    lastRateControlMethod=0
+                    lastVBVBuffer=0
+                    lastView=0
+                }
+            }
+            x264 = @{
+                basic = @{
+                    ADVOut = @{
+                        RecEncoder='obs_x264'
+                    }
+                }
+                recordEncoder = @{
+                    crf=1
+                    keyint_sec=1
+                    preset='ultrafast'
+                    profile='high'
+                    rate_control='CRF'
+                    x264opts='qpmin=15 qpmax=15 ref=0 merange=4 direct=none weightp=0 no-chroma-me'
+                }
+            }
+        }
+    }
+
+    # Applies to all patches
+    $Global = @{
+        basic = @{
+            Output = @{
+                RecType='Standard'
+                Mode='Advanced'
+            }
+            AdvOut = @{
+                RecRB='true'
+            }
+        }
+    }
+    $OBSPatches.$Preset.$Encoder = Merge-Hashtables $OBSPatches.$Preset.$Encoder $Global
+
+    ipmo "D:\GitHub\ps-menu.psm1"
+    ipmo "D:\GitHub\TweakScript\helpers\PsInI\Get-IniContent.ps1"
+    ipmo "D:\GitHub\TweakScript\helpers\Get-ShortcutTarget.ps1"
+    ipmo "D:\GitHub\TweakScript\helpers\Merge-Hashtables.ps1"
+    ipmo "D:\GitHub\TweakScript\modules\Set-CompatibilitySettings.ps1"
+
+    if (-Not($OBS64Path)){
+        
+        $StartMenu = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
+        if ($StartMenu.Count -gt 1){
+
+            $Shortcuts = $null 
+            ForEach($Lnk in $StartMenu){$Shortcuts += @{$Lnk.BaseName = $Lnk.FullName}}
+            "There are multiple OBS shortcuts in your Start Menu folder. Please select one."
+            $ShortcutName = menu ($Shortcuts.Keys -Split [System.Environment]::NewLine)
+            $StartMenu = $Shortcuts.$ShortcutName
+        }
+
+        $OBS64Path = Get-ShortcutTarget $StartMenu
+    }
+
+    Set-CompatibilitySettings $OBS64Path -RunAsAdmin
+
+    if (Test-Path (Resolve-Path "$OBS64Path\..\..\..\portable_mode.txt")){ # "Portable Mode" makes OBS make the config in it's own folder, else it's in appdata
+
+        $ProfilesDir = (Resolve-Path "$OBS64Path\..\..\..\config\obs-studio\basic\profiles" -ErrorAction Stop)
+    }else{
+        $ProfilesDir = (Resolve-Path "$env:APPDATA\obs-studio\config\obs-studio\basic\profiles" -ErrorAction Stop)
+    }
+    $Profiles = Get-ChildItem $ProfilesDir
+
+    ForEach($OBSProfile in $Profiles){$ProfilesHash += @{$OBSProfile.Name = $OBSProfile.FullName}}
+
+    $ProfileNames = ($ProfilesHash.Keys -Split [System.Environment]::NewLine) + 'Create a new profile'
+    "Please select a profile:"
+    $OBSProfile = menu  $ProfileNames
+
+    if ($OBSProfile -eq 'Create a new profile'){
+        $NewProfileName = Read-Host "Enter a name for the new profile"
+        $OBSProfile = Join-Path $ProfilesDir $NewProfileName
+        New-Item -ItemType Directory -Path $OBSProfile -ErrorAction Stop
+        $DefaultWidth, $DefaultHeight = ((Get-CimInstance Win32_VideoController).VideoModeDescription.Split(' x ') | Where-Object {$_ -ne ''} | Select-Object -First 2)
+        if (!$DefaultWidth -or !$DefaultHeight){
+            $DefaultWidth = 1920
+            $DefaultHeight = 1080
+        }
+        Set-Content "$OBSProfile\basic.ini" -Value @"
+[General]
+Name=$NewProfileName
+
+[Video]
+BaseCX=$DefaultWidth
+BaseCY=$DefaultHeight
+OutputCX=$DefaultWidth
+OutputCY=$DefaultHeight
+"@
+        Write-Host "Created new profile '$NewProfileName' with default resolution of $DefaultWidth`x$DefaultHeight" -For Green
+    }else{
+        $OBSProfile = $ProfilesHash.$OBSProfile
+    }
+    if ('basic.ini' -notin ((Get-ChildItem $OBSProfile).Name)){
+       return "FATAL: Profile $OBSProfile is incomplete"
+    }
+    Write-Verbose "Tweaking profile $OBSProfile"
+
+    $Basic = Get-IniContent "$OBSProfile\basic.ini" -ErrorAction Stop
+    if ($Basic.Video.FPSCommon){ # Switch to fractional FPS
+        $FPS=$Basic.Video.FPSCommon
+        $Basic.Video.Remove('FPSCommon')
+        $Basic.Video.FPSType = 2
+        $Basic.Video.FPSNum = $FPS
+        $Basic.Video.FPSDen = 1
+    }elseif(!$Basic.Video.FPSCommon -and !$Basic.Video.FPSType){
+        Write-Warning "Your FPS is at the default (30), you can go in Settings -> Video to set it to a higher value"
+    }
+
+    if (!$Basic.Video.FPSDen){$Basic.Video.FPSDen = 1}
+
+    $FPS = $Basic.Video.FPSNum/$Basic.Video.FPSDen
+    $Pixels = [int]$Basic.Video.BaseCX*[int]$Basic.Video.BaseCY
+
+    if (($Basic.AdvOut.RecTracks -NotIn '1','2') -And ($FPS -gt 120)){
+        Write-Warning "Using multiple audio tracks while recording at a high FPS may cause OBS to fail to stop recording"
+    }
+
+    if (!$Basic.Hotkeys.ReplayBuffer){
+        Write-Warning "Replay Buffer is enabled, but there's no hotkey to Save Replay, set it up in Settings -> Hotkeys"
+    }
+
+    $Basic = Merge-Hashtables -Original $Basic -Patch $OBSPatches.$Preset.$Encoder.basic -ErrorAction Stop
+    Out-IniFile -FilePath "$OBSProfile\basic.ini" -InputObject $Basic -Pretty -Force
+
+    $Base = "{0}x{1}" -f $Basic.Video.BaseCX,$Basic.Video.BaseCY
+    $Output = "{0}x{1}" -f $Basic.Video.OutputCX,$Basic.Video.OutputCY
+    if ($Base -Ne $Output){
+        Write-Warning "Your Base/Canvas resolution ($Base) is not the same as the Output/Scaled resolution ($Output), this means OBS is scaling your video. This is not recommended."
+    }
+
+    $NoEncSettings = -Not(Test-Path "$OBSProfile\recordEncoder.json")
+    $EmptyEncSettings = (Get-Content "$OBSProfile\recordEncoder.json" -ErrorAction Ignore) -in '',$null
+
+    if ($NoEncSettings -or $EmptyEncSettings){
+        Set-Content -Path "$OBSProfile\recordEncoder.json" -Value '{}' -Force 
+    }
+    $RecordEncoder = Get-Content "$OBSProfile\recordEncoder.json" | ConvertFrom-Json -ErrorAction Stop
+
+    if (($Basic.Video.FPSNum/$Basic.Video.FPSDen -gt 480) -And ($Pixels -ge 2073600)){ # Set profile to baseline if recording at a high FPS and if res +> 2MP
+        $RecordEncoder.Profile = 'baseline'
+    }
+    $RecordEncoder = Merge-Hashtables -Original $RecordEncoder -Patch $OBSPatches.$Preset.$Encoder.recordEncoder -ErrorAction Stop
+    if ($Verbose){
+        ConvertTo-Yaml $Basic
+        ConvertTo-Yaml $RecordEncoder    
+    }
+    Set-Content -Path "$OBSProfile\recordEncoder.json" -Value (ConvertTo-Json -InputObject $RecordEncoder -Depth 100) -Force
+
+}
+function Optimize-OptiFine {
+    [alias('optof')]
+    param(
+        [ValidateSet('Smart','Lowest')]
+        [Parameter(Mandatory)]
+        $Preset,
+        [String]$CustomDirectory
+    )
+
+if (!$CustomDirectory){$CustomDirectory = Join-path $env:APPDATA '.minecraft'}
+
+$Presets = @{
+
+    Smart = @{
+        options = @{
+            renderDistance=5
+            mipmapLevels=4
+            ofAoLevel=1.0
+        }
+        optionsof = @{
+            ofMipmapType=3
+            ofCustomSky=$true
+        }
+    }
+
+    Lowest = @{
+        options = @{
+            gamma=1000000 # I've never tried anything else and this always worked
+            renderDistance=2
+            particles=2
+            fboEnable=$true
+            useVbo=$true
+            showInventoryAchievementHint=$false
+        }
+        optionsof = @{
+            ofDynamicLights=3
+            ofChunkUpdates=1
+            ofAoLevel=0.0 # Smooth lighting
+            ofOcclusionFancy=$false
+            ofSmoothWorld=$true
+            ofClouds=3
+            ofTrees=1
+            ofDroppedItems=0
+            ofRain=3
+            ofAnimatedWater=2
+            ofAnimatedLava=2
+            ofAnimatedFire=$true
+            ofAnimatedPortal=$false
+            ofAnimatedRedstone=$false
+            ofAnimatedExplosion=$false
+            ofAnimatedFlame=$true
+            ofAnimatedSmoke=$false
+            ofVoidParticles=$false
+            ofWaterParticles=$false
+            ofPortalParticles=$false
+            ofPotionParticles=$false
+            ofFireworkParticles=$false
+            ofDrippingWaterLava=$false
+            ofAnimatedTerrain=$false
+            ofAnimatedTextures=$false
+            ofRainSplash=$false
+            ofSky=$false
+            ofStars=$false
+            ofSunMoon=$false
+            ofVignette=1
+            ofCustomSky=$false
+            ofShowCapes=$false
+            ofFastMath=$true
+            ofSmoothFps=$false
+            ofTranslucentBlocks=1
+        }
+    }
+}
+$Global = @{
+    optionsof = @{
+        ofFastRender=$true
+        ofClouds=3
+        ofAfLevel=1 # Anisotropic filtering
+        ofAaLevel=0 # Anti-aliasing
+        ofRainSplash=$false
+    }
+    options = @{
+        showInventoryAchievementHint=$false
+        maxFps=260
+        renderClouds=$false
+        useVbo=$true
+    }
+}
+$Presets.$Preset = Merge-Hashtables $Presets.$Preset $Global
+
+function ConvertTo-MCSetting ($table){
+
+    $file = @()
+    ForEach($setting in $table.keys){
+        $file += [String]$($setting + ':' + ($table.$setting)) -replace'True','true' -replace 'False','false'
+    }
+    return $file
+}
+
+foreach ($file in 'options','optionsof'){
+
+    $Hash = (Get-Content "$CustomDirectory\$file.txt") -Replace ':','=' | ConvertFrom-StringData
+    $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.$file
+    Set-Content "$CustomDirectory\$file.txt" -Value (ConvertTo-MCSetting $Hash) -Force -Verbose
+}
+$Hash = (Get-Content "$CustomDirectory\optionsLC.txt") -Replace ',"maxFps":"260"','' | ConvertFrom-Json
+$Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.optionsof
+$Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.options
+$Hash.maxFPS = 260
+Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force -Verbose
+
+}
+function Install-Voukoder {
+    [alias('isvouk')]
+    param(
+        [Switch]$GetTemplates = $false
+    )
+    if (!$GetTemplates){
+        $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases)[0]
+        $Core = Get-Package -Name "Voukoder" -ErrorAction Ignore
+        if  ($Core){
+            $CurrentVersion = [Version]$Core.Version.Major.ToString()
+            if ($LatestCore -gt $CurrentVersion){
+                "Updating Voukoder Core from version $CurrentVersion to $LatestCore"
+                msiexec.exe /uninstall $Core.TagId /qn
+            }
+        }
+        $CoreURL = $LatestCore[0].assets[0].browser_download_url
+        curl.exe -# -L $CoreURL -o"$env:TMP\Voukoder-Core.msi"
+        msiexec /i "$env:TMP\Voukoder-Core.msi" /qn
+
+        $Tree = (Invoke-RestMethod 'https://api.github.com/repos/Vouk/voukoder-connectors/git/trees/master?recursive=1').Tree
+        
+        ForEach($NLE in 'vegas','vegas18','aftereffects','premiere','resolve'){
+            $Path = $Tree.path | Where-Object {$_ -Like "*$NLE-connector*"} | Sort-Object -Descending | Select-Object -First 1
+            $Connectors += @{$NLE = "https://github.com/Vouk/voukoder-connectors/raw/master/$Path"}
+        }
+
+        $Processes = @(
+            'vegas*'
+            'Adobe Premiere Pro'
+            'AfterFX'
+            'Resolve'
+        )
+        While(!(Get-Process $Processes -ErrorAction Ignore)){
+            Write-Host "`rScanning for any opened NLEs (video editors), press any key to refresh.. (Looking for $($Processes -Join ', ')..)" -NoNewline -ForeGroundColor Green
+            Start-Sleep -Milliseconds 500
+        }
+        ''
+        function Get-ConnectorVersion ($FileName){
+            return $FileName.Trim('.msi').Trim('.zip').Split('-') | Select-Object -Last 1
+        }
+        function CheckConnector ($PackageName, $Key){
+            
+            $CurrentConnector = (Get-Package -Name $PackageName -ErrorAction Ignore)
+            if ($CurrentConnector){
+                [Version]$CurrentConnectorVersion = $CurrentVersion.Version
+                [Version]$LatestConnector = Get-ConnectorVersion $Connectors.$key
+                if ($LatestConnector -gt $CurrentConnectorVersion){
+                    msiexec /uninstall $CurrentConnectorVersion.TagId /qn
+                    return $True
+                }
+            }
+            return $False
+        }
+        $NLEs = Get-Process $Processes -ErrorAction Ignore
+        ForEach($NLE in $NLEs){
+            switch (Split-Path $NLE.Path -Leaf){
+                'vegas180' {
+
+                    if (-Not(CheckConnector -PackageName 'Voukoder connector for VEGAS' -Key 'vegas18')){
+                        continue
+                    }
+                    $Directory = Split-Path $NLE.Path -Parent
+                    curl.exe -# -L $Connectors.vegas18 -o"$env:TMP\Voukoder-Connector-VEGAS18.msi"
+                    msiexec /i "$env:TMP\Voukoder-Connector-VEGAS18.msi" /qn "VEGASDIR=$Directory"
+                }
+                {$_ -Like 'vegas*'}{
+                    if (-Not(CheckConnector -PackageName 'Voukoder connector for VEGAS' -Key 'vegas')){
+                        continue
+                    }
+                    $Directory = Split-Path $NLE.Path -Parent
+                    curl.exe -# -L $Connectors.vegas18 -o"$env:TMP\Voukoder-Connector-VEGAS.msi"
+                    msiexec /i "$env:TMP\Voukoder-Connector-VEGAS.msi" /qn "VEGASDIR=$Directory"
+                }
+                'aftereffects' {
+                    if (-Not(CheckConnector -PackageName 'Voukoder connector for After Effects' -Key 'aftereffects')){
+                        continue
+                    }
+                    $Directory = Split-Path $NLE.Path -Parent
+                    curl.exe -# -L $Connectors.aftereffects -o"$env:TMP\AE.msi"
+                    msiexec /i "$env:TMP\Voukoder-Connector-AE.msi" /qn "INSTALLDIR=$Directory"
+                }
+                'Adobe Premiere Pro'{
+                    if (-Not(CheckConnector -PackageName 'Voukoder connector for Premiere Pro' -Key 'premiere')){
+                        continue
+                    }
+                    $Directory = Split-Path $NLE.Path -Parent
+                    curl.exe -# -L $Connectors.premiere -o"$env:TMP\Voukoder-Connector-Premiere.msi"
+                    msiexec /i "$env:TMP\Voukoder-Connector-Premiere.msi" /qn "TGDir=$Directory"
+                }
+                'Resolve'{
+                    $IOPlugins = "$env:ProgramData\Blackmagic Design\DaVinci Resolve\Support\IOPlugins"
+                    New-Item -ItemType Directory -Path $IOPlugins -ErrorAction Ignore | Out-Null
+                    if (Test-Path "$IOPlugins\voukoder_plugin.dvcp.bundle"){
+                    if (-Not(Get-Boolean "Would you like to reinstall/update the Voukoder Resolve plugin? (Y/N)")){continue}
+                    Remove-Item "$IOPlugins\voukoder_plugin.dvcp.bundle" -Force -Recurse
+                    }
+                    curl.exe -# -L $Connectors.Resolve -o"$env:TMP\Voukoder-Connector-Resolve.zip"
+                    Remove-Item "$env:TMP\Voukoder-Connector-Resolve" -Recurse -Force -ErrorAction Ignore
+                    $ExtractDir = "$env:TMP\Voukoder-Connector-Resolve"
+                    Expand-Archive "$env:TMP\Voukoder-Connector-Resolve.zip" -Destination $ExtractDir
+                    Copy-Item "$ExtractDir\resolve-connector-*\voukoder_plugin.dvcp.bundle" $IOPlugins
+
+                }
+            }
+        }
+    }
+
+    $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
+    New-Item -ItemType Directory -Path "$env:APPDATA\VEGAS\Render Templates\voukoder" -Force -ErrorAction Ignore | Out-Null
+
+    $Templates = [Ordered]@{
+        'HEVC NVENC + Upscale' = 'https://cdn.discordapp.com/attachments/969870701798522901/969870704520613889/HEVC_NVENC__upscale.sft2'
+        'HEVC NVENC' =           'https://cdn.discordapp.com/attachments/969870701798522901/969871122491400252/HEVC_NVENC.sft2'
+        'libx265 + Upscale' =    'https://cdn.discordapp.com/attachments/969870701798522901/969872715974598706/libx265__upscale.sft2'
+        'libx265' =              'https://cdn.discordapp.com/attachments/969870701798522901/969872700958965780/libx265.sft2'
+    }
+
+
+    $SelectedTemplates = Write-Menu -Entries @($Templates.Keys) -MultiSelect -Title @"
+Tick/untick the render templates you'd like to install by pressing SPACE, then press ENTER to finish.
+NVENC (for NVIDIA GPUs) is much faster than libx265, but will give you a bigger file to upload.
+"@
+    ForEach ($Template in $SelectedTemplates){
+        Remove-Item "$TemplatesFolder\$Template.sft2" -Force -ErrorAction Ignore
+        curl.exe -# -sSL $Templates.$Template -o"$TemplatesFolder\$Template.sft2"
+    }
+}
+
 <#
 
 List of commonly used Appx packages:
@@ -1005,6 +2133,16 @@ function Set-Win32ProritySeparation ([int]$DWord){
 
 }
 
+function Block-RazerSynapse {
+    Try {
+        Remove-Item "C:\Windows\Installer\Razer" -Force -Recurse
+    } Catch {
+        "Failed to remove Razer installer folder"
+        $_.Exception.Message
+    }
+    New-Item -ItemType File -Path "C:\Windows\Installer\Razer" -Force -ErrorAction Stop
+    Write-Host "An empty file called 'Razer' in C:\Windows\Installer has been put to block Razer Synapse's auto installation"
+}
 function Check-XMP {
     Write-Host "Checking RAM.." -NoNewline
     $PhysicalMemory = Get-CimInstance -ClassName Win32_PhysicalMemory
@@ -1246,6 +2384,7 @@ function Get {
         switch ($App){
             #'Voukoder'{} soonTMTM
             'Upscaler'{
+
                 Install-FFmpeg
                 Invoke-RestMethod 'https://github.com/couleur-tweak-tips/utils/raw/main/Miscellaneous/CTT%20Upscaler.cmd' |
                 Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'CTT Upscaler.cmd') -Encoding ASCII -Force
@@ -1253,17 +2392,19 @@ function Get {
 CTT Upscaler has been installed,
 I strongly recommend you open settings to tune it to your PC, there's lots of cool stuff to do there!
 "@ -ForegroundColor Green
+
             }
             'Scoop'{Install-Scoop}
             'FFmpeg'{Install-FFmpeg}
             {$_ -In '7-Zip','7z','7Zip'}{Get-ScoopApp 7zip}
             {$_ -In 'Smoothie','sm'}{Install-FFmpeg;Get-ScoopApp utils/Smoothie}
+            {$_ -In 'OBS','OBStudio'}{Get-ScoopApp extras/obs-studio}
             {$_ -In 'UTVideo'}{Get-ScoopApp utils/utvideo}
             {$_ -In 'Nmkoder'}{Get-ScoopApp utils/nmkoder}
             {$_ -In 'Librewolf'}{Get-ScoopApp extras/librewolf}
             {$_ -In 'ffmpeg-nightly'}{Get-ScoopApp versions/ffmpeg-nightly}
             {$_ -In 'Graal','GraalVM'}{Get-ScoopApp utils/GraalVM}
-            {$_ -In 'DiscordCompressor','dc'}{Get-ScoopApp utils/discordcompressor}
+            {$_ -In 'DiscordCompressor','dc'}{Install-FFmpeg;Get-ScoopApp utils/discordcompressor}
             {$_ -In 'Moony','mn'}{if (-Not(Test-Path "$HOME\.lunarclient")){Write-Warning "You NEED Lunar Client to launch it with Moony"};Get-ScoopApp utils/Moony}
             {$_ -In 'TLShell','TLS'}{Get-TLShell}
             default{Get-ScoopApp $App}
@@ -1290,7 +2431,9 @@ I strongly recommend you open settings to tune it to your PC, there's lots of co
 #>
 function Import-Sophia {
     [alias('ipso')]
-    param()
+    param(
+        [Switch]$Write
+    )
 
     $SophiaVer = "Sophia Script for " # This will get appended later on
     $PSVer = $PSVersionTable.PSVersion.Major
@@ -1320,10 +2463,18 @@ function Import-Sophia {
         $SophiaFunctions = $SophiaFunctions.Substring(1) # BOM ((
     } 
 
-    $SophiaFunctions = $SophiaFunctions -replace 'RestartFunction','tempchannge' # farag please forgive me
-    $SophiaFunctions = $SophiaFunctions -replace 'function ','function global:'
-    $SophiaFunctions = $SophiaFunctions -replace 'tempchange','RestartFunction'
-    Invoke-Expression $SophiaFunctions
+    if ($Write){
+        return $SophiaFunctions
+    }
+    else
+    {
+        $SophiaFunctions = $SophiaFunctions -replace 'RestartFunction','tempchannge' # farag please forgive me
+        $SophiaFunctions = $SophiaFunctions -replace 'function ','function global:'
+        $SophiaFunctions = $SophiaFunctions -replace 'tempchange','RestartFunction'
+    
+        Invoke-Expression $SophiaFunctions
+
+    }
 }
 function Set-CompatibilitySettings {
     [alias('scs')]
