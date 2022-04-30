@@ -1,6 +1,6 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
-$CommitCount = 74
+$CommitCount = 78
 $FuncsCount = 40
 <#
 The MIT License (MIT)
@@ -1884,33 +1884,39 @@ foreach ($file in 'options','optionsof'){
 
     $Hash = (Get-Content "$CustomDirectory\$file.txt") -Replace ':','=' | ConvertFrom-StringData
     $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.$file
-    Set-Content "$CustomDirectory\$file.txt" -Value (ConvertTo-MCSetting $Hash) -Force -Verbose
+    Set-Content "$CustomDirectory\$file.txt" -Value (ConvertTo-MCSetting $Hash) -Force
 }
 $Hash = (Get-Content "$CustomDirectory\optionsLC.txt") -Replace ',"maxFps":"260"','' | ConvertFrom-Json
 $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.optionsof
 $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.options
 $Hash.maxFPS = 260
-Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force -Verbose
+Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force
 
 }
 function Install-Voukoder {
-    [alias('isvouk')]
+    [alias('isvk')]
     param(
         [Switch]$GetTemplates = $false
     )
+    if ($PSEdition -eq 'Core'){return "This command is only available on Windows PowerShell (use of Get-Package)."}
     if (!$GetTemplates){
         $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases)[0]
-        $Core = Get-Package -Name "Voukoder" -ErrorAction Ignore
-        if  ($Core){
-            $CurrentVersion = [Version]$Core.Version.Major.ToString()
-            if ($LatestCore -gt $CurrentVersion){
-                "Updating Voukoder Core from version $CurrentVersion to $LatestCore"
-                msiexec.exe /uninstall $Core.TagId /qn
+        if ($LatestCore.tag_name -notlike "*.*"){
+            $LatestCore.tag_name = $LatestCore.tag_name + ".0"
+        }
+        [Version]$LatestCoreVersion = $LatestCore.tag_name
+        $Core = Get-Package -Name "*Voukoder*" -ErrorAction Ignore | Where-Object Name -NotLike "*Connector*"
+        if ($Core){
+            $CurrentVersion = [Version]$Core.Version
+            if ($LatestCoreVersion -gt $CurrentVersion){
+                "Updating Voukoder Core from version $CurrentVersion to $LatestCoreVersion"
+                Start-Process -FilePath msiexec -ArgumentList "/qb /x {$($Core.TagId)}" -Wait -NoNewWindow
             }
         }
+        "Downloading and running Voukoder Core.."
         $CoreURL = $LatestCore[0].assets[0].browser_download_url
         curl.exe -# -L $CoreURL -o"$env:TMP\Voukoder-Core.msi"
-        msiexec /i "$env:TMP\Voukoder-Core.msi" /qn
+        msiexec /i "$env:TMP\Voukoder-Core.msi" /passive
 
         $Tree = (Invoke-RestMethod 'https://api.github.com/repos/Vouk/voukoder-connectors/git/trees/master?recursive=1').Tree
         
@@ -1972,7 +1978,7 @@ function Install-Voukoder {
                     }
                     $Directory = Split-Path $NLE.Path -Parent
                     curl.exe -# -L $Connectors.aftereffects -o"$env:TMP\AE.msi"
-                    msiexec /i "$env:TMP\Voukoder-Connector-AE.msi" /qn "INSTALLDIR=$Directory"
+                    msiexec /i "$env:TMP\Voukoder-Connector-AE.msi" /qn "INSTALLDIR=C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore"
                 }
                 'Adobe Premiere Pro'{
                     if (-Not(CheckConnector -PackageName 'Voukoder connector for Premiere Pro' -Key 'premiere')){
@@ -1980,7 +1986,7 @@ function Install-Voukoder {
                     }
                     $Directory = Split-Path $NLE.Path -Parent
                     curl.exe -# -L $Connectors.premiere -o"$env:TMP\Voukoder-Connector-Premiere.msi"
-                    msiexec /i "$env:TMP\Voukoder-Connector-Premiere.msi" /qn "TGDir=$Directory"
+                    msiexec /i "$env:TMP\Voukoder-Connector-Premiere.msi" /qn "TGDir=C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore"
                 }
                 'Resolve'{
                     $IOPlugins = "$env:ProgramData\Blackmagic Design\DaVinci Resolve\Support\IOPlugins"
