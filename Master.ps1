@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
-$CommitCount = 78
-$FuncsCount = 40
+$CommitCount = 84
+$FuncsCount = 42
 <#
 The MIT License (MIT)
 
@@ -732,6 +732,16 @@ if "%ERRORLEVEL%"=="1" (set sh=pwsh.exe) else (set sh=powershell.exe)
 "@ -Force
     }
 }
+}
+function HEVCCheck {
+
+    if ((cmd /c .mp4) -eq '.mp4=WMP11.AssocFile.MP4'){ # If default video player for .mp4 is Movies & TV
+        
+        if(Test-Path "Registry::HKEY_CLASSES_ROOT\ms-windows-store"){
+            "Opening HEVC extension in Windows Store.."
+            Start-Process ms-windows-store://pdp/?ProductId=9n4wgh0z6vhq
+        }
+    }
 }
 function Install-FFmpeg {
 
@@ -1586,7 +1596,7 @@ function Optimize-OBS {
         [ValidateSet('x264','NVENC','AMF'<#,'QuickSync'#>)]
         [String]$Encoder,
         
-        [ValidateScript({Test-Path -Path $_ -Type Directory})]
+        [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
         [String]$OBS64Path, # Indicate your OBS installation by passing -OBS64Path "C:\..\bin\64bit\obs64.exe"
 
         [String]$Preset = 'HighPerformance'
@@ -1787,10 +1797,29 @@ function Optimize-OptiFine {
         [ValidateSet('Smart','Lowest')]
         [Parameter(Mandatory)]
         $Preset,
-        [String]$CustomDirectory
+        [String]$CustomDirectory,
+        [Switch]$MultiMC,
+        [Switch]$PolyMC,
+        [Switch]$GDLauncher
     )
 
 if (!$CustomDirectory){$CustomDirectory = Join-path $env:APPDATA '.minecraft'}
+elseif($MultiMC){
+    $CustomDirectory = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse | Where-Object Name -Like "MultiMC.lnk"
+    $CustomDirectory = Get-ShortcutPath $CustomDirectory
+    $CustomDirectory = Join-Path (Split-Path $CustomDirectory) instances
+    "Please select a MultiMC instance"
+    $CustomDirectory = menu (Get-ChildItem $CustomDirectory).Name
+}elseif($PolyMC){
+    $CustomDirectory = Get-ChildItem "$envAppData\PolyMC\instances"
+    "Please select a PolyMC instance"
+    $CustomDirectory = $CustomDirectory.Name
+}elseif($GDLauncher){
+    $CustomDirectory = Get-ChildItem "$envAppData\gdlauncher_next\instances"
+    "Please select a GDLauncher instance"
+    $CustomDirectory = $CustomDirectory.Name
+
+}
 
 $Presets = @{
 
@@ -2480,6 +2509,64 @@ function Import-Sophia {
     
         Invoke-Expression $SophiaFunctions
 
+    }
+}
+function Remove-FromThisPC {
+    param(
+        [ValidateSet('Remove','Restore')]
+        [String]
+        $Action = 'Remove',
+
+        [ValidateSet(
+            'Desktop',
+            'Documents',
+            'Downloads',
+            'Music',
+            'Pictures',
+            'Videos'
+            )]
+        $Entries,
+        [Switch]$All
+
+    )
+    if ($All){$Entries = 'Desktop','Documents','Downloads','Music','Pictures','Videos'}
+    function Modify-Entry ($GUID){
+        if ($Action -eq 'Remove'){
+            Remove-Item -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{$GUID}"
+            Remove-Item -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{$GUID}"    
+        }else{
+            New-Item -ItemType -Directory -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{$GUID}" | Out-Null
+            New-Item -ItemType -Directory -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{$GUID}" | Out-Null
+        }
+        
+    }
+    ForEach($Entry in $Entries){
+        Switch($Entry){
+            'Desktop'{
+                Modify-Entry B4BFCC3A-DB2C-424C-B029-7FE99A87C641
+            }
+            'Documents'{
+                Modify-Entry A8CDFF1C-4878-43be-B5FD-F8091C1C60D0
+                Modify-Entry d3162b92-9365-467a-956b-92703aca08af
+            }
+            'Downloads'{
+                Modify-Entry 374DE290-123F-4565-9164-39C4925E467B
+                Modify-Entry 088e3905-0323-4b02-9826-5d99428e115f
+            }
+            'Music'{
+                Modify-Entry 1CF1260C-4DD0-4ebb-811F-33C572699FDE
+                Modify-Entry 3dfdf296-dbec-4fb4-81d1-6a3438bcf4de
+            }
+            'Pictures'{
+                Modify-Entry 3ADD1653-EB32-4cb0-BBD7-DFA0ABB5ACCA
+                Modify-Entry 24ad3ad4-a569-4530-98e1-ab02f9417aa8
+            }
+            'Videos'{
+                Modify-Entry A0953C92-50DC-43bf-BE83-3742FED03C9C
+                Modify-Entry f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a
+            }
+
+        }
     }
 }
 function Set-CompatibilitySettings {
