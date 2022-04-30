@@ -1,5 +1,5 @@
 function Set-Verbosity {
-    [alias('Verbose')]
+    [alias('Verbose','Verb')]
     param (
 
 		[Parameter(Mandatory = $true,ParameterSetName = "Enabled")]
