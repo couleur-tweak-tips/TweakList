@@ -5,7 +5,7 @@ function Optimize-OBS {
         [ValidateSet('x264','NVENC','AMF'<#,'QuickSync'#>)]
         [String]$Encoder,
         
-        [ValidateScript({Test-Path -Path $_ -Type Directory})]
+        [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
         [String]$OBS64Path, # Indicate your OBS installation by passing -OBS64Path "C:\..\bin\64bit\obs64.exe"
 
         [String]$Preset = 'HighPerformance'
