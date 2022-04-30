@@ -12,7 +12,9 @@
 #>
 function Import-Sophia {
     [alias('ipso')]
-    param()
+    param(
+        [Switch]$Write
+    )
 
     $SophiaVer = "Sophia Script for " # This will get appended later on
     $PSVer = $PSVersionTable.PSVersion.Major
@@ -42,8 +44,16 @@ function Import-Sophia {
         $SophiaFunctions = $SophiaFunctions.Substring(1) # BOM ((
     } 
 
-    $SophiaFunctions = $SophiaFunctions -replace 'RestartFunction','tempchannge' # farag please forgive me
-    $SophiaFunctions = $SophiaFunctions -replace 'function ','function global:'
-    $SophiaFunctions = $SophiaFunctions -replace 'tempchange','RestartFunction'
-    Invoke-Expression $SophiaFunctions
+    if ($Write){
+        return $SophiaFunctions
+    }
+    else
+    {
+        $SophiaFunctions = $SophiaFunctions -replace 'RestartFunction','tempchannge' # farag please forgive me
+        $SophiaFunctions = $SophiaFunctions -replace 'function ','function global:'
+        $SophiaFunctions = $SophiaFunctions -replace 'tempchange','RestartFunction'
+    
+        Invoke-Expression $SophiaFunctions
+
+    }
 }
