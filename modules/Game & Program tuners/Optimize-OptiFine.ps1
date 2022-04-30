@@ -4,10 +4,29 @@ function Optimize-OptiFine {
         [ValidateSet('Smart','Lowest')]
         [Parameter(Mandatory)]
         $Preset,
-        [String]$CustomDirectory
+        [String]$CustomDirectory,
+        [Switch]$MultiMC,
+        [Switch]$PolyMC,
+        [Switch]$GDLauncher
     )
 
 if (!$CustomDirectory){$CustomDirectory = Join-path $env:APPDATA '.minecraft'}
+elseif($MultiMC){
+    $CustomDirectory = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse | Where-Object Name -Like "MultiMC.lnk"
+    $CustomDirectory = Get-ShortcutPath $CustomDirectory
+    $CustomDirectory = Join-Path (Split-Path $CustomDirectory) instances
+    "Please select a MultiMC instance"
+    $CustomDirectory = menu (Get-ChildItem $CustomDirectory).Name
+}elseif($PolyMC){
+    $CustomDirectory = Get-ChildItem "$envAppData\PolyMC\instances"
+    "Please select a PolyMC instance"
+    $CustomDirectory = $CustomDirectory.Name
+}elseif($GDLauncher){
+    $CustomDirectory = Get-ChildItem "$envAppData\gdlauncher_next\instances"
+    "Please select a GDLauncher instance"
+    $CustomDirectory = $CustomDirectory.Name
+
+}
 
 $Presets = @{
 
