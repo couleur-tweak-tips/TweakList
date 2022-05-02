@@ -38,9 +38,11 @@ function Install-Voukoder {
             'AfterFX'
             'Resolve'
         )
+        Write-Host "Looking for $($Processes -Join ', ').."
+        
         While(!(Get-Process $Processes -ErrorAction Ignore)){
-            Write-Host "`rScanning for any opened NLEs (video editors), press any key to refresh.. (Looking for $($Processes -Join ', ')..)" -NoNewline -ForeGroundColor Green
-            Start-Sleep -Milliseconds 500
+            Write-Host "`rScanning for any opened NLEs (video editors), press any key to refresh.." -NoNewline -ForeGroundColor Green
+            Start-Sleep -Seconds 2
         }
         ''
         function Get-ConnectorVersion ($FileName){
@@ -70,7 +72,7 @@ function Install-Voukoder {
                     }
                     $Directory = Split-Path $NLE.Path -Parent
                     curl.exe -# -L $Connectors.vegas18 -o"$env:TMP\Voukoder-Connector-VEGAS18.msi"
-                    msiexec /i "C:\Users\Dek\AppData\Local\Temp\Voukoder-Connector-VEGAS18.msi" /qb "VEGASDIR=`"$Directory`""
+                    msiexec /i "$env:TEMP\Voukoder-Connector-VEGAS18.msi" /qb "VEGASDIR=`"$Directory`""
                     continue
                 }
                 {$_ -Like 'vegas*.exe'}{
@@ -80,7 +82,7 @@ function Install-Voukoder {
                     }
                     $Directory = Split-Path $NLE.Path -Parent
                     curl.exe -# -L $Connectors.vegas18 -o"$env:TMP\Voukoder-Connector-VEGAS.msi"
-                    msiexec /i "$env:TMP\Voukoder-Connector-VEGAS.msi" /qb "VEGASDIR=$Directory"
+                    msiexec /i "$env:TEMP\Voukoder-Connector-VEGAS.msi" /qb "VEGASDIR=`"$Directory`""
                     continue
                 }
                 'afterfx.exe' {
@@ -89,7 +91,7 @@ function Install-Voukoder {
                     }
                     $Directory = Split-Path $NLE.Path -Parent
                     curl.exe -# -L $Connectors.aftereffects -o"$env:TMP\AE.msi"
-                    msiexec /i "$env:TMP\Voukoder-Connector-AE.msi" /qb "INSTALLDIR=C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore"
+                    msiexec /i "$env:TEMP\Voukoder-Connector-AE.msi" /qb "INSTALLDIR=`"$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore`""
                 }
                 'Adobe Premiere Pro.exe'{
                     if (NeedsConnector -PackageName 'Voukoder connector for Premiere Pro' -Key 'premiere'){
@@ -97,7 +99,7 @@ function Install-Voukoder {
                     }
                     $Directory = Split-Path $NLE.Path -Parent
                     curl.exe -# -L $Connectors.premiere -o"$env:TMP\Voukoder-Connector-Premiere.msi"
-                    msiexec /i "$env:TMP\Voukoder-Connector-Premiere.msi" /qb "TGDir=C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore"
+                    msiexec /i "$env:TMP\Voukoder-Connector-Premiere.msi" /qb "TGDir=`"$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore`""
                 }
                 'Resolve'{
                     $IOPlugins = "$env:ProgramData\Blackmagic Design\DaVinci Resolve\Support\IOPlugins"
