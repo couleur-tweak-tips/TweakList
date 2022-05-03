@@ -44,16 +44,14 @@ function Import-Sophia {
         $SophiaFunctions = $SophiaFunctions.Substring(1) # BOM ((
     } 
 
+    $SophiaFunctions = $SophiaFunctions -replace 'RestartFunction','tempchannge' # farag please forgive me
+    $SophiaFunctions = $SophiaFunctions -replace 'function ','function global:'
+    $SophiaFunctions = $SophiaFunctions -replace 'tempchange','RestartFunction'
+
     if ($Write){
         return $SophiaFunctions
-    }
-    else
-    {
-        $SophiaFunctions = $SophiaFunctions -replace 'RestartFunction','tempchannge' # farag please forgive me
-        $SophiaFunctions = $SophiaFunctions -replace 'function ','function global:'
-        $SophiaFunctions = $SophiaFunctions -replace 'tempchange','RestartFunction'
-    
+    }else{
         Invoke-Expression $SophiaFunctions
-
     }
+
 }
