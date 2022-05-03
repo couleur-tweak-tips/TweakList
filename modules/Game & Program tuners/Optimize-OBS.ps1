@@ -101,11 +101,11 @@ function Optimize-OBS {
 
     Set-CompatibilitySettings $OBS64Path -RunAsAdmin
 
-    if (Test-Path (Resolve-Path "$OBS64Path\..\..\..\portable_mode.txt" -ErrorAction Ignore) -ErrorAction Ignore){ # "Portable Mode" makes OBS make the config in it's own folder, else it's in appdata
+    if (Resolve-Path "$OBS64Path\..\..\..\portable_mode.txt" -ErrorAction Ignore){ # "Portable Mode" makes OBS make the config in it's own folder, else it's in appdata
 
         $ProfilesDir = (Resolve-Path "$OBS64Path\..\..\..\config\obs-studio\basic\profiles" -ErrorAction Stop)
     }else{
-        $ProfilesDir = (Resolve-Path "$env:APPDATA\obs-studio\config\obs-studio\basic\profiles" -ErrorAction Stop)
+        $ProfilesDir = (Resolve-Path "$env:APPDATA\obs-studio\basic\profiles" -ErrorAction Stop)
     }
     $Profiles = Get-ChildItem $ProfilesDir
 
