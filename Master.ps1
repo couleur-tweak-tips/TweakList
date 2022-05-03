@@ -1,6 +1,6 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
-$CommitCount = 96
+$CommitCount = 100
 $FuncsCount = 43
 <#
 The MIT License (MIT)
@@ -1773,7 +1773,7 @@ function Optimize-OBS {
     if (-Not($OBS64Path)){
         
         $StartMenu = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
-        $SartMenu += Get-ChildItem "$env:ProgramData\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
+        $StartMenu += Get-ChildItem "$env:ProgramData\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
         if ($StartMenu.Count -gt 1){
 
             $Shortcuts = $null 
@@ -2688,7 +2688,8 @@ function Set-CompatibilitySettings {
     if ($DisableFullScreenOptimizations){$Data += " DISABLEDXMAXIMIZEDWINDOWEDMODE"}
     if ($RunAsAdmin){$Data += " RUNASADMIN"}
 
-    New-ItemProperty -Path "Registry::\HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" `
+    New-Item -ItemType Directory -Path "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" -ErrorAction Ignore
+    New-ItemProperty -Path "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" `
     -Name $FilePath.FullName -PropertyType String -Value $Data -Force | Out-Null
 
 }
