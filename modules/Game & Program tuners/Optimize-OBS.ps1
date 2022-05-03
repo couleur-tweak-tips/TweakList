@@ -83,12 +83,6 @@ function Optimize-OBS {
     }
     $OBSPatches.$Preset.$Encoder = Merge-Hashtables $OBSPatches.$Preset.$Encoder $Global
 
-    ipmo "D:\GitHub\ps-menu.psm1"
-    ipmo "D:\GitHub\TweakScript\helpers\PsInI\Get-IniContent.ps1"
-    ipmo "D:\GitHub\TweakScript\helpers\Get-ShortcutTarget.ps1"
-    ipmo "D:\GitHub\TweakScript\helpers\Merge-Hashtables.ps1"
-    ipmo "D:\GitHub\TweakScript\modules\Set-CompatibilitySettings.ps1"
-
     if (-Not($OBS64Path)){
         
         $StartMenu = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
