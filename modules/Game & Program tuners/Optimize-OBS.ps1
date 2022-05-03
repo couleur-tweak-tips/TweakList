@@ -86,7 +86,7 @@ function Optimize-OBS {
     if (-Not($OBS64Path)){
         
         $StartMenu = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
-        $SartMenu += Get-ChildItem "$env:ProgramData\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
+        $StartMenu += Get-ChildItem "$env:ProgramData\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
         if ($StartMenu.Count -gt 1){
 
             $Shortcuts = $null 
