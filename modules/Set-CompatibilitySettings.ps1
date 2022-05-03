@@ -22,7 +22,8 @@ function Set-CompatibilitySettings {
     if ($DisableFullScreenOptimizations){$Data += " DISABLEDXMAXIMIZEDWINDOWEDMODE"}
     if ($RunAsAdmin){$Data += " RUNASADMIN"}
 
-    New-ItemProperty -Path "Registry::\HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" `
+    New-Item -ItemType Directory -Path "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" -ErrorAction Ignore
+    New-ItemProperty -Path "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" `
     -Name $FilePath.FullName -PropertyType String -Value $Data -Force | Out-Null
 
 }
