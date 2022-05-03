@@ -1,6 +1,6 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
-$CommitCount = 93
+$CommitCount = 96
 $FuncsCount = 43
 <#
 The MIT License (MIT)
@@ -1773,6 +1773,7 @@ function Optimize-OBS {
     if (-Not($OBS64Path)){
         
         $StartMenu = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
+        $SartMenu += Get-ChildItem "$env:ProgramData\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
         if ($StartMenu.Count -gt 1){
 
             $Shortcuts = $null 
@@ -1787,7 +1788,7 @@ function Optimize-OBS {
 
     Set-CompatibilitySettings $OBS64Path -RunAsAdmin
 
-    if (Test-Path (Resolve-Path "$OBS64Path\..\..\..\portable_mode.txt")){ # "Portable Mode" makes OBS make the config in it's own folder, else it's in appdata
+    if (Test-Path (Resolve-Path "$OBS64Path\..\..\..\portable_mode.txt" -ErrorAction Ignore) -ErrorAction Ignore){ # "Portable Mode" makes OBS make the config in it's own folder, else it's in appdata
 
         $ProfilesDir = (Resolve-Path "$OBS64Path\..\..\..\config\obs-studio\basic\profiles" -ErrorAction Stop)
     }else{
