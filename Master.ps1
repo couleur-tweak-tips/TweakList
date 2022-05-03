@@ -1,6 +1,6 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
-$CommitCount = 88
+$CommitCount = 91
 $FuncsCount = 42
 <#
 The MIT License (MIT)
@@ -1674,12 +1674,6 @@ function Optimize-OBS {
     }
     $OBSPatches.$Preset.$Encoder = Merge-Hashtables $OBSPatches.$Preset.$Encoder $Global
 
-    ipmo "D:\GitHub\ps-menu.psm1"
-    ipmo "D:\GitHub\TweakScript\helpers\PsInI\Get-IniContent.ps1"
-    ipmo "D:\GitHub\TweakScript\helpers\Get-ShortcutTarget.ps1"
-    ipmo "D:\GitHub\TweakScript\helpers\Merge-Hashtables.ps1"
-    ipmo "D:\GitHub\TweakScript\modules\Set-CompatibilitySettings.ps1"
-
     if (-Not($OBS64Path)){
         
         $StartMenu = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
@@ -2504,18 +2498,16 @@ function Import-Sophia {
         $SophiaFunctions = $SophiaFunctions.Substring(1) # BOM ((
     } 
 
+    $SophiaFunctions = $SophiaFunctions -replace 'RestartFunction','tempchannge' # farag please forgive me
+    $SophiaFunctions = $SophiaFunctions -replace 'function ','function global:'
+    $SophiaFunctions = $SophiaFunctions -replace 'tempchange','RestartFunction'
+
     if ($Write){
         return $SophiaFunctions
-    }
-    else
-    {
-        $SophiaFunctions = $SophiaFunctions -replace 'RestartFunction','tempchannge' # farag please forgive me
-        $SophiaFunctions = $SophiaFunctions -replace 'function ','function global:'
-        $SophiaFunctions = $SophiaFunctions -replace 'tempchange','RestartFunction'
-    
+    }else{
         Invoke-Expression $SophiaFunctions
-
     }
+
 }
 function Remove-FromThisPC {
     param(
