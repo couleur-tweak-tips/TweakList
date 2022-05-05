@@ -1,6 +1,6 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
-$CommitCount = 102
+$CommitCount = 104
 $FuncsCount = 43
 <#
 The MIT License (MIT)
@@ -1756,7 +1756,7 @@ function Optimize-OBS {
         }
     }
 
-    # Applies to all patches
+    # Applies to all patches/presets
     $Global = @{
         basic = @{
             Output = @{
@@ -1771,19 +1771,44 @@ function Optimize-OBS {
     $OBSPatches.$Preset.$Encoder = Merge-Hashtables $OBSPatches.$Preset.$Encoder $Global
 
     if (-Not($OBS64Path)){
+
+        $Parameters = @{
+            Path = @("$env:APPDATA\Microsoft\Windows\Start Menu","$env:ProgramData\Microsoft\Windows\Start Menu")
+            Recurse = $True
+            Include = 'OBS Studio*.lnk'
+        }
+        $StartMenu = Get-ChildItem @Parameters
         
-        $StartMenu = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
-        $StartMenu += Get-ChildItem "$env:ProgramData\Microsoft\Windows\Start Menu" -Recurse -Include 'OBS Studio*.lnk'
+        if (!$StartMenu){
+            if ((Get-Process obs64 -ErrorAction Ignore).Path){$OBS64Path = (Get-Process obs64).Path} # Won't work if OBS is ran as Admin
+            else{
+return @'
+Your OBS installation could not be found, 
+please manually specify the path to your OBS64 executable, example:
+
+Optimize-OBS -OBS64Path "D:\obs\bin\64bit\obs64.exe"
+
+You can find it this way:             
+ Searching up OBS -> 
+ Open file location ->
+ Open file location again if it's a shortcut ->
+ Shift right click obs64.exe -> Copy as Path
+'@
+            }
+        }
         if ($StartMenu.Count -gt 1){
 
-            $Shortcuts = $null 
+            $Shortcuts = $null
+            $StartMenu = Get-Item $StartMenu
             ForEach($Lnk in $StartMenu){$Shortcuts += @{$Lnk.BaseName = $Lnk.FullName}}
             "There are multiple OBS shortcuts in your Start Menu folder. Please select one."
             $ShortcutName = menu ($Shortcuts.Keys -Split [System.Environment]::NewLine)
             $StartMenu = $Shortcuts.$ShortcutName
+            $OBS64Path = Get-ShortcutTarget $StartMenu
+        }else{
+            $OBS64Path = Get-ShortcutTarget $StartMenu
         }
 
-        $OBS64Path = Get-ShortcutTarget $StartMenu
     }
 
     Set-CompatibilitySettings $OBS64Path -RunAsAdmin
@@ -1839,6 +1864,10 @@ OutputCY=$DefaultHeight
         $Basic.Video.FPSDen = 1
     }elseif(!$Basic.Video.FPSCommon -and !$Basic.Video.FPSType){
         Write-Warning "Your FPS is at the default (30), you can go in Settings -> Video to set it to a higher value"
+    }
+
+    if ($Basic.RecRBSize -in 512,'',$null){
+        $Basic.RecRBSize = 2048
     }
 
     if (!$Basic.Video.FPSDen){$Basic.Video.FPSDen = 1}
