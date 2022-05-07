@@ -4,6 +4,7 @@
 function Get {
     [alias('g')] # minimalism at it's finest
     param(
+        [Parameter(ValueFromRemainingArguments = $true)]
         [Array]$Apps
     )
 
@@ -12,7 +13,7 @@ function Get {
     ForEach($App in $Apps){ # Scoop exits when it throws
 
         switch ($App){
-            #'Voukoder'{} soonTMTM
+            'Voukoder'{Install-Voukoder}
             'Upscaler'{
 
                 Install-FFmpeg
@@ -24,8 +25,24 @@ I strongly recommend you open settings to tune it to your PC, there's lots of co
 "@ -ForegroundColor Green
 
             }
+            {$_ -In 'QualityMuncher','qm'}{
+                Install-FFmpeg
+
+                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/Quality%20Muncher.bat' |
+                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'Quality Muncher.bat') -Encoding ASCII -Force
+
+                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/!!qualitymuncher%20multiqueue.bat' |
+                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) '!!qualitymuncher multiqueue.bat') -Encoding ASCII -Force
+
+            }
+
             'Scoop'{Install-Scoop}
             'FFmpeg'{Install-FFmpeg}
+            {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
+            {$_ -in 'Notepad++','notepadplusplus'}{Get-ScoopApp extras/notepadplusplus}
+            {$_ -in 'DDU','DisplayDriverUninstaller'}{Get-ScoopApp extras/ddu}
+            {$_ -in 'Afterburner','MSIAfterburner'}{Get-ScoopApp utils/msiafterburner}
+            {$_ -in 'Everything','Everything-Alpha','Everything-Beta'}{Get-ScoopApp extras/everything-alpha}
             {$_ -In '7-Zip','7z','7Zip'}{Get-ScoopApp 7zip}
             {$_ -In 'Smoothie','sm'}{Install-FFmpeg;Get-ScoopApp utils/Smoothie}
             {$_ -In 'OBS','OBStudio'}{Get-ScoopApp extras/obs-studio}
@@ -39,6 +56,7 @@ I strongly recommend you open settings to tune it to your PC, there's lots of co
             {$_ -In 'TLShell','TLS'}{Get-TLShell}
             default{Get-ScoopApp $App}
         }
+        Write-Verbose "Finished installing $app"
 
     }
     if ($FailedToInstall){
