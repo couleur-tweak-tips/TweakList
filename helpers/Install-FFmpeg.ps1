@@ -10,7 +10,7 @@ function Install-FFmpeg {
 
     if(Get-Command ffmpeg -Ea Ignore){
 
-        $IsFFmpeg5 = (ffmpeg -hide_banner -h filter=libplacebo)
+        $IsFFmpeg5 = (ffmpeg -hide_banner -h filter=libplacebo) -ne "Unknown filter 'libplacebo'."
 
         if (-Not($IsFFmpeg5)){
 
@@ -18,10 +18,11 @@ function Install-FFmpeg {
                 scoop update ffmpeg
             }else{
                 Write-Warning @"
-An FFmpeg installation was detected, but it is not version 5.0 or higher.
+An FFmpeg installation was detected, but libplacebo filter could not be found (old FFmpeg version?).
 If you installed FFmpeg yourself, you can remove it and use the following command to install ffmpeg and add it to the path:
-scoop install ffmpeg
+scoop.cmd install ffmpeg
 "@
+pause
                 
             }
             
