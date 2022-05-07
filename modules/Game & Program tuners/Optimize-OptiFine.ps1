@@ -4,27 +4,31 @@ function Optimize-OptiFine {
         [ValidateSet('Smart','Lowest')]
         [Parameter(Mandatory)]
         $Preset,
-        [String]$CustomDirectory,
+        [String]$CustomDirectory = (Join-path $env:APPDATA '.minecraft'),
         [Switch]$MultiMC,
         [Switch]$PolyMC,
         [Switch]$GDLauncher
     )
 
-if (!$CustomDirectory){$CustomDirectory = Join-path $env:APPDATA '.minecraft'}
-elseif($MultiMC){
+if($MultiMC){
     $CustomDirectory = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse | Where-Object Name -Like "MultiMC.lnk"
     $CustomDirectory = Get-ShortcutPath $CustomDirectory
-    $CustomDirectory = Join-Path (Split-Path $CustomDirectory) instances
+    $Instances = Get-ChildItem (Join-Path (Split-Path $CustomDirectory) instances)
     "Please select a MultiMC instance"
-    $CustomDirectory = menu (Get-ChildItem $CustomDirectory).Name
+    $CustomDirectory = menu (Get-ChildItem $Instances).Name
+    $CustomDirectory = Join-Path $Instances $CustomDirectory
+
 }elseif($PolyMC){
-    $CustomDirectory = Get-ChildItem "$envAppData\PolyMC\instances"
+    $Instances = Get-ChildItem "$env:APPDATA\PolyMC\instances"
     "Please select a PolyMC instance"
-    $CustomDirectory = $CustomDirectory.Name
+    $CustomDirectory = menu $Instances.Name
+    $CustomDirectory = Join-Path $Instances $CustomDirectory
+
 }elseif($GDLauncher){
-    $CustomDirectory = Get-ChildItem "$envAppData\gdlauncher_next\instances"
+    $Instances = Get-ChildItem "$env:APPDATA\gdlauncher_next\instances"
     "Please select a GDLauncher instance"
-    $CustomDirectory = $CustomDirectory.Name
+    $CustomDirectory = menu $Instances.Name
+    $CustomDirectory = Join-Path $Instances $CustomDirectory
 
 }
 
@@ -52,6 +56,7 @@ $Presets = @{
             showInventoryAchievementHint=$false
         }
         optionsof = @{
+            ofAaLevel=0 # Anti-Aliasing
             ofDynamicLights=3
             ofChunkUpdates=1
             ofAoLevel=0.0 # Smooth lighting
