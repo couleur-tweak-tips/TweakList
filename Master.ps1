@@ -1,6 +1,6 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
-$CommitCount = 110
+$CommitCount = 113
 $FuncsCount = 45
 <#
 The MIT License (MIT)
