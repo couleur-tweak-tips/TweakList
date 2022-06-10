@@ -7,7 +7,7 @@ function Get-Path {
     $BaseName, $Extension = $File.Split('.')
 
     if (Get-Command "$BaseName.shim" -ErrorAction Ignore){
-        return (Get-Content (Get-Command "$BaseName.shim").Source | Select-Object -First 1).Trim('path = ')
+        return (Get-Content (Get-Command "$BaseName.shim").Source | Select-Object -First 1).Trim('path = ').replace('"','')
     }elseif($Extension){
         return (Get-Command "$BaseName.$Extension").Source
     }else{
