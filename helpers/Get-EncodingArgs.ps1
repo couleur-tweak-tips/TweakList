@@ -17,14 +17,14 @@ $DriverVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVers
 }
 
 $EncCommands = [ordered]@{
-    'HEVC NVENC' = 'hevc_nvenc -rc constqp -preset p7 -qp 18'
-    'H264 NVENC' = 'h264_nvenc -rc constqp -preset p7 -qp 15'
+    'HEVC NVENC' = 'hevc_nvenc -rc vbr  -preset p7 -b:v 400M -cq 19'
+    'H264 NVENC' = 'h264_nvenc -rc vbr  -preset p7 -b:v 400M -cq 16'
     'HEVC AMF' = 'hevc_amf -quality quality -qp_i 16 -qp_p 18 -qp_b 20'
     'H264 AMF' = 'h264_amf -quality quality -qp_i 12 -qp_p 12 -qp_b 12'
     'HEVC QSV' = 'hevc_qsv -preset veryslow -global_quality:v 18'
     'H264 QSV' = 'h264_qsv -preset veryslow -global_quality:v 15'
-    'H264 CPU' = 'libx265 -preset medium -crf 18'
-    'HEVC CPU' = 'libx264 -preset slow -crf 15'
+    'H264 CPU' = 'libx264 -preset slow -crf 16 -x265-params aq-mode=3'
+    'HEVC CPU' = 'libx265 -preset medium -crf 18 -x265-params aq-mode=3:no-sao=1:frame-threads=1'
 }
 
 $EncCommands.Keys | ForEach-Object -Begin {
