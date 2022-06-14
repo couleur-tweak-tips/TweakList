@@ -1,8 +1,8 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 125
-$FuncsCount = 48
+$CommitCount = 127
+$FuncsCount = 50
 <#
 The MIT License (MIT)
 
@@ -1204,6 +1204,24 @@ function Optimize{
 function PauseNul {
     $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null
 }
+# The prompt function itself isn't 
+<# This function messes with the message that appears before the commands you type
+
+# Turns:
+PS D:\>
+# into
+TL D:\>
+
+To obviously indicate TweakList has been imported
+
+You can prevent this from happening
+#>
+$global:CSI = [char] 27 + '['
+if (!$env:TL_NOPROMPT -and !$TL_NOPROMPT){
+    function Prompt {
+        "$CSI`97;7mTL$CSI`m $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) ";
+    }
+}
 function Restart-ToBIOS {
     
     Remove-Variable -Name Choice -Ea Ignore
@@ -1246,6 +1264,16 @@ function Set-Verbosity {
             $script:VerbosePreference = 'SilentlyContinue'
         }
     }
+}
+function Test-Admin {
+<#
+.SYNOPSIS
+Determines if the console is elevated
+
+#>
+    $identity  = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object System.Security.Principal.WindowsPrincipal( $identity )
+    return $principal.IsInRole( [System.Security.Principal.WindowsBuiltInRole]::Administrator )
 }
 
 function Write-Menu {
