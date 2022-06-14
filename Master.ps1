@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
-$CommitCount = 118
-$FuncsCount = 46
+$CommitCount = 121
+$FuncsCount = 47
 <#
 The MIT License (MIT)
 
@@ -529,14 +529,14 @@ $DriverVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVers
 }
 
 $EncCommands = [ordered]@{
-    'HEVC NVENC' = 'hevc_nvenc -rc constqp -preset p7 -qp 18'
-    'H264 NVENC' = 'h264_nvenc -rc constqp -preset p7 -qp 15'
+    'HEVC NVENC' = 'hevc_nvenc -rc vbr  -preset p7 -b:v 400M -cq 19'
+    'H264 NVENC' = 'h264_nvenc -rc vbr  -preset p7 -b:v 400M -cq 16'
     'HEVC AMF' = 'hevc_amf -quality quality -qp_i 16 -qp_p 18 -qp_b 20'
     'H264 AMF' = 'h264_amf -quality quality -qp_i 12 -qp_p 12 -qp_b 12'
     'HEVC QSV' = 'hevc_qsv -preset veryslow -global_quality:v 18'
     'H264 QSV' = 'h264_qsv -preset veryslow -global_quality:v 15'
-    'H264 CPU' = 'libx265 -preset medium -crf 18'
-    'HEVC CPU' = 'libx264 -preset slow -crf 15'
+    'H264 CPU' = 'libx264 -preset slow -crf 16 -x265-params aq-mode=3'
+    'HEVC CPU' = 'libx265 -preset medium -crf 18 -x265-params aq-mode=3:no-sao=1:frame-threads=1'
 }
 
 $EncCommands.Keys | ForEach-Object -Begin {
@@ -2756,6 +2756,36 @@ function Import-Sophia {
         Invoke-Expression $SophiaFunctions
     }
 
+}
+function Invoke-GitHubScript {
+    [alias('igs')]
+    param(
+        [ValidateSet(
+            'ChrisTitusTechToolbox',
+            'OldChrisTitusTechToolbox',
+            'Fido',
+            'SophiaScript'
+        )]
+        $Repository,
+        $RawURL
+    )
+    if ($RawURL){
+        Invoke-RestMethod $URL | Invoke-Expression
+        return
+    }
+    function Invoke-URL ($Link) {
+        $Response = Invoke-RestMethod $Link
+        While ($Response[0] -NotIn '<','#'){ # Byte Order Mark (BOM) removal
+            $Response = $Response.Substring(1)
+        }
+        Invoke-Expression $Response
+    }
+    switch ($Repository){
+        'ChrisTitusTechToolbox'{Invoke-URL https://raw.githubusercontent.com/ChrisTitusTech/winutil/main/winutil.ps1}
+        'OldChrisTitusTechToolbox'{Invoke-Expression (Invoke-RestMethod https://raw.githubusercontent.com/ChrisTitusTech/win10script/master/win10debloat.ps1)}
+        'Fido'{Invoke-URL https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1}
+        'SophiaScript'{Import-Sophia}
+    }
 }
 function Remove-ContextMenu {
     [alias('rcm')]
