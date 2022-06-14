@@ -30,17 +30,30 @@ pause
                 
     }else{
 
+        $Scoop = (Get-Command Scoop.ps1).Source | Split-Path | Split-Path
+
+        if (-Not(Test-Path "$Scoop\buckets\main")){
+            if (-Not(Test-Path "$Scoop\apps\git\current\bin\git.exe")){
+                scoop install git
+            }
+            scoop bucket add main
+        }
+
         $Local = ((scoop cat ffmpeg) | ConvertFrom-Json).version
         $Latest = (Invoke-RestMethod https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/ffmpeg.json).version
 
         if ($Local -ne $Latest){
             "FFmpeg version installed using scoop is outdated, updating Scoop.."
-            if (-not(Get-Command git -Ea Ignore)){
+            if (-not(Test-Path "$Scoop\apps\git")){
                 scoop install git
             }
             scoop update
         }
 
         scoop install ffmpeg
+        if ($LASTEXITCODE -ne 0){
+            Write-Warning "Failed to install FFmpeg"
+            pause
+        }
     }
 }
