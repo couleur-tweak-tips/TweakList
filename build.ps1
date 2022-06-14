@@ -19,6 +19,7 @@ Try{
 Set-Content -Path ./Master.ps1 -Value @"
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
+using namespace System.Management.Automation # Needed by Invoke-NGENposh
 `$CommitCount = $CommitCount
 `$FuncsCount = $FuncsCount
 "@ -Force
@@ -31,5 +32,5 @@ Write-Output @"
 Commit count: $CommitCount
 FuncsCount: $FuncsCount
 Autobuild size: $([Math]::Round($AutoBuildSize, 2))
-Aotubuild lines: $((Get-Content ./Master.ps1).Count)
+Autobuild lines: $((Get-Content ./Master.ps1).Count)
 "@
