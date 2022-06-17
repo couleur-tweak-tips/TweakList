@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 129
+$CommitCount = 132
 $FuncsCount = 51
 <#
 The MIT License (MIT)
@@ -2429,6 +2429,7 @@ NVENC (for NVIDIA GPUs) is much faster than libx265, but will give you a bigger 
 }
 function 4K-Notifier {
     param(
+        [Parameter(Mandatory)]
         [String]$Video,
         [int]$Timeout = 30
     )
