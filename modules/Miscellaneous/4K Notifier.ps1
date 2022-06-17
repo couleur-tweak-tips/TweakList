@@ -1,5 +1,6 @@
 function 4K-Notifier {
     param(
+        [Parameter(Mandatory)]
         [String]$Video,
         [int]$Timeout = 30
     )
