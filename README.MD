@@ -30,27 +30,31 @@
 
 TweakList is a PowerShell module aiming to regroup every impactful tweaks for fine tuning, stripping and optimizing Windows, each tweaks has it's own file **and can be put together as a "[TweakScript](https://gist.github.com/couleurm/68d272edc5fb930c31b96b667813e373 "TweakList example")"**
 
+## Get started with a single command
+Each function has it's [own file](https://github.com/couleur-tweak-tips/TweakList/tree/master/modules), but [CI](https://github.com/couleur-tweak-tips/TweakList/blob/master/.github/workflows/main.yml) adds up all of them at each commit to a single file ([Master.ps1](https://github.com/couleur-tweak-tips/TweakList/blob/master/Master.ps1)) which you can import with the following command:
+```PowerShell
+iex(irm tl.ctt.cx);
+```
+
+You can learn more about [all the things it can do](https://github.com/couleur-tweak-tips/TweakList/blob/master/Master.ps1) in [/docs/](https://github.com/couleur-tweak-tips/TweakList/tree/master/docs)
 </br>
 
-It aims to make common tuning easy, some stuff like:
+##### It can do very useful stuff like:
 
-* Common settings everyone ticks anyways
-* Scripts to automatically find and tune game settings (e.g [Apex Legends](https://github.com/couleur-tweak-tips/utils/tree/main/Patchers/Apex%20Settings%20Patcher), will have something for Minecraft soon)
-* Installation of programs using [scoop](http://scoop.sh), an UAC-less command line package manager for Windows
-* Anything that can be automated/assisted via the Regedit/PowerShell/GPO/Batch
+* [Completely automated setup and installation of Scoop and any app you wish](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#get)
+* Set up [OBS](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#optimize-obs), [OptiFine](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#optimize-optifine) and [Voukoder](https://youtu.be/BBp2PnmRHmk) in the snap of a finger
+* [Remove useless entries from the context menu (aka file/folder right click menu)](https://github.com/couleur-tweak-tips/TweakList/blob/master/modules/Remove-ContextMenu.ps1)
+* [Import functions](https://github.com/couleur-tweak-tips/TweakList/blob/master/modules/Import-Sophia.ps1) from [Sophia Script](https://github.com/farag2/Sophia-Script-for-Windows)
+* Easily run 
+
 
 ---
 
 
 ## 📝Tweak Functions planned:
 
-- Tune almost every Windows settings with slightly modified functions from Sophia Script
-- Parse and merge game configs (e.g Minecraft, Apex Legends, Fortnite, Valorant ect..) without affecting settings that are personal preference
-- Easily add prioritized processes via the registry (if that even impacts performance)
-- Tune Xbox Game Mode/Bar/DVR & Hardware accelerated GPU scheduling
-- Rewrite [nvidia-updater](https://github.com/lord-carlos/nvidia-update/blob/master/nvidia.ps1) ft. NVCleanstall
-- Warn user is bloat is running (Synapse, iCue, OneDrive)
-  Use [autorunsc](https://docs.microsoft.com/en-us/sysinternals/downloads/autoruns#autorunsc-usage) to parse every programs that runs at startup
+- "Global checks" function that warns user if bloat is running (Synapse, iCue, OneDrive)
+- Use and parse [autorunsc](https://docs.microsoft.com/en-us/sysinternals/downloads/autoruns#autorunsc-usage) to parse every programs that runs at startup
 - Make combos that run multiple functions at once (e.g completly cleans the taskbar)
 - Disabling defender / mitigations / spectre & meltdown (with warnings of course)
 - Heavy stripping (with warnings of course)
