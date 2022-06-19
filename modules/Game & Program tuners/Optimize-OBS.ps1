@@ -51,6 +51,24 @@ function Optimize-OBS {
                     lastView=0
                 }
             }
+            QuickSync = @{
+
+                basic = @{
+                    AdvOut = @{
+                        RecEncoder = 'obs_qsv11'
+                    }
+                }
+                recordEncoder = @{
+                    enhancements = 'false'
+                    target_usage = 'speed'
+                    bframes = 0
+                    rate_control = 'ICQ'
+                    bitrate = 16500
+                    icq_quality = 18
+                    keyint_sec = 2
+                }
+                
+            }
             x264 = @{
                 basic = @{
                     ADVOut = @{
@@ -167,8 +185,13 @@ OutputCY=$DefaultHeight
        return "FATAL: Profile $OBSProfile is incomplete"
     }
     Write-Verbose "Tweaking profile $OBSProfile"
-
-    $Basic = Get-IniContent "$OBSProfile\basic.ini" -ErrorAction Stop
+    try {
+        $Basic = Get-IniContent "$OBSProfile\basic.ini" -ErrorAction Stop
+    } catch {
+        Write-Warning "Failed to get basic.ini from profile folder $OBSProfile"
+        $_
+        return
+    }
     if ($Basic.Video.FPSCommon){ # Switch to fractional FPS
         $FPS=$Basic.Video.FPSCommon
         $Basic.Video.Remove('FPSCommon')
