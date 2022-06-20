@@ -13,7 +13,8 @@ function Get {
     ForEach($App in $Apps){ # Scoop exits when it throws
 
         switch ($App){
-            'Voukoder'{Install-Voukoder}
+            'nvddl'{Get-ScoopApp utils/nvddl}
+            {$_ -in 'Voukoder','vk'}{Install-Voukoder}
             'Upscaler'{
 
                 Install-FFmpeg
@@ -38,14 +39,16 @@ I strongly recommend you open settings to tune it to your PC, there's lots of co
 
             'Scoop'{Install-Scoop}
             'FFmpeg'{Install-FFmpeg}
+
             {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
-            {$_ -in 'Notepad++','notepadplusplus'}{Get-ScoopApp extras/notepadplusplus}
+            {$_ -in 'wt','windowsterminal','windows-terminal'}{Get-ScoopApp extras/windows-terminal}
+            {$_ -in 'np++','Notepad++','notepadplusplus'}{Get-ScoopApp extras/notepadplusplus}
             {$_ -in 'DDU','DisplayDriverUninstaller'}{Get-ScoopApp extras/ddu}
             {$_ -in 'Afterburner','MSIAfterburner'}{Get-ScoopApp utils/msiafterburner}
             {$_ -in 'Everything','Everything-Alpha','Everything-Beta'}{Get-ScoopApp extras/everything-alpha}
             {$_ -In '7-Zip','7z','7Zip'}{Get-ScoopApp 7zip}
             {$_ -In 'Smoothie','sm'}{Install-FFmpeg;Get-ScoopApp utils/Smoothie}
-            {$_ -In 'OBS','OBStudio'}{Get-ScoopApp extras/obs-studio}
+            {$_ -In 'OBS','OBSstudio','OBS-Studio'}{Get-ScoopApp extras/obs-studio}
             {$_ -In 'UTVideo'}{Get-ScoopApp utils/utvideo}
             {$_ -In 'Nmkoder'}{Get-ScoopApp utils/nmkoder}
             {$_ -In 'Librewolf'}{Get-ScoopApp extras/librewolf}
