@@ -23,7 +23,7 @@ function Invoke-SmoothiePost {
     Set-Content "$DIR\Smoothie\settings\recipe.ini" -Value $rc
 
     if (Get-Command wt.exe -Ea Ignore){$term = Get-Path wt.exe}
-    else{$term = Get-Path cmd.exe}
+    else{$term = Get-Path conhost.exe}
 
     Get Scoop
 
@@ -66,7 +66,6 @@ args = "$DIR\Smoothie\src\main.py"
         Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui"
         Icon = "$DIR\Smoothie\src\sm.ico"
     }
-    if ($term -like '*cmd.exe'){$Parameters.Arguments = '/c ' + $Parameters.Arguments}
     New-Shortcut @Parameters
     
     $Parameters = @{
@@ -77,7 +76,6 @@ args = "$DIR\Smoothie\src\main.py"
         Icon = "$DIR\Smoothie\src\sm.ico"
 
     }
-    if ($term -like '*cmd.exe'){$Parameters.Arguments = '/c ' + $Parameters.Arguments}
     New-Shortcut @Parameters
 
 }
