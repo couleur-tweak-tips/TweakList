@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 148
+$CommitCount = 151
 $FuncsCount = 53
 <#
 The MIT License (MIT)
@@ -2540,7 +2540,7 @@ function Invoke-SmoothiePost {
     Set-Content "$DIR\Smoothie\settings\recipe.ini" -Value $rc
 
     if (Get-Command wt.exe -Ea Ignore){$term = Get-Path wt.exe}
-    else{$term = Get-Path cmd.exe}
+    else{$term = Get-Path conhost.exe}
 
     Get Scoop
 
@@ -2583,7 +2583,6 @@ args = "$DIR\Smoothie\src\main.py"
         Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui"
         Icon = "$DIR\Smoothie\src\sm.ico"
     }
-    if ($term -like '*cmd.exe'){$Parameters.Arguments = '/c ' + $Parameters.Arguments}
     New-Shortcut @Parameters
     
     $Parameters = @{
@@ -2594,7 +2593,6 @@ args = "$DIR\Smoothie\src\main.py"
         Icon = "$DIR\Smoothie\src\sm.ico"
 
     }
-    if ($term -like '*cmd.exe'){$Parameters.Arguments = '/c ' + $Parameters.Arguments}
     New-Shortcut @Parameters
 
 }
