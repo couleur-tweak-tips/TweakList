@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 145
+$CommitCount = 148
 $FuncsCount = 53
 <#
 The MIT License (MIT)
@@ -2535,12 +2535,14 @@ function Invoke-SmoothiePost {
 
     $rc = (Get-Content "$DIR\Smoothie\settings\recipe.yaml" -ErrorAction Stop) -replace ('H264 CPU',(Get-EncodingArgs -EzEncArgs))
 
-    if ($valid_args -like "H* CPU"){$rc = $rc -replace ('gpu:true','gpu=false')}
+    if ($valid_args -like "H* CPU"){$rc = $rc -replace ('gpu: true','gpu: false')}
 
     Set-Content "$DIR\Smoothie\settings\recipe.ini" -Value $rc
 
     if (Get-Command wt.exe -Ea Ignore){$term = Get-Path wt.exe}
     else{$term = Get-Path cmd.exe}
+
+    Get Scoop
 
     $SendTo = [System.Environment]::GetFolderPath('SendTo')
     $Scoop = Get-Command Scoop | Split-Path | Split-Path
@@ -2549,6 +2551,15 @@ function Invoke-SmoothiePost {
     if (-Not(Test-Path $SA)){ # If not using Scoop
         $SA = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs')
     }
+
+    Set-Content "$Scoop\shims\sm.shim" -Value @"
+path = "$DIR\VapourSynth\python.exe"
+args = "$DIR\Smoothie\src\main.py"
+"@
+    if (-Not(Test-Path "$Scoop\shims\sm.exe")){
+        Copy-Item "$Scoop\shims\7z.exe" "$Scoop\shims\sm.exe"
+    }
+
 
     $Parameters = @{
         Overwrite = $True
@@ -2579,7 +2590,7 @@ function Invoke-SmoothiePost {
         Overwrite = $True
         LnkPath = "$SendTo\Smoothie.lnk"
         TargetPath = $term
-        Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\Smoothie.py`" -cui -input"
+        Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui -input"
         Icon = "$DIR\Smoothie\src\sm.ico"
 
     }
