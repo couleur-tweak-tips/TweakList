@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 151
+$CommitCount = 153
 $FuncsCount = 53
 <#
 The MIT License (MIT)
@@ -1943,7 +1943,7 @@ function Optimize-OBS {
     [alias('optobs')]
     param(
         [Parameter(Mandatory)] # Override encoder check
-        [ValidateSet('x264','NVENC','AMF'<#,'QuickSync'#>)]
+        [ValidateSet('x264','NVENC','AMF','QuickSync')]
         [String]$Encoder,
         
         [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
