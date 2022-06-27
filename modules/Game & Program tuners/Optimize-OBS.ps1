@@ -2,7 +2,7 @@ function Optimize-OBS {
     [alias('optobs')]
     param(
         [Parameter(Mandatory)] # Override encoder check
-        [ValidateSet('x264','NVENC','AMF'<#,'QuickSync'#>)]
+        [ValidateSet('x264','NVENC','AMF','QuickSync')]
         [String]$Encoder,
         
         [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
