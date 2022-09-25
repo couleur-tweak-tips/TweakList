@@ -10,7 +10,7 @@
     •
     <a href="https://dsc.gg/ctt">Discord Server</a>
     •
-    <a href="https://github.com/couleur-tweak-tips/TweakList/tree/main/Docs">Docs</a>
+    <a href="https://github.com/couleur-tweak-tips/TweakList/tree/master/Docs">Docs</a>
 </p>
 <p align="center">
     <a href="https://github.com/couleur-tweak-tips/TweakList">
