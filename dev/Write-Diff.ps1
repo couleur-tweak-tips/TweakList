@@ -1,4 +1,4 @@
-function Show-Diff {
+function Write-Diff {
 	param(
 	[String]$Message,
 	[Boolean]$Positivity,
@@ -6,14 +6,18 @@ function Show-Diff {
 	)
 	$E = [char]0x1b # Ansi ESC character
 
-	if ($Positivity -and !$Term){
+	if ($Positivity){
 		$Sign = '+'
 		$Accent = "$E[92m"
+		if (!$Term){
 		$Term = "Enabled"
+		}
 	}
-	elseif(!$Positivity -and !$Term){
+	elseif(!$Positivity){
 		$Sign = '-'
-		$Term = "Removed"
+		if (!$Term){
+			$Term = "Removed"
+		}
 		$Accent = "$E[91m"
 	}
 

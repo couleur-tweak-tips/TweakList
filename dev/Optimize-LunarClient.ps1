@@ -26,33 +26,86 @@ function Optimize-LunarClient {
         [Array]$Settings
     )
 
+    if ('Performance' -in $Settings){
+        Merge-Hashtables -Original $general $Presets.Performance.general
+        Merge-Hashtables -Original $performance $Presets.Performance.performance
+        Write-Diff -Message "notifications from LC friends getting on (causes massive FPS drop)"
+        Write-Diff -Positivity $True -Message "lazy chunk loading at speed $LCLevel"
+        Write-Diff -Message "ground arrows"
+        Write-Diff -Message "player/mob skulls"
+        Write-Diff -Message "foliage (normal/tall grass)"
+    }
+    if ('MinimalViewBobbing' -in $Settings){
+        Merge-Hashtables -Original $general -Patch $Presets.MinimalViewBobbing.general
+        Write-Diff -Positivity $True -Message "minimal view bobbing"
+    }
+    if ('HideToggleSprint' -in $Settings){
+        Merge-Hashtables -Original $mods -Patch $Presets.HideToggleSprint.mods
+        Write-Diff -Positivity $False -Term "Hid" -Message "ToggleSprint HUD"
+    }
+    if ('ToggleSneak' -in $Settings){
+        Merge-Hashtables -Original $mods $Presets.ToggleSneak.mods
+        Write-Diff -Positivity $True -Message "ToggleSneak"
+    }
+    if ('DisableUHCMods' -in $Settings){
+        Merge-Hashtables -Original $mods -Patch $Presets.DisableUHCMods.mods
+        Write-Diff -Positivity $False -Term "Disabled" -Message "Waypoints mod"
+        Write-Diff -Positivity $False -Term "Disabled" -Message "DirectionHUD mod"
+        Write-Diff -Positivity $False -Term "Disabled" -Message "Coordinates mod"
+        Write-Diff -Positivity $False -Term "Disabled" -Message "ArmorStatus mod"
+    }
+    if ('FullBright' -in $Settings){
+        Merge-Hashtables -Original $mods -Patch $Presets.FullBright.mods
+        Write-Diff -Term "Added" -Positivity $true -Message "Fullbright (disable shaders before restarting)"
+    }
+
     if (!$LazyChunkLoadSpeed -and ('Performance' -in $Settings)){$LazyChunkLoadSpeed = 'low'}
 
     $Manager = Get-Content "$LCDirectory\settings\game\profile_manager.json" -ErrorAction Stop | ConvertFrom-Json
     
     $Profiles = @{}
-    ForEach($Profile in $Manager){$Profiles += @{ "$($Profile.DisplayName) ($($Profile.Name))" = $Profile}}
+    ForEach($Profile in $Manager){
+        $Profiles += @{ "$($Profile.DisplayName) ($($Profile.Name))" = $Profile}
+    }
 
-    "Select a profile:"
-    $Selection = Menu @([Array[]]$Profiles.Keys + 'Create a new profile')
+    while ($Selection -in $Manager.name,$Manager.DisplayName){
+        Write-Host "Select a profile:"
+        $Selection = Menu @([Array[]]$Profiles.Keys + 'Create a new profile')
+        if ($Selection -in $Manager.name,$Manager.DisplayName){
+            if ($VerbosePreference -eq 'Continue'){
+                Write-Host "Manager:`n`n" -ForegroundColor Red
+                Write-Host ($Manager | ConvertTo-Json)
+            }
+            "A profile with the same name already exists!"
+        }
+    }
     if ($Selection -eq 'Create a new profile'){
-        $ProfileName = Read-Host "Enter a name for the new profile:"
+        
+        $ProfileName = Read-Host "Enter a name for the new profile"
         New-Item -ItemType Directory -Path "$LCDirectory\settings\game\$ProfileName" -ErrorAction Stop | Out-Null
         Push-Location "$LCDirectory\settings\game\$ProfileName"
-        ('general.json', 'mods.json', 'performance.json') % {
-            if (-Not(Test-Path ./$_)){Add-Content ./$_ -Value '{}'}
+        ('general.json', 'mods.json', 'performance.json') | ForEach-Object {
+            if (-Not(Test-Path ./$_)){Add-Content ./$_ -Value '{}'} # Empty json file 
         }
         Pop-Location
-        $Manager = Get-Content "$LCDirectory\settings\game\profile_manager.json" | ConvertFrom-Json
         $Manager += [PSCustomObject]@{
+
             name = $ProfileName
             displayName = $ProfileName
             active = $False
             iconName = 'crossed-swords'
             server = ''
         }
+        $Selection = $Manager # Overwriting the string "Create a new profile" with the fresh one
         Set-Content -Path "$LCDirectory\settings\game\profile_manager.json" -Value ($Manager | ConvertTo-Json -Depth 99)
     }
+
+    $ProfileDir = "$LCDirectory\settings\game\$($Selection.name)"
+
+    ForEach($file in 'general','mods','performance'){ # Assigns $general, $mods and $performance
+        Set-Variable -Name $file -Value (Get-Content "$ProfileDir\$file.json" -ErrorAction Stop | ConvertFrom-Json)
+    }
+    
     $Presets = @{
         All = @{
             general = @{
@@ -75,7 +128,7 @@ function Optimize-LunarClient {
                 }
             }
         }
-        Peformance = @{
+        Performance = @{
             general = @{
                 friend_online_status_bl	= $false
             }
@@ -147,8 +200,6 @@ function Optimize-LunarClient {
                 toggleSneak = @{
                     options = @{
                         toggle_sneak_bl = $true
-                        #--HideToggleSprint
-                        #showHudText_bl:	false
                     }
                 }
             }
@@ -161,6 +212,25 @@ function Optimize-LunarClient {
                      }
                 }
             }
+        }
+    }
+    if ($PSVersionTable.$PSVersionTable.$Major -eq 5){
+        $LCProc = Get-Process -Name java? | Where-Object MainWindowTitle -Like "Lunar Client (*/*)"
+        if ($LCProc){
+            "Would you like to restart Lunar Client? [Y/N]"
+            if ((Set-Choice "YN") -eq 'Y'){
+                $mv = "$LCDirectory\offline\multiver"
+                if(Test-Path $mv){$jrewd = $mv}
+                else{
+                    
+                }
+                $CommandLine =  (Get-WmiObject win32_process -filter "ProcessID='$($LCProc.Id)'").CommandLine
+                Stop-Process $LCProc -Force -ErrorAction Stop
+                Push-Location "$LCDirectory\offline\multiver"
+                & $CommandLine
+                Pop-Location
+            }
+
         }
     }
 }
