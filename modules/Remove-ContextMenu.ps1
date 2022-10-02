@@ -1,3 +1,12 @@
+<#!TODO:
+    Scan windows defender
+    Git Bash
+    Rotate pictures
+    Open with code
+    Open with visual studio
+    Add to favorites
+#>
+
 function Remove-ContextMenu {
     [alias('rcm')]
     <#
@@ -24,7 +33,9 @@ function Remove-ContextMenu {
             'WinRAR',
             'Notepad++',
             'OpenWithOnBatchFiles',
-            'SendTo'
+            'SendTo',
+            'DrivesInSendTo',
+            'VLC'
             )]
         [Array]$Entries
     )
@@ -126,9 +137,15 @@ function Remove-ContextMenu {
             New-ItemProperty -Path Registry::HKEY_CLASSES_ROOT\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo -Name "(default)" -PropertyType String -Value "-{7BA4C740-9E81-11CF-99D3-00AA004AE837}" -Force
         }
     }
+
+    if ('DrivesInSendTo' -in $Entries){
+        Set-ItemProperty "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name NoDrivesInSendToMenu -Value 1
+    }
     
     if ('OpenWithOnBatchFiles' -in $Entries){
-        Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\batfile\shell\Open with\command" -Force -Recurse
+        foreach ($Ext in 'bat','cmd'){
+            Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\$($Ext)file\shell\Open with\command" -Force -Recurse
+        }
     }
 
     if ('7Zip' -in $Entries){
@@ -141,6 +158,7 @@ function Remove-ContextMenu {
             '7-Zip\Options'
         ) | ForEach-Object {Remove-Item -LiteralPath "REGISTRY::HKEY_CURRENT_USER\Software\$_" -Recurse -Force}
     }
+    
     if ('WinRAR' -in $Entries){ # This hides (adds to Blocked) instead of deleting
         @('{B41DB860-64E4-11D2-9906-E49FADC173CA}','{B41DB860-8EE4-11D2-9906-E49FADC173CA}') |
         ForEach-Object {New-ItemProperty -Path $Blocked -Name $_ -Value ''}
@@ -160,5 +178,38 @@ function Remove-ContextMenu {
 
     }
 
+    if ('VLC' -in $Entries){
+
+        @(
+            'Directory\shell\PlayWithVLC'
+            'Directory\shell\AddtoPlaylistVLC'
+            
+        ) | ForEach-Object {
+            if (Test-Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\$_"){
+                Remove-Item -LiteralPath "Registry::HKEY_CLASSES_ROOT\Directory\shell\$PSItem" -Recurse -Force
+            }
+        }
+        ForEach($Context in ('PlayWithVLC','AddtoPlaylistVLC')){
+            @(
+                '3g2', '3ga', '3gp', '3gp2', '3gpp', '669', 'a52', 'aac', 'ac3', 'adt', 'adts', 'aif', 'aifc', 'aiff',
+                'amr', 'amv', 'aob', 'ape', 'asf', 'asx', 'au', 'avi', 'b4s', 'bik', 'Bluray', 'caf', 'cda', 'CDAudio',
+                'cue', 'dav', 'divx', 'drc', 'dts', 'dv', 'DVDMovie', 'dvr-ms', 'evo', 'f4v', 'flac', 'flv', 'gvi', 'gxf',
+                'ifo', 'iso', 'it', 'm1v', 'm2t', 'm2ts', 'm2v', 'm3u', 'm3u8', 'm4a', 'm4p', 'm4v', 'mid', 'mka', 'mkv',
+                'mlp', 'mod', 'mov', 'mp1', 'mp2', 'mp2v', 'mp3', 'mp4', 'mp4v', 'mpa', 'mpc', 'mpe', 'mpeg', 'mpeg1',
+                'mpeg2', 'mpeg4', 'mpg', 'mpga', 'mpv2', 'mts', 'mtv', 'mxf', 'nsv', 'nuv', 'oga', 'ogg', 'ogm', 'ogv',
+                'ogx', 'oma', 'OPENFolder', 'opus', 'pls', 'qcp', 'ra', 'ram', 'rar', 'rec', 'rm', 'rmi', 'rmvb', 'rpl',
+                's3m', 'sdp', 'snd', 'spx', 'SVCDMovie', 'thp', 'tod', 'tp', 'ts', 'tta', 'tts', 'VCDMovie', 'vlc', 'vlt',
+                'vob', 'voc', 'vqf', 'vro', 'w64', 'wav', 'webm', 'wma', 'wmv', 'wpl', 'wsz', 'wtv', 'wv', 'wvx', 'xa', 'xesc',
+                'xm', 'xspf', 'zip', 'zpl','3g2','3ga','3gp','3gp2','3gpp'
+
+            ) | ForEach-Object {
+                $Key = "Registry::HKEY_CLASSES_ROOT\VLC.$PSItem\shell\$Context"
+                if (Test-Path $Key){
+                    Remove-Item -LiteralPath $Key -Recurse -Force
+                }
+            }
+        }
+    }
+    
     $ErrorActionPreference = $CurrentPreference
 }
