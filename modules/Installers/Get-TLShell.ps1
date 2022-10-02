@@ -69,7 +69,7 @@ Write-Host \"`rTweakList Shell - dsc.gg/CTT                  `n\" -Foregroundcol
     $ShortcutPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\TweakList Shell.lnk"
     $WScriptShell = New-Object -ComObject WScript.Shell
     $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
-    $Shortcut.Icon = (Get-Command powershell.exe).Source + ",0"
+    $Shortcut.IconLocation = (Get-Command powershell.exe).Source + ",0"
     $Shortcut.TargetPath = "$WR\TLS.CMD"
     $Shortcut.Save()
 
