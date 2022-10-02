@@ -1,8 +1,8 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 159
-$FuncsCount = 53
+$CommitCount = 166
+$FuncsCount = 55
 <#
 The MIT License (MIT)
 
@@ -710,65 +710,6 @@ function Get-ShortcutTarget {
     }
     
     return (New-Object -ComObject WScript.Shell).CreateShortcut($ShortcutPath).TargetPath
-}
-function Get-TLShell {
-    param([switch]$Profile)
-
-if ($Profile){
-    
-
-}else{
-
-    $WR = "$env:LOCALAPPDATA\Microsoft\WindowsApps" # I've had the habit of calling this folder WR
-                                                    # because it's the only folder I know that is added to path
-                                                    # that you don't need perms to access.
-
-    
-    if ($WR -NotIn $env:PATH.Split(';')){
-        Write-Error "`"$env:LOCALAPPDATA\Microsoft\WindowsApps`" is not added to path, did you mess with Windows?"
-        return
-    }else{
-        $TLS = "$WR\TLS.CMD"
-        Set-Content -Path $TLS -Value @'
-@echo off
-title TweakList Shell
-if /I "%1" == "wr" (explorer "%~dp0" & exit)
-if /I "%1" == "so" (set sophiaflag=Write-Host 'Importing Sophia Script..' -NoNewLine -ForegroundColor DarkGray;Import-Sophia)
-
-fltmc >nul 2>&1 || (
-    echo Elevating to admin..
-    PowerShell.exe -NoProfile Start-Process -Verb RunAs '%0' 2> nul || (
-        echo Failed to elevate to admin, launch CMD as Admin and type in "TL"
-        pause & exit 1
-    )
-    exit 0
-)
-
-powershell.exe -NoProfile -NoLogo -NoExit -Command ^
-"if ($PWD.Path -eq \"$env:WINDIR\system32\"){cd $HOME} ;^
-[System.Net.ServicePointManager]::SecurityProtocol='Tls12' ;^
-Write-Host 'Invoking TweakList.. ' -NoNewLine -ForegroundColor DarkGray;^
-iex(irm tl.ctt.cx);^
-%SOPHIAFLAG%;^
-Write-Host \"`rTweakList Shell - dsc.gg/CTT                  `n\" -Foregroundcolor White"
-'@ -Force
-    }
-    if (-Not(Test-Path -Path $TLS -PathType Leaf)){
-        $ShortcutPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\TweakList Shell.lnk"
-        $WScriptShell = New-Object -ComObject WScript.Shell
-        $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
-        #$Shortcut.Icon = (Get-Command powershell.exe).Source
-        $Shortcut.TargetPath = "$WR\TLS.CMD"
-        $Shortcut.Save()
-
-        # Got this from my old list of snippets, originally found this on StackOverflow, forgot link
-        $bytes = [System.IO.File]::ReadAllBytes($ShortCutPath)
-        $bytes[0x15] = $bytes[0x15] -bor 0x20 # Set byte 21 (0x15) bit 6 (0x20) ON
-        [System.IO.File]::WriteAllBytes($ShortcutPath, $bytes)
-    }
-    
-    
-}
 }
 function HEVCCheck {
 
@@ -2324,6 +2265,94 @@ $Hash.maxFPS = 260
 Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force
 
 }
+function Get-TLShell {
+    param(
+        [switch]$Offline,
+        [switch]$DontOpen
+        )
+    
+    $WR = "$env:LOCALAPPDATA\Microsoft\WindowsApps" # I've had the habit of calling this folder WR
+                                                    # because it's the only folder I know that is added to path
+                                                    # that you don't need perms to access.
+
+if ($Offline){
+    
+    try {
+        $Master = Invoke-RestMethod -UseBasicParsing https://raw.githubusercontent.com/couleur-tweak-tips/TweakList/master/Master.ps1
+    } catch {
+        Write-Host "Failed to get Master.ps1 from TweakList GitHub" -ForegroundColor DarkRed
+        Write-Output "Error: $($Error[0].ToString())"
+        return
+    }
+    Set-Content "$WR/TLSOff.cmd" -Value @'
+<# : batch portion
+@echo off
+powershell.exe -noexit -noprofile -noexit -command "iex (${%~f0} | out-string)"
+: end batch / begin powershell #>
+Write-Host "TweakList Shell " -Foregroundcolor White -NoNewLine
+Write-Host "(Offline)" -Foregroundcolor DarkGray -NoNewLine
+Write-Host " - dsc.gg/CTT" -Foregroundcolor White -NoNewLine
+
+'@
+    $Batch = Get-Item  "$WR/TLSOff.cmd"
+    Add-Content $Batch -Value $Master
+    if (!$DontOpen){
+        explorer.exe /select,`"$($Batch.FullName)`"
+    }
+
+}else{
+
+
+    
+    if ($WR -NotIn $env:PATH.Split(';')){
+        Write-Error "`"$env:LOCALAPPDATA\Microsoft\WindowsApps`" is not added to path, did you mess with Windows?"
+        return
+    }else{
+        $TLS = "$WR\TLS.CMD"
+        Set-Content -Path $TLS -Value @'
+@echo off
+title TweakList Shell
+if /I "%1" == "wr" (explorer "%~dp0" & exit)
+if /I "%1" == "so" (set sophiaflag=Write-Host 'Importing Sophia Script..' -NoNewLine -ForegroundColor DarkGray;Import-Sophia)
+
+fltmc >nul 2>&1 || (
+    echo Elevating to admin..
+    PowerShell.exe -NoProfile Start-Process -Verb RunAs ' %0' 2> nul || (
+        echo Failed to elevate to admin, launch CMD as Admin and type in "TL"
+        pause & exit 1
+    )
+    exit 0
+)
+
+powershell.exe -NoProfile -NoLogo -NoExit -Command ^
+"if ($PWD.Path -eq \"$env:WINDIR\system32\"){cd $HOME} ;^
+[System.Net.ServicePointManager]::SecurityProtocol='Tls12' ;^
+Write-Host 'Invoking TweakList.. ' -NoNewLine -ForegroundColor DarkGray;^
+iex(irm tl.ctt.cx);^
+%SOPHIAFLAG%;^
+Write-Host \"`rTweakList Shell - dsc.gg/CTT                  `n\" -Foregroundcolor White"
+'@ -Force
+    }
+    $ShortcutPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\TweakList Shell.lnk"
+    $WScriptShell = New-Object -ComObject WScript.Shell
+    $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
+    $Shortcut.Icon = (Get-Command powershell.exe).Source + ",0"
+    $Shortcut.TargetPath = "$WR\TLS.CMD"
+    $Shortcut.Save()
+
+    # Got this from my old list of snippets, originally found this on StackOverflow, forgot link
+    $bytes = [System.IO.File]::ReadAllBytes($ShortCutPath)
+    $bytes[0x15] = $bytes[0x15] -bor 0x20 # Set byte 21 (0x15) bit 6 (0x20) ON
+    [System.IO.File]::WriteAllBytes($ShortcutPath, $bytes)
+
+    Write-Host "You can now type 'TLS' in Run (Windows+R) to launch it, or from your start menu"
+    if (!$DontOpen){
+        & explorer.exe /select,`"$("$WR\TLS.CMD")`"
+    }
+    
+    
+}
+}
 function Install-MPVProtocol {
     param(
         [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
@@ -2640,6 +2669,83 @@ $Video
     [Console]::Beep(500,300)
     Start-Sleep -Milliseconds 100
 }
+}
+function Moony2 {
+    param(
+        [Switch]$NoIntro,
+        [Int]$McProcessID
+    )
+    $LaunchParameters = @{} # Fresh hashtable that will be splat with Start-Process
+
+    if (!$NoIntro){
+    Write-Host @'
+If you're used to the original Moony, this works a little differently,
+
+What you just runned lets you create a batchfile from your current running game
+that you can launch via a single click or even faster: via Run (Windows +R)
+
+Please launch your Minecraft (any client/version) and press ENTER on your keyboard
+once you're ready for it to create the batchfile
+'@
+    Pause
+    }
+
+    # java? is regex for either java or javaw
+    if (-Not(Get-Process java?)){
+        Write-Host "There was no processes with the name java or javaw"
+        pause
+        Moony -NoIntro
+        return
+    }else{
+        $ProcList = Get-Process -Name java?
+        if ($ProcList[1]){ # If $Procs isn't the only running java process
+                $Selected = Menu $ProcList.MainWindowTitle
+                $Proc = Get-Process | Where-Object {$_.MainWindowTitle -eq ($Selected)} # Crappy passthru
+                if ($Proc[1]){ # unlikely but w/e gotta handle it
+                    Write-Host "Sorry my code is bad and you have multiple processes with the name $($Proc.MainWindowTitle), GG!"
+                }
+        }else{$Proc = $ProcList} # lmk if theres a smarter way
+    }
+    $WinProcess = Get-CimInstance -ClassName Win32_Process | Where-Object ProcessId -eq $Proc.Id
+    $JRE = $WinProcess.ExecutablePath
+    $Arguments = $WinProcess.CommandLine.Replace($WinProcess.ExecutablePath,'')
+    if (Test-Path "$HOME\.lunarclient\offline\multiver"){
+        $WorkingDirectory = "$HOME\.lunarclient\offline\multiver"
+
+    }else{
+            # This cumbersome parse has been split in 3 lines, it just gets the right version from the args
+        $PlayedVersion = $Arguments.split(' ') |
+        Where-Object {$PSItem -Like "1.*"} |
+        Where-Object {$PSITem -NotLike "1.*.*"} |
+        Select-Object -Last 1
+        $WorkingDirectory = "$HOME\.lunarclient\offline\$PlayedVersion"
+    }
+    if ($Arguments -NotLike "* -server *"){
+        Write-Host @"
+Would you like this script to join a specific server right after it launches?
+
+If so, type the IP, otherwise just leave it blank and press ENTER
+"@  
+        $ServerIP = Read-Host "Server IP"
+        if ($ServerIP -NotIn '',$null){
+            $Arguments += " -server $ServerIP"
+        }
+    }
+
+    $InstanceName = Read-Host "Give a name to your Lunar Client instance, I recommend making it short without spaces"
+    if ($InstanceName -Like "* *"){
+        $InstanceName = Read-Host "Since there's a space in your name, you won't be able to call it from Run (Windows+R), type it again if you are sure"
+    }
+
+    Set-Content "$env:LOCALAPPDATA\Microsoft\WindowsApps\$InstanceName.cmd" @"
+@echo off
+cd /D "$WorkingDirectory"
+start $JRE $Arguments
+if %ERRORLEVEL% == 0 (exit) else (pause)
+"@
+    Write-Host "Your $InstanceName instance should be good to go, try typing it's name in the Run window (Windows+R)" -ForegroundColor Green
+    return
+
 }
 <#
 
@@ -3260,6 +3366,15 @@ function Invoke-GitHubScript {
         'SophiaScript'{Import-Sophia}
     }
 }
+<#!TODO:
+    Scan windows defender
+    Git Bash
+    Rotate pictures
+    Open with code
+    Open with visual studio
+    Add to favorites
+#>
+
 function Remove-ContextMenu {
     [alias('rcm')]
     <#
@@ -3286,7 +3401,9 @@ function Remove-ContextMenu {
             'WinRAR',
             'Notepad++',
             'OpenWithOnBatchFiles',
-            'SendTo'
+            'SendTo',
+            'DrivesInSendTo',
+            'VLC'
             )]
         [Array]$Entries
     )
@@ -3388,9 +3505,15 @@ function Remove-ContextMenu {
             New-ItemProperty -Path Registry::HKEY_CLASSES_ROOT\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo -Name "(default)" -PropertyType String -Value "-{7BA4C740-9E81-11CF-99D3-00AA004AE837}" -Force
         }
     }
+
+    if ('DrivesInSendTo' -in $Entries){
+        Set-ItemProperty "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name NoDrivesInSendToMenu -Value 1
+    }
     
     if ('OpenWithOnBatchFiles' -in $Entries){
-        Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\batfile\shell\Open with\command" -Force -Recurse
+        foreach ($Ext in 'bat','cmd'){
+            Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\$($Ext)file\shell\Open with\command" -Force -Recurse
+        }
     }
 
     if ('7Zip' -in $Entries){
@@ -3403,6 +3526,7 @@ function Remove-ContextMenu {
             '7-Zip\Options'
         ) | ForEach-Object {Remove-Item -LiteralPath "REGISTRY::HKEY_CURRENT_USER\Software\$_" -Recurse -Force}
     }
+    
     if ('WinRAR' -in $Entries){ # This hides (adds to Blocked) instead of deleting
         @('{B41DB860-64E4-11D2-9906-E49FADC173CA}','{B41DB860-8EE4-11D2-9906-E49FADC173CA}') |
         ForEach-Object {New-ItemProperty -Path $Blocked -Name $_ -Value ''}
@@ -3422,7 +3546,48 @@ function Remove-ContextMenu {
 
     }
 
+    if ('VLC' -in $Entries){
+
+        @(
+            'Directory\shell\PlayWithVLC'
+            'Directory\shell\AddtoPlaylistVLC'
+            
+        ) | ForEach-Object {
+            if (Test-Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\$_"){
+                Remove-Item -LiteralPath "Registry::HKEY_CLASSES_ROOT\Directory\shell\$PSItem" -Recurse -Force
+            }
+        }
+        ForEach($Context in ('PlayWithVLC','AddtoPlaylistVLC')){
+            @(
+                '3g2', '3ga', '3gp', '3gp2', '3gpp', '669', 'a52', 'aac', 'ac3', 'adt', 'adts', 'aif', 'aifc', 'aiff',
+                'amr', 'amv', 'aob', 'ape', 'asf', 'asx', 'au', 'avi', 'b4s', 'bik', 'Bluray', 'caf', 'cda', 'CDAudio',
+                'cue', 'dav', 'divx', 'drc', 'dts', 'dv', 'DVDMovie', 'dvr-ms', 'evo', 'f4v', 'flac', 'flv', 'gvi', 'gxf',
+                'ifo', 'iso', 'it', 'm1v', 'm2t', 'm2ts', 'm2v', 'm3u', 'm3u8', 'm4a', 'm4p', 'm4v', 'mid', 'mka', 'mkv',
+                'mlp', 'mod', 'mov', 'mp1', 'mp2', 'mp2v', 'mp3', 'mp4', 'mp4v', 'mpa', 'mpc', 'mpe', 'mpeg', 'mpeg1',
+                'mpeg2', 'mpeg4', 'mpg', 'mpga', 'mpv2', 'mts', 'mtv', 'mxf', 'nsv', 'nuv', 'oga', 'ogg', 'ogm', 'ogv',
+                'ogx', 'oma', 'OPENFolder', 'opus', 'pls', 'qcp', 'ra', 'ram', 'rar', 'rec', 'rm', 'rmi', 'rmvb', 'rpl',
+                's3m', 'sdp', 'snd', 'spx', 'SVCDMovie', 'thp', 'tod', 'tp', 'ts', 'tta', 'tts', 'VCDMovie', 'vlc', 'vlt',
+                'vob', 'voc', 'vqf', 'vro', 'w64', 'wav', 'webm', 'wma', 'wmv', 'wpl', 'wsz', 'wtv', 'wv', 'wvx', 'xa', 'xesc',
+                'xm', 'xspf', 'zip', 'zpl','3g2','3ga','3gp','3gp2','3gpp'
+
+            ) | ForEach-Object {
+                $Key = "Registry::HKEY_CLASSES_ROOT\VLC.$PSItem\shell\$Context"
+                if (Test-Path $Key){
+                    Remove-Item -LiteralPath $Key -Recurse -Force
+                }
+            }
+        }
+    }
+    
     $ErrorActionPreference = $CurrentPreference
+}
+function Remove-DesktopShortcuts ($ConfirmEach){
+    
+    if($ConfirmEach){
+        Get-ChildItem -Path "$HOME\Desktop" -Include "*.lnk" -Force | Remove-Item -Confirm
+    }else{
+        Get-ChildItem -Path "$HOME\Desktop" -Include "*.lnk" -Force | Remove-Item
+    }
 }
 function Remove-FromThisPC {
     param(
