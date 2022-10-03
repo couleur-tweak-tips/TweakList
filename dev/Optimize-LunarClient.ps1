@@ -30,7 +30,8 @@ function Optimize-LunarClient {
         [Array]$Settings,
 
         [Switch]$NoBetaWarning,
-        [Switch]$KeepLCOpen
+        [Switch]$KeepLCOpen,
+        [Switch]$DryRun
     )
     if (!$NoBetaWarning){
         Write-Warning "This script may corrupt your Lunar Client profiles, continue at your own risk,`nyou're probably safer if you copy the folder located at $(Convert-Path $HOME\.lunarclient\settings\game)"
@@ -92,11 +93,12 @@ function Optimize-LunarClient {
     }
 
     $ProfileDir = "$LCDirectory\settings\game\$($Selection.name)"
-    Write-Host "after" -ForegroundColor DarkRed
     ForEach($file in 'general','mods','performance'){ # Assigns $general, $mods and $performance variables
         Set-Variable -Scope Global -Name $file -Value (Get-Content "$ProfileDir\$file.json" -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop)
+        if ($DryRun){
         Write-Host $file -ForegroundColor Red
         (Get-Variable -Name $file).Value | ConvertTo-Json
+        }
     }
     
     $Presets = @{
@@ -278,11 +280,13 @@ function Optimize-LunarClient {
         $mods = Merge-Hashtables -Original $mods -Patch $Presets.CouleursPreset.mods
     }
 
-    Write-Host "after" -ForegroundColor DarkRed
     ForEach($file in 'general','mods','performance'){ # Assigns $general, $mods and $performance variables
-        Write-Host $file -ForegroundColor Red
-        (Get-Variable -Name $file).Value
-        ConvertTo-Json -Depth 99 -Compress -InputObject (Get-Variable -Name $file).Value -ErrorAction Stop | Set-Content "$ProfileDir\$file.json" -ErrorAction Stop
+        if ($DryRun){
+            Write-Host $file -ForegroundColor Red
+            (Get-Variable -Name $file).Value
+        }else{
+            ConvertTo-Json -Depth 99 -Compress -InputObject (Get-Variable -Name $file).Value -ErrorAction Stop | Set-Content "$ProfileDir\$file.json" -ErrorAction Stop
+        }
     }
 
 }
