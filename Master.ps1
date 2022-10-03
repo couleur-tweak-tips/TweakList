@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 169
+$CommitCount = 171
 $FuncsCount = 55
 <#
 The MIT License (MIT)
@@ -2740,7 +2740,7 @@ If so, type the IP, otherwise just leave it blank and press ENTER
     Set-Content "$env:LOCALAPPDATA\Microsoft\WindowsApps\$InstanceName.cmd" @"
 @echo off
 cd /D "$WorkingDirectory"
-start $JRE $Arguments
+start "$JRE" $Arguments
 if %ERRORLEVEL% == 0 (exit) else (pause)
 "@
     Write-Host "Your $InstanceName instance should be good to go, try typing it's name in the Run window (Windows+R)" -ForegroundColor Green
