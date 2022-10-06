@@ -8,7 +8,7 @@
 
 # Performance Based Changes
  - Change Win32PrioritySeparation
-  - Changes the separation between background and foreground aps
+   - Changes the separation between background and foreground apps
  - Call Opt-Of to optimize optifine settings
    - you made it and understand it more than me
  - Call Opt-LC to optimize Lunar Client
@@ -35,7 +35,9 @@
    - Do I need to explain this? Tracking, yuck.
  - Disable P2P windows updates
    - Disable Delivery Optimization for better networking performance
-   - Disable Windows Defender
+ - Disable Windows Defender
    - You should 100% keep the migitations enabled
  - Disable GameMode
    - Some people say that it helps many games but can actually cause issues with OBS and other apps
+ - Turn everything off in the Privacy Section of Settings
+   - Does way more good than harm, and prevents some PUPs from accessing the File system and File chooser.
