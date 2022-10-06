@@ -1,10 +1,10 @@
 # To-do list for the CTT optimizer.
 
 - Basic Requirements
- - Everything should be togglable depending on the users needs.
- - Should have verbose mode incase of issues
- - Should have Performance Changes (See Below)
- - Should have QOL Changes (See Below)
+  - Everything should be togglable depending on the users needs.
+  - Should have verbose mode incase of issues
+  - Should have Performance Changes (See Below)
+  - Should have QOL Changes (See Below)
 
 # Performance Based Changes
  - Change Win32PrioritySeparation
