@@ -6,7 +6,7 @@
  - Should have Performance Changes (See Below)
  - Should have QOL Changes (See Below)
 
-- Performance Based Changes
+# Performance Based Changes
  - Change Win32PrioritySeparation
   - Changes the separation between background and foreground aps
  - Call Opt-Of to optimize optifine settings
@@ -30,7 +30,7 @@
  - Disable Preemption
    - Disable the switching of priority for tasks for consistant performance and better gameplay
 
-- Quality of Life Changes
+# Quality of Life Changes
  - Disable Telemetry
    - Do I need to explain this? Tracking, yuck.
  - Disable P2P windows updates
