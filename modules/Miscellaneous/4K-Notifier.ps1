@@ -26,7 +26,7 @@ While (!$Finished){
     if ($Response | Where-Object {$PSItem -Like "*3840x2160*"}){
         $Finished = $True
     }else{
-        Write-Host "`rYour video has not been encoded to 4K, trying again (attempt n°$attempt) in $Timeout seconds.." -NoNewLine 
+        Write-Host "`rYour video has not been encoded to 4K, trying again (attempt no.$attempt) in $Timeout seconds.." -NoNewLine 
         Start-Sleep -Seconds $Timeout
         Write-Host "`rTrying again..                                                       " -NoNewLine -ForegroundColor Red
         continue
