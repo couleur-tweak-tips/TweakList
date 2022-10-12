@@ -1,5 +1,12 @@
-function Set-Choice ($Letters){ # Convenient function for choice.exe
-    if (-Not(Test-Path "$env:windir\system32\choice.exe")){Write-Error 'Choice.exe is not present on your machine';pause;exit}
-    choice.exe /C $Letters /N | Out-Null
-    return $Letters[$($LASTEXITCODE - 1)]
+function Set-Choice { # Converts passed string to an array of chars
+    param(
+        [char[]]$Letters = "YN"
+    )
+    While ($Key -NotIn $Letters){
+        [char]$Key = $host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]'NoEcho, IncludeKeyDown').Character
+        if (($Key -NotIn $Letters) -and !$IsLinux){
+                [Console]::Beep(500,300)
+        }
+    }
+    return $Key
 }
