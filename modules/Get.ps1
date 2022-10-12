@@ -1,19 +1,40 @@
 # This function centralizes most of what you can download/install on CTT
 # Anything it doesn't find in that switch ($App){ statement is passed to scoop
- 
+$global:SendTo = [System.Environment]::GetFolderPath('SendTo')
 function Get {
     [alias('g')] # minimalism at it's finest
     param(
         [Parameter(ValueFromRemainingArguments = $true)]
-        [Array]$Apps
+        [Array]$Apps,
+        [Switch]$DryRun
     )
 
     $FailedToInstall = $null # Reset that variable for later
+    if ($Apps.Count -eq 1 -and (($Apps[0] -Split '\r?\n') -gt 1)){
+        $Apps = $Apps[0] -Split '\r?\n'
+    }
+    if ($DryRun){
+        ForEach($App in $Apps){
+            "Installing $app."
+        }
+        return
+    }
 
     ForEach($App in $Apps){ # Scoop exits when it throws
 
         switch ($App){
             'nvddl'{Get-ScoopApp utils/nvddl}
+            {$_ -in 'Remux','Remuxer'}{
+                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
+                Out-File "$SendTo\Remux.bat"
+
+            }
+            {$_ -in 'RemuxAVI','AVIRemuxer'}{
+                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
+                Out-File "$SendTo\Remux - AVI.bat"
+                $Content = (Get-Content "$SendTo\Remux - AVI.bat") -replace 'set container=mp4','set container=avi'
+                Set-Content "$SendTo\Remux - AVI.bat" $Content
+            }
             {$_ -in 'Voukoder','vk'}{Install-Voukoder}
             'Upscaler'{
 
