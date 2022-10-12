@@ -1,10 +1,18 @@
+$OPTLC_PRESETS = @(
+    'Performance',
+    'NoCosmetics',
+    'MinimalViewBobbing',
+    'No16xSaturationOverlay',
+    'HideToggleSprint',
+    'ToggleSneak',
+    'DisableUHCMods',
+    'FullBright',
+    'CouleursPreset'
+)
+
 function Optimize-LunarClient {
     [alias('optlc')]
     param(
-        [String]
-        $LCDirectory = "$HOME\.lunarclient",
-
-
         [ValidateSet(
             'highest',
             'high',
@@ -16,23 +24,21 @@ function Optimize-LunarClient {
         [Array]$LazyChunkLoadSpeed = 'low',
 
 
-        [ValidateSet(
-            'Performance',
-            'NoCosmetics',
-            'MinimalViewBobbing',
-            'No16xSaturationOverlay',
-            'HideToggleSprint',
-            'ToggleSneak',
-            'DisableUHCMods',
-            'FullBright',
-            'CouleursPreset'
-            )]
-        [Array]$Settings,
+        [ValidateSet({$OPTLC_PRESETS})]
+        [Array]$Settings = (Invoke-Checkbox -Title "Select tweaks to apply" -Items $OPTLC_PRESETS),
+       
+        [String]
+        $LCDirectory = "$HOME\.lunarclient",
 
         [Switch]$NoBetaWarning,
         [Switch]$KeepLCOpen,
         [Switch]$DryRun
+
+        #! [Array]$Misc HideFoliage, NoEntityShadow, LCNametags, Clearglass
     )
+    if (-Not(Test-Path $LCDirectory)){
+        Write-Host "Lunar Client's directory ($HOME\.lunarclient) does not exist (for the turbonerds reading this you can overwrite that with -LCDirectory"
+    }
     if (!$NoBetaWarning){
         Write-Warning "This script may corrupt your Lunar Client profiles, continue at your own risk,`nyou're probably safer if you copy the folder located at $(Convert-Path $HOME\.lunarclient\settings\game)"
         pause
@@ -220,7 +226,7 @@ function Optimize-LunarClient {
         # Whatever you do that's highly recommended :+1:
     $general = Merge-Hashtables -Original $general -Patch $Presets.All.general
     $mods = Merge-Hashtables -Original $mods -Patch $Presets.All.mods
-    Write-Diff "Setting recommended settings (compact mods, fast chat).."
+    Write-Diff "recommended settings (compact mods, fast chat).." -Positivity $True -Term "Setting up"
 
     if ('Performance' -in $Settings){
         $general = Merge-Hashtables -Original $general -Patch $Presets.Performance.general
