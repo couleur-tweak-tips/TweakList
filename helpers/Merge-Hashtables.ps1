@@ -1,3 +1,4 @@
+<#
 $Original = @{
     lets = 'go'
     Sub = @{
@@ -13,7 +14,7 @@ $Patch = @{
     }
     finish ='cum'
 }
-
+#>
 function Merge-Hashtables {
     param(
         $Original,
@@ -39,6 +40,9 @@ function Merge-Hashtables {
 
         if ($Patch.$Key -and !$Merged.$Key){ # If the setting exists in the patch
             $Merged.Remove($Key)
+            if ($Original.$Key -ne $Patch.$Key){
+                Write-Verbose "Changing $Key from $($Original.$Key) to $($Patch.$Key)"
+            }
             $Merged += @{$Key = $Patch.$Key} # Then add it to the final settings
         }else{ # Else put in the unchanged normal setting
             $Merged += @{$Key = $Original.$Key}
