@@ -5,7 +5,7 @@ function Install-Voukoder {
     )
     if ($PSEdition -eq 'Core'){return "Install-Voukoder is only available on Windows PowerShell 5.1 (use of Get-Package)."}
     if (!$GetTemplates){
-        $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases)[0]
+        $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases/latest)[0]
         if ($LatestCore.tag_name -notlike "*.*"){
             $LatestCore.tag_name = $LatestCore.tag_name + ".0"
         }
