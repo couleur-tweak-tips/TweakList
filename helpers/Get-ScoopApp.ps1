@@ -29,6 +29,7 @@ function Get-ScoopApp {
 
     $Repos = @{
 
+        main = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
         extras = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
         utils = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
         nirsoft = @{org = 'kodybrown';repo = 'scoop-nirsoft';branch = 'master'}
