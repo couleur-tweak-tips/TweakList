@@ -121,21 +121,24 @@ function Install-Voukoder {
     $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
     New-Item -ItemType Directory -Path "$env:APPDATA\VEGAS\Render Templates\voukoder" -Force -ErrorAction Ignore | Out-Null
 
-    $Templates = [Ordered]@{
-        'HEVC NVENC + Upscale' = 'https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2'
-        'HEVC NVENC' =           'https://cdn.discordapp.com/attachments/969870701798522901/972541638733885470/HEVC_NVENC.sft2'
-        'H264 NVENC + Upscale' = 'https://cdn.discordapp.com/attachments/969870701798522901/972541639744688198/H264_NVENC_Upscale.sft2'
-        'H264 NVENC' =           'https://cdn.discordapp.com/attachments/969870701798522901/972541638356389918/H264_NVENC.sft2'
-        'x265 + Upscale' =       'https://cdn.discordapp.com/attachments/969870701798522901/972541639346225264/x265_Upscale.sft2'
-        'x265' =                 'https://cdn.discordapp.com/attachments/969870701798522901/972541639560163348/x265.sft2'
-        'x264 + Upscale' =       'https://cdn.discordapp.com/attachments/969870701798522901/972541638943596574/x264_Upscale.sft2'
-        'x264' =                 'https://cdn.discordapp.com/attachments/969870701798522901/972541639128129576/x264.sft2'
+    @(
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541638733885470/HEVC_NVENC.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541639744688198/H264_NVENC_Upscale.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541638356389918/H264_NVENC.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541639346225264/x265_Upscale.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541639560163348/x265.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541638943596574/x264_Upscale.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541639128129576/x264.sft2'
+    ) | ForEach-Object {
+        # Converts 
+        # https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2
+        # To hashtable with key "HEVC NVENC + Upscale" and val the URL
+        $FileName = (($_ | Split-Path -Leaf) -replace '_',' ' -replace " Upscale", " + Upscale").TrimEnd('.sft2')
+        $Templates += [Ordered]@{$FileName = $PSItem}
     }
 
-    $SelectedTemplates = Write-Menu -Entries @($Templates.Keys) -MultiSelect -Title @"
-Tick/untick the render templates you'd like to install by pressing SPACE, then press ENTER to finish.
-NVENC (for NVIDIA GPUs) is much faster than libx265, but will give you a bigger file to upload.
-"@
+    $SelectedTemplates =  Invoke-Checkbox -Items $Templates.Keys -Title "Select render templates to install"
     ForEach ($Template in $SelectedTemplates){
         Remove-Item "$TemplatesFolder\$Template.sft2" -Force -ErrorAction Ignore
         curl.exe -# -sSL $Templates.$Template -o"$TemplatesFolder\$Template.sft2"
