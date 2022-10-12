@@ -34,21 +34,14 @@ function Optimize-OBS {
                 Basic = @{
                     ADVOut = @{
                         RecQuality='Small'
-                        RecEncoder='amd_amf_h265'
+                        RecEncoder='h265_texture_amf'
                         FFOutputToFile='true'
                     }
                 }
                 recordEncoder = @{
-                    'Interval.Keyframe'='0.0'
-                    'QP.IFrame'=18
-                    'QP.PFrame'=18
-                    'lastVideo.API'="Direct3D 11"
-                    'lastVideo.Adapter'=0
-                    RateControlMethod=0
-                    Version=6
-                    lastRateControlMethod=0
-                    lastVBVBuffer=0
-                    lastView=0
+                    'cqp' = 20
+                    preset = 'speed'
+                    rate_control = 'cqp'
                 }
             }
             QuickSync = @{
