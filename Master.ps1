@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 193
+$CommitCount = 195
 $FuncsCount = 59
 <#
 The MIT License (MIT)
@@ -3039,7 +3039,7 @@ function Install-Voukoder {
     )
     if ($PSEdition -eq 'Core'){return "Install-Voukoder is only available on Windows PowerShell 5.1 (use of Get-Package)."}
     if (!$GetTemplates){
-        $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases)[0]
+        $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases/latest)[0]
         if ($LatestCore.tag_name -notlike "*.*"){
             $LatestCore.tag_name = $LatestCore.tag_name + ".0"
         }
