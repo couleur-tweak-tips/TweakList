@@ -1,4 +1,4 @@
-# To-do list for the CTT optimizer.
+# To-do list for the (not named) optimizer.
 
 - Basic Requirements
   - Everything should be togglable depending on the users needs.
@@ -14,16 +14,11 @@
  - Call Opt-LC to optimize Lunar Client
    - you made it and understand it more than me
  - Disable extra services such as:
-   - LanmanWorkstation (used in business areas)
-   - LanmanServer (used to detect a NAS or file server, should 100% be optional)
+   - LanmanWorkstation (used in business areas, used to detect a NAS or file server)
+   - LanmanServer (used to detect a NAS or file server, these should 100% be optional)
    - RasMan (Remote access, hella security risk)
    - FontCache3.0.0.0 (Literally only helps office apps)
    - WpnService (Disables taskbar notifications, can be annoying and useless if you use a browser or use discord)
- - Optimize BCDEdit
-   - Change TSyncPolicy to Enhanced
-   - Changes the internal hardware clocks to more efficient
- - Disable Platform Tick
-   - Don't disable for everyone as some BIOSes don't have platform ticks
  - Use High Performance Power Plan
    - This allows for good performance on all devices
    - doesn't need to disable power throttling
