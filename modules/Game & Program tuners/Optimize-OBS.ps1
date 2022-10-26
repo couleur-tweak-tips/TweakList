@@ -1,7 +1,6 @@
 function Optimize-OBS {
     [alias('optobs')]
     param(
-        [Parameter(Mandatory)] # Override encoder check
         [ValidateSet('x264','NVENC','AMF','QuickSync')]
         [String]$Encoder,
         
@@ -10,6 +9,18 @@ function Optimize-OBS {
 
         [String]$Preset = 'HighPerformance'
     )
+    Write-Warning "Update your OBS to version 28.0 or above for compatibility with new NVENC/AMD settings"
+    if (!$Encoder){
+        $Encoders = @{
+            "NVENC (NVIDIA GPUs)" = "NVENC"
+            "AMF (AMD GPUs)" = "AMF"
+            "QuickSync (Intel iGPUs)" = "QuickSync"
+            "x264 (CPU)" = "x264"
+        }
+        Write-Host "Select what OBS will use to record (use arrow keys and press ENTER to confirm)"
+        $Key = Menu ([Collections.ArrayList]$Encoders.Keys)
+        $Encoder = $Encoders.$Key # Getting it back from 
+    }
 
     $OBSPatches = @{
         HighPerformance = @{
@@ -41,7 +52,8 @@ function Optimize-OBS {
                 recordEncoder = @{
                     'cqp' = 20
                     preset = 'speed'
-                    rate_control = 'cqp'
+                    rate_control = 'CQP'
+                    ffmpeg_opts = "MaxNumRefFrames=4 HighMotionQualityBoostEnable=1"
                 }
             }
             QuickSync = @{
