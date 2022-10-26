@@ -1,15 +1,3 @@
-$OPTLC_PRESETS = @(
-    'Performance',
-    'NoCosmetics',
-    'MinimalViewBobbing',
-    'No16xSaturationOverlay',
-    'HideToggleSprint',
-    'ToggleSneak',
-    'DisableUHCMods',
-    'FullBright',
-    'CouleursPreset'
-)
-
 function Optimize-LunarClient {
     [alias('optlc')]
     param(
@@ -24,8 +12,29 @@ function Optimize-LunarClient {
         [Array]$LazyChunkLoadSpeed = 'low',
 
 
-        [ValidateSet({$OPTLC_PRESETS})]
-        [Array]$Settings = (Invoke-Checkbox -Title "Select tweaks to apply" -Items $OPTLC_PRESETS),
+        [ValidateSet(
+            'Performance',
+            'NoCosmetics',
+            'MinimalViewBobbing',
+            'No16xSaturationOverlay',
+            'HideToggleSprint',
+            'ToggleSneak',
+            'DisableUHCMods',
+            'FullBright',
+            'CouleursPreset'    
+        )]
+        # Gotta be put twice because mf cant handle variables in validate sets
+        [Array]$Settings = (Invoke-Checkbox -Title "Select tweaks to apply" -Items @(
+            'Performance'
+            'NoCosmetics'
+            'MinimalViewBobbing'
+            'No16xSaturationOverlay'
+            'HideToggleSprint'
+            'ToggleSneak'
+            'DisableUHCMods'
+            'FullBright'
+            'CouleursPreset'
+        )),
        
         [String]
         $LCDirectory = "$HOME\.lunarclient",
@@ -34,8 +43,9 @@ function Optimize-LunarClient {
         [Switch]$KeepLCOpen,
         [Switch]$DryRun
 
-        #! [Array]$Misc HideFoliage, NoEntityShadow, LCNametags, Clearglass
+        #! [Array]$Misc HideFoliage, NoEntityShadow, LCNametags, Clearglass, NoBackground, NoHypixelMods
     )
+    
     if (-Not(Test-Path $LCDirectory)){
         Write-Host "Lunar Client's directory ($HOME\.lunarclient) does not exist (for the turbonerds reading this you can overwrite that with -LCDirectory"
     }
@@ -115,6 +125,7 @@ function Optimize-LunarClient {
                 compact_menu_bl          = $true
                 modernKeybindHandling_bl = $true
                 borderless_fullscreen_bl = $true
+                trans_res_pack_menu_bg_bl = $true
             }
             mods = @{
                 chat = @{
@@ -132,7 +143,35 @@ function Optimize-LunarClient {
         CouleursPreset = @{
             mods = @{
                 scoreboard = @{
+                    seen = $True
                     x = 2 # Moves scoreboard 2 pixels to the right
+                }
+                potioneffects = @{
+                    seen = $True
+                    position = 'bottom_left'
+                    y = -246.5 # Middle left
+                }
+                saturation_hud_mod = @{
+                    seen = $True
+                    saturation_hud_mod_enabled_bl = $True
+                    position     = 'bottom_right' # Just right to the last hunger bar
+                    x            = -289
+                    y            = -37
+                    options = @{
+                        scale_nr          = 1.5 # Yellow
+                        text_clr_nr       = @{value=-171}
+                        background_clr_nr = @{value=0}
+                    }
+                }
+                zoom = @{
+                    seen = $True
+                    options = @{
+                        zoom_kblc         = 'KEY_X'
+                    }
+                }
+                bossbar = @{
+                    seen = $True
+                    bossbar_enabled_bl = $False
                 }
             }
         }
@@ -175,6 +214,15 @@ function Optimize-LunarClient {
         MinimalViewBobbing = @{
             general = @{
                 minimal_viewbobbing_bl = $true
+            }
+        }
+        No16xSaturationOverlay = @{
+            mods = @{
+                saturation_mod = @{
+                    options = @{
+                        show_saturation_overlay_bl=$False
+                    }
+                }
             }
         }
         HideToggleSprint = @{
@@ -262,6 +310,10 @@ function Optimize-LunarClient {
     if ('MinimalViewBobbing' -in $Settings){
         $general = Merge-Hashtables -Original $general -Patch $Presets.MinimalViewBobbing.general
         Write-Diff -Positivity $True -Message "minimal view bobbing"
+    }
+    if ('No16xSaturationOverlay' -in $Settings){
+        $mods = Merge-Hashtables -Original $mods -Patch $Presets.No16xSaturationOverlay.mods
+        Write-Diff -Positivity $False -Message "16x saturation hunger bar overlay"
     }
     if ('HideToggleSprint' -in $Settings){
         $mods = Merge-Hashtables -Original $mods -Patch $Presets.HideToggleSprint.mods
