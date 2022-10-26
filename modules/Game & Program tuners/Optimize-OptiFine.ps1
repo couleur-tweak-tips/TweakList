@@ -1,7 +1,7 @@
 function Optimize-OptiFine {
     [alias('optof')]
     param(
-        [ValidateSet('Smart','Lowest')]
+        [ValidateSet('Smart','Lowest','CouleursPreset')]
         [Parameter(Mandatory)]
         $Preset,
         [String]$CustomDirectory = (Join-path $env:APPDATA '.minecraft'),
@@ -33,6 +33,24 @@ if($MultiMC){
 }
 
 $Presets = @{
+
+    CouleursPresets = @{
+        options = @{
+            'key_key.hotbar.5' = 19
+            'key_key.hotbar.6' = 20
+            'key_key.hotbar.7' = 33
+            'key_key.hotbar.8' = 34
+            'key_key.hotbar.9' = 0
+            chatScale      = 0.8
+            chatWidth      = 0.65
+            guiScale       = 3
+            renderDistance = 7
+            maxFps         = 260
+            chatOpacity    = 0.25
+            enableVsync    = $False
+            pauseOnLostFocus = $False
+        }
+    }
 
     Smart = @{
         options = @{
@@ -127,7 +145,9 @@ foreach ($file in 'options','optionsof'){
     $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.$file
     Set-Content "$CustomDirectory\$file.txt" -Value (ConvertTo-MCSetting $Hash) -Force
 }
-$Hash = (Get-Content "$CustomDirectory\optionsLC.txt") -Replace ',"maxFps":"260"','' | ConvertFrom-Json
+if (Test-Path "$CustomDirectory\optionsLC.txt"){
+    $Hash = (Get-Content "$CustomDirectory\optionsLC.txt") -Replace ',"maxFps":"260"','' | ConvertFrom-Json
+}
 $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.optionsof
 $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.options
 $Hash.maxFPS = 260
