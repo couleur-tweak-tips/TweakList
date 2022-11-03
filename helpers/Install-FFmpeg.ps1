@@ -1,11 +1,5 @@
 function Install-FFmpeg {
 
-    Install-Scoop
-
-    Set-ExecutionPolicy Bypass -Scope Process -Force
-
-    [System.Net.ServicePointManager]::SecurityProtocol = 'Tls12'
-
     $IsFFmpegScoop = (Get-Command ffmpeg -Ea Ignore).Source -Like "*\shims\*"
 
     if(Get-Command ffmpeg -Ea Ignore){
@@ -15,12 +9,20 @@ function Install-FFmpeg {
         if (-Not($IsFFmpeg5)){
 
             if ($IsFFmpegScoop){
+                Get Scoop
                 scoop update ffmpeg
             }else{
                 Write-Warning @"
-An FFmpeg installation was detected, but libplacebo filter could not be found (old FFmpeg version?).
-If you installed FFmpeg yourself, you can remove it and use the following command to install ffmpeg and add it to the path:
-scoop.cmd install ffmpeg
+An old FFmpeg installation was detected @ ($((Get-Command FFmpeg).Source)),
+
+You could encounter errors such as:
+- Encoding with NVENC failing (in simple terms not being able to render with your GPU)
+- Scripts using new filters (e.g libplacebo)
+
+If you want to update FFmpeg yourself, you can remove it and use the following command to install ffmpeg and add it to the path:
+iex(irm tl.ctt.cx);Get FFmpeg
+
+If you're using it because you prefer old NVIDIA drivers (why) here be dragons!
 "@
 pause
                 
@@ -29,7 +31,7 @@ pause
         }
                 
     }else{
-
+        Get Scoop
         $Scoop = (Get-Command Scoop.ps1).Source | Split-Path | Split-Path
 
         if (-Not(Test-Path "$Scoop\buckets\main")){
