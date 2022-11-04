@@ -1,33 +1,9 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 200
+$CommitCount = 204
 $FuncsCount = 60
-<#
-The MIT License (MIT)
-
-Copyright (c) 2019 Oliver Lipkau
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-#>
-
-Function Get-IniContent {
+function Get-IniContent {
     <#
     .Synopsis
         Gets the content of an INI file
@@ -198,29 +174,6 @@ Function Get-IniContent {
 }
 
 Set-Alias gic Get-IniContent
-<#
-The MIT License (MIT)
-
-Copyright (c) 2019 Oliver Lipkau
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-#>
 Function Out-IniFile {
     <#
     .Synopsis
@@ -724,12 +677,6 @@ function HEVCCheck {
 }
 function Install-FFmpeg {
 
-    Install-Scoop
-
-    Set-ExecutionPolicy Bypass -Scope Process -Force
-
-    [System.Net.ServicePointManager]::SecurityProtocol = 'Tls12'
-
     $IsFFmpegScoop = (Get-Command ffmpeg -Ea Ignore).Source -Like "*\shims\*"
 
     if(Get-Command ffmpeg -Ea Ignore){
@@ -739,12 +686,20 @@ function Install-FFmpeg {
         if (-Not($IsFFmpeg5)){
 
             if ($IsFFmpegScoop){
+                Get Scoop
                 scoop update ffmpeg
             }else{
                 Write-Warning @"
-An FFmpeg installation was detected, but libplacebo filter could not be found (old FFmpeg version?).
-If you installed FFmpeg yourself, you can remove it and use the following command to install ffmpeg and add it to the path:
-scoop.cmd install ffmpeg
+An old FFmpeg installation was detected @ ($((Get-Command FFmpeg).Source)),
+
+You could encounter errors such as:
+- Encoding with NVENC failing (in simple terms not being able to render with your GPU)
+- Scripts using new filters (e.g libplacebo)
+
+If you want to update FFmpeg yourself, you can remove it and use the following command to install ffmpeg and add it to the path:
+iex(irm tl.ctt.cx);Get FFmpeg
+
+If you're using it because you prefer old NVIDIA drivers (why) here be dragons!
 "@
 pause
                 
@@ -753,7 +708,7 @@ pause
         }
                 
     }else{
-
+        Get Scoop
         $Scoop = (Get-Command Scoop.ps1).Source | Split-Path | Split-Path
 
         if (-Not(Test-Path "$Scoop\buckets\main")){
@@ -3575,7 +3530,7 @@ function Set-PowerPlan {
         powercfg /s $DotPow
     }
 }
-function Set-Win32ProritySeparation ([int]$DWord){
+function Set-Win32PrioritySeparation ([int]$DWord){
 
     $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
     $current = (Get-ItemProperty $Path).Win32PrioritySeparation
