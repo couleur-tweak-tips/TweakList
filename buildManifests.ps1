@@ -76,7 +76,7 @@ Get-ChildItem ./modules -Recurse -Include "*.ps1" | ForEach-Object {
             Name = $FuncName
             Description = $HelpInfo.Description.Text
             Parameters = [System.Collections.ArrayList]@()
-            Path = $PSItem.FullName -replace ($PSScriptRoot),''
+            Path = $PSItem.FullName.Replace($PSScriptRoot,'')
         }
 
         if ($HelpInfo.details){ # .SYNOPSIS
@@ -103,6 +103,7 @@ Get-ChildItem ./modules -Recurse -Include "*.ps1" | ForEach-Object {
                 $ParamToAdd = [Ordered]@{} # Mind it's name, couldn't also have named it Parameter
                 $ParamToAdd += @{
                     Name = $Parameter.Name
+                    Required = $Parameter.required
                     # Description = $Description
                     Type = $Parameter.type.name
                 }
