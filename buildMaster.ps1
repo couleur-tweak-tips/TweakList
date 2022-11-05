@@ -10,6 +10,7 @@ Get-ChildItem helpers,modules -Recurse -Include *.ps1 | ForEach-Object {
 
 $API = (Invoke-WebRequest -Useb  "https://api.github.com/repos/couleur-tweak-tips/TweakList/commits?per_page=1").RawContent # Get TweakList repo commit info from GitHub's API
 Try{
+    #((($api -split "`n") | Where-Object {$_ -Like "Link:*"}) -Split "&page=")[2] -replace '>; rel="last"',''
     Set-Variable -Name CommitCount -Value ([int]((($API -split "&page=")[2] -split '>; rel="last"')[0]) + 1) -ErrorAction Stop # Parses the API response to get the number of commits
 } Catch {
     Write-Warning "Failed to parse commit count"
