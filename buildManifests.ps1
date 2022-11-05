@@ -50,6 +50,7 @@ Get-ChildItem ./modules -Recurse -Include "*.ps1" | ForEach-Object {
 
     if ($HelpInfo.Description){ # .DESCRIPTION
 
+        Write-Host "FullName is [$($PSItem.FullName)], root is [$PSScriptRoot]"
 
         $Manifest = [Ordered]@{}
         $Manifest += @{
@@ -69,6 +70,9 @@ Get-ChildItem ./modules -Recurse -Include "*.ps1" | ForEach-Object {
             }
             if ($Parsed.Description){
                 $Manifest.Description += ($Parsed.Description -join "`n")
+            }
+            if ($null -eq $Manifest.Description){
+                $Manifest.Remove('Description')
             }
         }
 
@@ -93,8 +97,6 @@ Get-ChildItem ./modules -Recurse -Include "*.ps1" | ForEach-Object {
                     $ParamToAdd.KeyValues = $Parsed.KeyValues
                 }
                 $ParamToAdd.Description = $Parsed.Description
-    
-
 
                 $ValidateSets = (Get-Command $FuncName).Parameters.$($Parameter.Name).Attributes.ValidValues
                 if ($ValidateSets){
