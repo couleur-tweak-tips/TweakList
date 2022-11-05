@@ -1,5 +1,7 @@
 [
   {
+    "Path": "dules/Game & Program tuners/Optimize-LunarClient.ps1",
+    "Name": "Optimize-LunarClient",
     "Description": "Tunes a selected Lunar Client profile to your liking",
     "Parameters": [
       {
@@ -20,8 +22,6 @@
         ]
       }
     ],
-    "Name": "Optimize-LunarClient",
-    "Path": "dules/Game & Program tuners/Optimize-LunarClient.ps1",
     "Display Name": "Optimize LunarClient",
     "Platform": [
       "Linux",
@@ -30,6 +30,8 @@
     "Category": "Optimizations"
   },
   {
+    "Path": "dules/Game & Program tuners/Optimize-OBS.ps1",
+    "Name": "Optimize-OBS",
     "Description": "Tune your OBS for a specific usecase in the snap of a finger!",
     "Parameters": [
       {
@@ -56,8 +58,6 @@
         "Description": "If you've got a portable install or something, pass in the main OBS binary's path here"
       }
     ],
-    "Name": "Optimize-OBS",
-    "Path": "dules/Game & Program tuners/Optimize-OBS.ps1",
     "Display Name": "Optimize OBS",
     "Platform": [
       "Linux",
