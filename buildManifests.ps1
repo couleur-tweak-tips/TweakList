@@ -1,4 +1,24 @@
 function ParseTable {
+    <#
+
+    #//Turns:
+    Hello, this is my parameter's description,
+    here's some useful info that will get formatted and fed in the manifests separately
+    Platform: Linux; Windows
+    Category: Optimizations
+    #//Into:
+    @{
+        Description = @(
+            "Hello, this is my parameter's description,"
+            "here's some useful info that will get formatted and fed in the manifests separately"
+        )
+        KeyValues = @{
+            Category = 'Optimizations'
+            Platform = @('Linux', 'Windows')
+        }
+    }
+
+    #>
     param(
         $Header
     )
@@ -49,30 +69,24 @@ Get-ChildItem ./modules -Recurse -Include "*.ps1" | ForEach-Object {
     }
 
     if ($HelpInfo.Description){ # .DESCRIPTION
-
-        Write-Host "FullName is [$($PSItem.FullName)], root is [$PSScriptRoot]"
+        # Then such value has been properly documented and will be added to the Manifests
 
         $Manifest = [Ordered]@{}
         $Manifest += @{
             Name = $FuncName
             Description = $HelpInfo.Description.Text
             Parameters = [System.Collections.ArrayList]@()
-            Path = $PSItem.FullName.TrimStart($PSScriptRoot)
+            Path = $PSItem.FullName -replace ($PSScriptRoot),''
         }
 
         if ($HelpInfo.details){ # .SYNOPSIS
-            # Used to store info in a 'Key: Value' pattern
 
-            #$ParsedDetails = ParseTable $HelpInfo.details.description.text
             $Parsed = (ParseTable $HelpInfo.details.description.text)
             if ($Parsed.KeyValues){
                 $Manifest += $Parsed.KeyValues
             }
             if ($Parsed.Description){
                 $Manifest.Description += ($Parsed.Description -join "`n")
-            }
-            if ($null -eq $Manifest.Description){
-                $Manifest.Remove('Description')
             }
         }
 
@@ -96,7 +110,11 @@ Get-ChildItem ./modules -Recurse -Include "*.ps1" | ForEach-Object {
                 if ($Parsed.KeyValues){
                     $ParamToAdd.KeyValues = $Parsed.KeyValues
                 }
-                $ParamToAdd.Description = $Parsed.Description
+                if ($Parsed.Description){
+                    $ParamToAdd.Description = $Parsed.Description
+                }else{
+                    Write-Host "No description for parameter [$($Parameter.Name)] in function [$($Manifest.Name)]" -ForegroundColor Red
+                }
 
                 $ValidateSets = (Get-Command $FuncName).Parameters.$($Parameter.Name).Attributes.ValidValues
                 if ($ValidateSets){
