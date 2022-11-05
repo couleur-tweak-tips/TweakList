@@ -1,11 +1,15 @@
 function Optimize-OBS {
     <#
-    
+    .SYNOPSIS
+    Display Name: Optimize OBS
+    Platform: Linux; Windows
+    Category: Optimizations
+
     .DESCRIPTION
     Tune your OBS for a specific usecase in the snap of a finger!
 
     .PARAMETER Encoder
-    NVENC: NVIDIA's. Fastest encoder, it lets you record in hundreds of FPS easily
+    NVENC: NVIDIA's Fastest encoder, it lets you record in hundreds of FPS easily
     AMF: AMD GPUs/Integrated GPUs encoder, not as good as NVENC but can still get out ~240FPS at most
     QuickSync: Intel's GPU encoder, worst out of the three, note this is H264, not the new fancy but slow AV1
     x264: Encoding using your CPU, slow but efficient, only use if necessary/you know what you're doing

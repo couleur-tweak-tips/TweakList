@@ -2,21 +2,11 @@ function Optimize-LunarClient {
     <#
     .SYNOPSIS
     Display Name: Optimize LunarClient
-    Platform: Linux, Windows
+    Platform: Linux; Windows
     Category: Optimizations
 
     .DESCRIPTION
     Tunes a selected Lunar Client profile to your liking
-
-    .PARAMETER LazyChunkLoadSpeed
-    The speed at which you wish chunks to load
-    
-      Highest: 5ms
-      High: 10ms
-      Medium: 15ms
-      Low: 20ms
-      Lowest: 25ms
-      Off (Vanilla): 30ms
 
     .PARAMETER Settings
     Specify which specific tweak you'd like applying on your profile
