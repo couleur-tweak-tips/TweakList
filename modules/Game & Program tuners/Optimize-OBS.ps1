@@ -1,15 +1,32 @@
 function Optimize-OBS {
+    <#
+    
+    .DESCRIPTION
+    Tune your OBS for a specific usecase in the snap of a finger!
+
+    .PARAMETER Encoder
+    NVENC: NVIDIA's. Fastest encoder, it lets you record in hundreds of FPS easily
+    AMF: AMD GPUs/Integrated GPUs encoder, not as good as NVENC but can still get out ~240FPS at most
+    QuickSync: Intel's GPU encoder, worst out of the three, note this is H264, not the new fancy but slow AV1
+    x264: Encoding using your CPU, slow but efficient, only use if necessary/you know what you're doing
+
+    .PARAMETER OBS64Path
+    If you've got a portable install or something, pass in the main OBS binary's path here
+
+    #>
     [alias('optobs')]
     param(
         [ValidateSet('x264','NVENC','AMF','QuickSync')]
         [String]$Encoder,
         
         [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
-        [String]$OBS64Path, # Indicate your OBS installation by passing -OBS64Path "C:\..\bin\64bit\obs64.exe"
+        [String]$OBS64Path, #//Indicate your OBS installation by passing -OBS64Path "C:\..\bin\64bit\obs64.exe"
 
+        [ValidateSet('HighPerformance')]
         [String]$Preset = 'HighPerformance'
+
     )
-    Write-Warning "Update your OBS to version 28.0 or above for compatibility with new NVENC/AMD settings"
+
     if (!$Encoder){
         $Encoders = @{
             "NVENC (NVIDIA GPUs)" = "NVENC"
@@ -31,14 +48,13 @@ function Optimize-OBS {
                     }
                 }
                 recordEncoder = @{
-                    rate_control = 'CQP'
-                    cqp = 18
-                    preset = 'hp'
-                    psycho_aq = 'false'
-                    keyint_sec = 0
-                    profile = 'high'
-                    lookahead = 'false'
-                    bf = 0
+                    bf=0
+                    cqp=18
+                    multipass='disabled'
+                    preset2='p2'
+                    profile='main'
+                    psycho_aq='false'
+                    rate_control='CQP'
                 }
             }
             AMF = @{
@@ -125,10 +141,10 @@ please manually specify the path to your OBS64 executable, example:
 Optimize-OBS -OBS64Path "D:\obs\bin\64bit\obs64.exe"
 
 You can find it this way:             
- Searching up OBS -> 
- Open file location ->
+ Search OBS -> Right click it
+ Open file location in Explorer ->
  Open file location again if it's a shortcut ->
- Shift right click obs64.exe -> Copy as Path
+ Shift right click obs64.exe -> Copy as path
 '@
             }
         }
@@ -145,6 +161,19 @@ You can find it this way:
             $OBS64Path = Get-ShortcutTarget $StartMenu
         }
 
+    }
+
+    if (!$IsLinux -or !$IsMacOS){
+        [Version]$CurVer = (Get-Item $OBS64Path).VersionInfo.ProductVersion
+        if ($CurVer -lt [Version]"28.1.0"){
+            Write-Warning @"
+It is strongly advised you update OBS before continuing (for compatibility with new NVENC/AMD settings)
+
+Detected version: $CurVer
+obs64.exe path: $OBS64Path
+pause
+"@
+        }
     }
 
     Set-CompatibilitySettings $OBS64Path -RunAsAdmin
