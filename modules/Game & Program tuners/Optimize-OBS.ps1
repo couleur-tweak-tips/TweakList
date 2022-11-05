@@ -3,7 +3,7 @@ function Optimize-OBS {
     .SYNOPSIS
     Display Name: Optimize OBS
     Platform: Linux; Windows
-    Category: Optimizations
+    Category: Programs
 
     .DESCRIPTION
     Tune your OBS for a specific usecase in the snap of a finger!

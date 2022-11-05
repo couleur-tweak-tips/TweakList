@@ -3,7 +3,7 @@ function Optimize-LunarClient {
     .SYNOPSIS
     Display Name: Optimize LunarClient
     Platform: Linux; Windows
-    Category: Optimizations
+    Category: Games
 
     .DESCRIPTION
     Tunes a selected Lunar Client profile to your liking
