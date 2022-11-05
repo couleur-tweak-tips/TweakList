@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 210
+$CommitCount = 213
 $FuncsCount = 60
 function Get-IniContent {
     <#
@@ -2180,21 +2180,11 @@ function Optimize-LunarClient {
     <#
     .SYNOPSIS
     Display Name: Optimize LunarClient
-    Platform: Linux, Windows
+    Platform: Linux; Windows
     Category: Optimizations
 
     .DESCRIPTION
     Tunes a selected Lunar Client profile to your liking
-
-    .PARAMETER LazyChunkLoadSpeed
-    The speed at which you wish chunks to load
-    
-      Highest: 5ms
-      High: 10ms
-      Medium: 15ms
-      Low: 20ms
-      Lowest: 25ms
-      Off (Vanilla): 30ms
 
     .PARAMETER Settings
     Specify which specific tweak you'd like applying on your profile
@@ -2551,12 +2541,16 @@ function Optimize-LunarClient {
 }
 function Optimize-OBS {
     <#
-    
+    .SYNOPSIS
+    Display Name: Optimize OBS
+    Platform: Linux; Windows
+    Category: Optimizations
+
     .DESCRIPTION
     Tune your OBS for a specific usecase in the snap of a finger!
 
     .PARAMETER Encoder
-    NVENC: NVIDIA's. Fastest encoder, it lets you record in hundreds of FPS easily
+    NVENC: NVIDIA's Fastest encoder, it lets you record in hundreds of FPS easily
     AMF: AMD GPUs/Integrated GPUs encoder, not as good as NVENC but can still get out ~240FPS at most
     QuickSync: Intel's GPU encoder, worst out of the three, note this is H264, not the new fancy but slow AV1
     x264: Encoding using your CPU, slow but efficient, only use if necessary/you know what you're doing
