@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 215
+$CommitCount = 218
 $FuncsCount = 60
 function Get-IniContent {
     <#
@@ -2550,6 +2550,7 @@ function Optimize-OBS {
     Tune your OBS for a specific usecase in the snap of a finger!
 
     .PARAMETER Encoder
+    Which hardware type you wish to record with
     NVENC: NVIDIA's Fastest encoder, it lets you record in hundreds of FPS easily
     AMF: AMD GPUs/Integrated GPUs encoder, not as good as NVENC but can still get out ~240FPS at most
     QuickSync: Intel's GPU encoder, worst out of the three, note this is H264, not the new fancy but slow AV1

@@ -1,6 +1,5 @@
 [
   {
-    "Path": "dules/Game & Program tuners/Optimize-LunarClient.ps1",
     "Name": "Optimize-LunarClient",
     "Description": "Tunes a selected Lunar Client profile to your liking",
     "Parameters": [
@@ -22,6 +21,7 @@
         ]
       }
     ],
+    "Path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
     "Display Name": "Optimize LunarClient",
     "Platform": [
       "Linux",
@@ -30,7 +30,6 @@
     "Category": "Optimizations"
   },
   {
-    "Path": "dules/Game & Program tuners/Optimize-OBS.ps1",
     "Name": "Optimize-OBS",
     "Description": "Tune your OBS for a specific usecase in the snap of a finger!",
     "Parameters": [
@@ -43,7 +42,7 @@
           "QuickSync": "Intel's GPU encoder, worst out of the three, note this is H264, not the new fancy but slow AV1",
           "x264": "Encoding using your CPU, slow but efficient, only use if necessary/you know what you're doing"
         },
-        "Description": null,
+        "Description": "Which hardware type you wish to record with",
         "ValidateSet": [
           "x264",
           "NVENC",
@@ -58,6 +57,7 @@
         "Description": "If you've got a portable install or something, pass in the main OBS binary's path here"
       }
     ],
+    "Path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
     "Display Name": "Optimize OBS",
     "Platform": [
       "Linux",
