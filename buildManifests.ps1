@@ -1,11 +1,16 @@
 function ParseTable {
     param(
-        [String]$Header
+        $Header
     )
+
+    $Header = $Header -Split "`n"
 
     $ret = [Ordered]@{}
 
-    ForEach($Line in ($Header -Split "`n")){
+    $KeyValues   = $Header | Where-Object {$_ -Like "*: *"}
+    $Description = $Header | Where-Object {$_ -NotLike "*: *"}
+    
+    ForEach($Line in $KeyValues){
         $Key, $Value = $Line -Split ': '
 
         if ((!$Key -or !$Value) -or ($Value -isnot [String])){
@@ -13,12 +18,16 @@ function ParseTable {
             continue
         }
 
-        if ($Value -Like '*, *'){
-            $Value = $Value -split ', '
+        if ($Value -Like '*; *'){
+            $Value = $Value -split '; '
         }
         $ret.$Key = $Value
     }
-    return $ret
+
+    return @{
+        Description = $Description
+        KeyValues = $ret
+    }
 }
 
 
@@ -28,7 +37,7 @@ $Manifests = [System.Collections.ArrayList]@()
 
 Get-ChildItem ./modules -Recurse -Include "*.ps1" | ForEach-Object {
 
-    Remove-Variable -Name Failed, HelpInfo, Entries, FuncName, Manifest, Parameters, Description -ErrorAction Ignore
+    Remove-Variable -Name Parsed, Failed, HelpInfo, Entries, FuncName, Manifest, Parameters, Description -ErrorAction Ignore
     $FuncName = $PSItem.BaseName # E.g 'Optimize-LunarClient'
 
     Try {
@@ -51,22 +60,18 @@ Get-ChildItem ./modules -Recurse -Include "*.ps1" | ForEach-Object {
         }
 
         if ($HelpInfo.details){ # .SYNOPSIS
-            # Used to store info in a 'Key: Value' pattern 
+            # Used to store info in a 'Key: Value' pattern
 
-            $Entries = $HelpInfo.details.description.text -split "`n" | Where-Object {$PSItem -Like "*: *"}
-
-            ForEach($Entry in $Entries){
-                $Colons = $Entry | Select-String -Pattern ":" -AllMatches
-                if ($Colons.Matches.Count -gt 1){ # Triple checking :)
-                    continue
-                }
-                $Key, $Value = $Entry -split ": "
-                if ($Value -Like "*, *"){
-                    $Value = $Value -split ', '
-                }
-                $Manifest.$Key = $Value
+            #$ParsedDetails = ParseTable $HelpInfo.details.description.text
+            $Parsed = (ParseTable $HelpInfo.details.description.text)
+            if ($Parsed.KeyValues){
+                $Manifest += $Parsed.KeyValues
+            }
+            if ($Parsed.Description){
+                $Manifest.Description += ($Parsed.Description -join "`n")
             }
         }
+
         if(!$Manifest."Display Name"){
             $Manifest."Display Name" = $FuncName -replace '-',' '
         }
@@ -80,9 +85,15 @@ Get-ChildItem ./modules -Recurse -Include "*.ps1" | ForEach-Object {
                 $ParamToAdd = [Ordered]@{} # Mind it's name, couldn't also have named it Parameter
                 $ParamToAdd += @{
                     Name = $Parameter.Name
-                    Description = $Description
+                    # Description = $Description
                     Type = $Parameter.type.name
                 }
+                $Parsed = (ParseTable $Description)
+                if ($Parsed.KeyValues){
+                    $ParamToAdd.KeyValues = $Parsed.KeyValues
+                }
+                $ParamToAdd.Description = $Parsed.Description
+    
 
 
                 $ValidateSets = (Get-Command $FuncName).Parameters.$($Parameter.Name).Attributes.ValidValues
@@ -99,4 +110,5 @@ Get-ChildItem ./modules -Recurse -Include "*.ps1" | ForEach-Object {
         $Manifests += $Manifest
     }
 }
-Write-Host ($Manifests | ConvertTo-Json -Depth 15)
+
+$Manifests | ConvertTo-Json -Depth 15 | Out-File ./Manifests.json
