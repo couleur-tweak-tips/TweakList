@@ -1,16 +1,39 @@
 function Optimize-LunarClient {
+    <#
+    .SYNOPSIS
+    Display Name: Optimize LunarClient
+    Platform: Linux, Windows
+    Category: Optimizations
+
+    .DESCRIPTION
+    Tunes a selected Lunar Client profile to your liking
+
+    .PARAMETER LazyChunkLoadSpeed
+    The speed at which you wish chunks to load
+    
+      Highest: 5ms
+      High: 10ms
+      Medium: 15ms
+      Low: 20ms
+      Lowest: 25ms
+      Off (Vanilla): 30ms
+
+    .PARAMETER Settings
+    Specify which specific tweak you'd like applying on your profile
+    #>
     [alias('optlc')]
     param(
-        [ValidateSet(
-            'highest',
-            'high',
-            'medium',
-            'low',
-            'lowest',
-            'off_van'
-            )]
-        [Array]$LazyChunkLoadSpeed = 'low',
 
+        #//[HelpMessage("Set your lazy chunk load speed")]
+        [ValidateSet(
+            'highest',  
+            'high',     
+            'medium',   
+            'low',      
+            'lowest',   
+            'off_van'   
+            )]
+        [String]$LazyChunkLoadSpeed = 'low',
 
         [ValidateSet(
             'Performance',
@@ -23,7 +46,7 @@ function Optimize-LunarClient {
             'FullBright',
             'CouleursPreset'    
         )]
-        # Gotta be put twice because mf cant handle variables in validate sets
+        #// Gotta be put twice because mf cant handle variables in validate sets
         [Array]$Settings = (Invoke-Checkbox -Title "Select tweaks to apply" -Items @(
             'Performance'
             'NoCosmetics'
@@ -43,7 +66,7 @@ function Optimize-LunarClient {
         [Switch]$KeepLCOpen,
         [Switch]$DryRun
 
-        #! [Array]$Misc HideFoliage, NoEntityShadow, LCNametags, Clearglass, NoBackground, NoHypixelMods
+        #//TODO: [Array]$Misc HideFoliage, NoEntityShadow, LCNametags, Clearglass, NoBackground, NoHypixelMods
     )
     
     if (-Not(Test-Path $LCDirectory)){
