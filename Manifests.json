@@ -1,11 +1,13 @@
 [
   {
     "Path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
+    "Description": "Tunes a selected Lunar Client profile to your liking",
+    "Name": "Optimize-LunarClient",
     "Parameters": [
       {
+        "Name": "Settings",
         "Type": "Array",
         "Required": "false",
-        "Name": "Settings",
         "KeyValues": {},
         "Description": "Specify which specific tweak you'd like applying on your profile",
         "ValidateSet": [
@@ -21,8 +23,6 @@
         ]
       }
     ],
-    "Description": "Tunes a selected Lunar Client profile to your liking",
-    "Name": "Optimize-LunarClient",
     "Display Name": "Optimize LunarClient",
     "Platform": [
       "Linux",
@@ -32,11 +32,13 @@
   },
   {
     "Path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
+    "Description": "Tune your OBS for a specific usecase in the snap of a finger!",
+    "Name": "Optimize-OBS",
     "Parameters": [
       {
+        "Name": "Encoder",
         "Type": "String",
         "Required": "false",
-        "Name": "Encoder",
         "KeyValues": {
           "NVENC": "NVIDIA's Fastest encoder, it lets you record in hundreds of FPS easily",
           "AMF": "AMD GPUs/Integrated GPUs encoder, not as good as NVENC but can still get out ~240FPS at most",
@@ -52,15 +54,13 @@
         ]
       },
       {
+        "Name": "OBS64Path",
         "Type": "String",
         "Required": "false",
-        "Name": "OBS64Path",
         "KeyValues": {},
         "Description": "If you've got a portable install or something, pass in the main OBS binary's path here"
       }
     ],
-    "Description": "Tune your OBS for a specific usecase in the snap of a finger!",
-    "Name": "Optimize-OBS",
     "Display Name": "Optimize OBS",
     "Platform": [
       "Linux",

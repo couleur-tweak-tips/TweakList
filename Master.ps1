@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 224
+$CommitCount = 226
 $FuncsCount = 60
 function Get-IniContent {
     <#
@@ -3356,9 +3356,7 @@ function Install-Voukoder {
 
     switch([String]$NLE){
 
-
-
-        {$_.Path.StartsWith('vegas')}{
+        {($NLE.Path | Split-Path -Leaf).StartsWith('vegas')}{
 
             $NLETerm = "Vegas"
             $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
