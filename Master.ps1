@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 226
+$CommitCount = 228
 $FuncsCount = 60
 function Get-IniContent {
     <#
@@ -3377,7 +3377,7 @@ function Install-Voukoder {
 
 
 
-        'Adobe Premiere Pro.exe'{
+        {($NLE.Path | Split-Path -Leaf).StartsWith('Adobe Premiere Pro.exe')}{
             
             $NLETerm = 'Premiere Pro'
             $TemplatesFolder = "$env:USERPROFILE\Documents\Adobe\Adobe Media Encoder\12.0\Presets"
@@ -3400,7 +3400,7 @@ function Install-Voukoder {
 
 
 
-        'AfterFX.exe'{
+        {($NLE.Path | Split-Path -Leaf).StartsWith('AfterFX.exe')}{
             $NLETerm = 'After Effects'
 
             "Opening a tutorial in your browser and downloading the AE templates file.."

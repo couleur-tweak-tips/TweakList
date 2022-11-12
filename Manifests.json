@@ -5,9 +5,9 @@
     "Name": "Optimize-LunarClient",
     "Parameters": [
       {
+        "Required": "false",
         "Name": "Settings",
         "Type": "Array",
-        "Required": "false",
         "KeyValues": {},
         "Description": "Specify which specific tweak you'd like applying on your profile",
         "ValidateSet": [
@@ -36,9 +36,9 @@
     "Name": "Optimize-OBS",
     "Parameters": [
       {
+        "Required": "false",
         "Name": "Encoder",
         "Type": "String",
-        "Required": "false",
         "KeyValues": {
           "NVENC": "NVIDIA's Fastest encoder, it lets you record in hundreds of FPS easily",
           "AMF": "AMD GPUs/Integrated GPUs encoder, not as good as NVENC but can still get out ~240FPS at most",
@@ -54,9 +54,9 @@
         ]
       },
       {
+        "Required": "false",
         "Name": "OBS64Path",
         "Type": "String",
-        "Required": "false",
         "KeyValues": {},
         "Description": "If you've got a portable install or something, pass in the main OBS binary's path here"
       }
