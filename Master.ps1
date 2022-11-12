@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 222
+$CommitCount = 224
 $FuncsCount = 60
 function Get-IniContent {
     <#
@@ -3266,8 +3266,6 @@ function Install-Voukoder {
                     continue
                 }
 
-
-
                 'afterfx.exe' {
                     if (NeedsConnector -PackageName 'Voukoder connector for After Effects' -Key 'aftereffects'){
                         continue
@@ -3287,7 +3285,6 @@ function Install-Voukoder {
                     curl.exe -# -L $Connectors.premiere -o"$env:TMP\Voukoder-Connector-Premiere.msi"
                     msiexec /i "$env:TMP\Voukoder-Connector-Premiere.msi" /qb "TGTDir=`"$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore`""
                 }
-
 
 
                 'Resolve'{
@@ -3311,54 +3308,125 @@ function Install-Voukoder {
             }
         }
     }else{
-        $NLE = Menu -T
+        $AvailableNLETemplates = @{
+            "Vegas Pro" = "vegas200.exe"
+            "Premiere Pro" = "Adobe Premiere Pro.exe"
+            "After Effects" = "AfterFX.exe"
+        }
+        $NLE = Menu -menuItems $AvailableNLETemplates.Keys
+        $NLE = $AvailableNLETemplates.$NLE
     }
 
-    filter File2Display {((($_ | Split-Path -Leaf) -replace '_',' ' -replace " Upscale", " + Upscale").TrimEnd('.sft2')) -replace '  ',' '}
+        # Converts 
+        # https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2
+        # To hashtable with key "HEVC NVENC + Upscale" and val the URL
+
+    filter File2Display {[IO.Path]::GetFileNameWithoutExtension((((($_ | Split-Path -Leaf) -replace '_',' ' -replace " Upscale", " + Upscale")) -replace '  ',' '))}
                          # Get file ext    Put spaces instead of _       Format Upscale prettily  Remove extension
     $VegasTemplates = @(
+
         'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904873517106/HEVC_NVENC_Upscale.sft2'
         'https://cdn.discordapp.com/attachments/1039599872703213648/1039599905175502929/HEVC_NVENC.sft2'
         'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904609288255/HEVC_NVENC__Upscale.sft2'
         'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904353419284/H264_NVENC.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638733885470/HEVC_NVENC.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541639744688198/H264_NVENC_Upscale.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638356389918/H264_NVENC.sft2'
         'https://cdn.discordapp.com/attachments/969870701798522901/972541639346225264/x265_Upscale.sft2'
         'https://cdn.discordapp.com/attachments/969870701798522901/972541639560163348/x265.sft2'
         'https://cdn.discordapp.com/attachments/969870701798522901/972541638943596574/x264_Upscale.sft2'
         'https://cdn.discordapp.com/attachments/969870701798522901/972541639128129576/x264.sft2'
-
-    ) | ForEach-Object {
-        # Converts 
-        # https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2
-        # To hashtable with key "HEVC NVENC + Upscale" and val the URL
+        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2'
+        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638733885470/HEVC_NVENC.sft2'
+        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541639744688198/H264_NVENC_Upscale.sft2'
+        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638356389918/H264_NVENC.sft2'
+        ) | ForEach-Object {
         [Ordered]@{($_ | File2Display) = $_}
     }
 
+    $PremiereTemplates = @(
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690025369690/HEVC_NVENC__Upscale.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690369298432/HEVC_NVENC.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691992498218/H264_NVENC__Upscale.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609692277706902/H264_NVENC.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690688061490/x264__Upscale.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690964893706/x264.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691380125827/x265__Upscale.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691682111548/x265.epr'
+    ) | ForEach-Object {
+        [Ordered]@{($_ | File2Display) = $_}
+    }
 
-    if ($NLE.StartsWith('vegas')){
+    switch([String]$NLE){
 
-        $NLETerm = "vegas"
 
-        $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
 
-        if (-Not(Test-Path "$env:APPDATA\VEGAS\Render Templates\voukoder")){
-            New-Item -ItemType Directory -Path "$env:APPDATA\VEGAS\Render Templates\voukoder" -Force | Out-Null
-        }
+        {$_.Path.StartsWith('vegas')}{
 
-        $SelectedTemplates =  Invoke-Checkbox -Items $VegasTemplates.Keys -Title "Select render templates to install"
+            $NLETerm = "Vegas"
+            $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
 
-        ForEach ($Template in $SelectedTemplates){
-            if (Test-Path ($TPPath = "$TemplatesFolder\$Template.sft2")){
-                Remove-Item $TPPath -Force
+            if (-Not(Test-Path $TemplatesFolder)){
+                New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
             }
-            curl.exe -# -sSL $VegasTemplates.$Template -o"$TPPath"
+
+            $SelectedTemplates =  Invoke-Checkbox -Items $VegasTemplates.Keys -Title "Select render templates to install"
+
+            ForEach ($Template in $SelectedTemplates){
+                if (Test-Path ($TPPath = "$TemplatesFolder\$Template.sft2")){
+                    Remove-Item $TPPath -Force
+                }
+                curl.exe -# -sSL $VegasTemplates.$Template -o"$TPPath"
+            }
         }
 
-    }else{
-        $NLETerm = "your video editor"
+
+
+        'Adobe Premiere Pro.exe'{
+            
+            $NLETerm = 'Premiere Pro'
+            $TemplatesFolder = "$env:USERPROFILE\Documents\Adobe\Adobe Media Encoder\12.0\Presets"
+
+            if (-Not(Test-Path $TemplatesFolder)){
+                New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
+            }
+
+            $SelectedTemplates =  Invoke-Checkbox -Items $PremiereTemplates.Keys -Title "Select render templates to install"
+
+            ForEach ($Template in $SelectedTemplates){
+                if (Test-Path ($TPPath = "$TemplatesFolder\$Template.epr")){
+                    Remove-Item $TPPath -Force
+                }
+                curl.exe -# -sSL $PremiereTemplates.$Template -o"$TPPath"
+            }
+        
+        }
+
+
+
+
+        'AfterFX.exe'{
+            $NLETerm = 'After Effects'
+
+            "Opening a tutorial in your browser and downloading the AE templates file.."
+            Start-Sleep -Seconds 2
+            if (-Not(Test-Path ($TPDir = "$env:TMP\AE_Templates"))){
+                New-Item -ItemType Directory -Path $TPDir -Force | Out-Null
+            }
+            curl.exe -# -sSL https://cdn.discordapp.com/attachments/1039599872703213648/1039614649638858772/CTT_AE_VOUKODER_TEMPLATES.aom -o"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom"
+
+            Start-Process -FilePath explorer.exe -ArgumentList "/select,`"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom`""
+            $Tutorial = 'https://i.imgur.com/XCaJGoV.mp4'
+            try {
+                Start-Process $Tutorial
+            } catch { # If the user does not have any browser
+                "Tutorial URL: $Tutorial" 
+            }
+        }
+
+
+
+        default{
+            Write-Host "Your video editor ($([String]$NLE)) does not have any pre-made templates for me to propose you" -ForegroundColor Red
+            $NLETerm = "your video editor"
+        }
     }
     Write-Output "Installation script finished, restart $NLETerm to refresh your render templates."
 

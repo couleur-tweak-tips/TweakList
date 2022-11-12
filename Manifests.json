@@ -1,5 +1,6 @@
 [
   {
+    "Path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
     "Parameters": [
       {
         "Type": "Array",
@@ -21,7 +22,6 @@
       }
     ],
     "Description": "Tunes a selected Lunar Client profile to your liking",
-    "Path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
     "Name": "Optimize-LunarClient",
     "Display Name": "Optimize LunarClient",
     "Platform": [
@@ -31,6 +31,7 @@
     "Category": "Optimizations"
   },
   {
+    "Path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
     "Parameters": [
       {
         "Type": "String",
@@ -59,7 +60,6 @@
       }
     ],
     "Description": "Tune your OBS for a specific usecase in the snap of a finger!",
-    "Path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
     "Name": "Optimize-OBS",
     "Display Name": "Optimize OBS",
     "Platform": [
