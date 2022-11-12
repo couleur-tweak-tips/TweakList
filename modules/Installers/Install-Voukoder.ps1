@@ -236,9 +236,7 @@ function Install-Voukoder {
 
     switch([String]$NLE){
 
-
-
-        {$_.Path.StartsWith('vegas')}{
+        {($NLE.Path | Split-Path -Leaf).StartsWith('vegas')}{
 
             $NLETerm = "Vegas"
             $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
