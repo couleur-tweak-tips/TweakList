@@ -257,7 +257,7 @@ function Install-Voukoder {
 
 
 
-        'Adobe Premiere Pro.exe'{
+        {($NLE.Path | Split-Path -Leaf).StartsWith('Adobe Premiere Pro.exe')}{
             
             $NLETerm = 'Premiere Pro'
             $TemplatesFolder = "$env:USERPROFILE\Documents\Adobe\Adobe Media Encoder\12.0\Presets"
@@ -280,7 +280,7 @@ function Install-Voukoder {
 
 
 
-        'AfterFX.exe'{
+        {($NLE.Path | Split-Path -Leaf).StartsWith('AfterFX.exe')}{
             $NLETerm = 'After Effects'
 
             "Opening a tutorial in your browser and downloading the AE templates file.."
