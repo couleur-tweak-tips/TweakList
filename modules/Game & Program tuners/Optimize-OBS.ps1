@@ -25,15 +25,22 @@ function Optimize-OBS {
         [String]$Encoder,
         
         [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
-        [String]$OBS64Path, #//Indicate your OBS installation by passing -OBS64Path "C:\..\bin\64bit\obs64.exe"
+        [String]$OBS64Path,
 
         [ValidateSet('HighPerformance')]
-        [String]$Preset = 'HighPerformance'
+        [String]$Preset = 'HighPerformance',
 
+        [ValidateSet(
+            'EnableStatsDock', 'OldDarkTheme')]
+        [Array]$MiscTweaks = (Invoke-CheckBox -Title "Select misc tweaks to apply" -Items (
+            'EnableStatsDock', 'OldDarkTheme'))
+
+        # [ValidateScript({ Test-Path -Path $OBSProfile -PathType Container })]
+        # [String]$OBSProfile = $null
     )
 
     if (!$Encoder){
-        $Encoders = @{
+        $Encoders = [Ordered]@{
             "NVENC (NVIDIA GPUs)" = "NVENC"
             "AMF (AMD GPUs)" = "AMF"
             "QuickSync (Intel iGPUs)" = "QuickSync"
@@ -41,7 +48,7 @@ function Optimize-OBS {
         }
         Write-Host "Select what OBS will use to record (use arrow keys and press ENTER to confirm)"
         $Key = Menu ([Collections.ArrayList]$Encoders.Keys)
-        $Encoder = $Encoders.$Key # Getting it back from 
+        $Encoder = $Encoders.$Key
     }
 
     $OBSPatches = @{
@@ -126,6 +133,7 @@ function Optimize-OBS {
         }
     }
     $OBSPatches.$Preset.$Encoder = Merge-Hashtables $OBSPatches.$Preset.$Encoder $Global
+        # Merge with global, which will be added for all
 
     if (-Not($OBS64Path)){
 
@@ -231,21 +239,14 @@ OutputCY=$DefaultHeight
         $_
         return
     }
-    if ($Basic.Video.FPSCommon){ # Switch to fractional FPS
+    if ($Basic.Video.FPSType -ne 2){ # then switch to fractional FPS
         $FPS=$Basic.Video.FPSCommon
-        $Basic.Video.Remove('FPSCommon')
         $Basic.Video.FPSType = 2
-        $Basic.Video.FPSNum = $FPS
+        $Basic.Video.FPSNum = 60
         $Basic.Video.FPSDen = 1
-    }elseif(!$Basic.Video.FPSCommon -and !$Basic.Video.FPSType){
-        Write-Warning "Your FPS is at the default (30), you can go in Settings -> Video to set it to a higher value"
-    }
 
-    if ($Basic.RecRBSize -in 512,'',$null){
-        $Basic.RecRBSize = 2048
+        Write-Warning "Your FPS is at the default (60), you can go in Settings -> Video to set it to a higher value"
     }
-
-    if (!$Basic.Video.FPSDen){$Basic.Video.FPSDen = 1}
 
     $FPS = $Basic.Video.FPSNum/$Basic.Video.FPSDen
     $Pixels = [int]$Basic.Video.BaseCX*[int]$Basic.Video.BaseCY
@@ -261,12 +262,15 @@ OutputCY=$DefaultHeight
     $Basic = Merge-Hashtables -Original $Basic -Patch $OBSPatches.$Preset.$Encoder.basic -ErrorAction Stop
     Out-IniFile -FilePath "$OBSProfile\basic.ini" -InputObject $Basic -Pretty -Force
 
-    $Base = "{0}x{1}" -f $Basic.Video.BaseCX,$Basic.Video.BaseCY
-    $Output = "{0}x{1}" -f $Basic.Video.OutputCX,$Basic.Video.OutputCY
-    if ($Base -Ne $Output){
-        Write-Warning "Your Base/Canvas resolution ($Base) is not the same as the Output/Scaled resolution ($Output), this means OBS is scaling your video. This is not recommended."
-    }
+    if ($Basic.Video.BaseCX -and $Basic.Video.BaseCY -and $Basic.Video.OutputCX -and $Basic.Video.OutputCY){
 
+        $Base = "{0}x{1}" -f $Basic.Video.BaseCX,$Basic.Video.BaseCY
+        $Output = "{0}x{1}" -f $Basic.Video.OutputCX,$Basic.Video.OutputCY
+        if ($Base -Ne $Output){
+            Write-Warning "Your Base/Canvas resolution ($Base) is not the same as the Output/Scaled resolution ($Output),`nthis means OBS is scaling your video. This is not recommended."
+        }    
+    }
+    
     $NoEncSettings = -Not(Test-Path "$OBSProfile\recordEncoder.json")
     $EmptyEncSettings = (Get-Content "$OBSProfile\recordEncoder.json" -ErrorAction Ignore) -in '',$null
 
@@ -285,4 +289,21 @@ OutputCY=$DefaultHeight
     }
     Set-Content -Path "$OBSProfile\recordEncoder.json" -Value (ConvertTo-Json -InputObject $RecordEncoder -Depth 100) -Force
 
+    if ($True -in [bool]$MiscTweaks){ # If there is anything in $MiscTweaks
+        $global = Get-Item (Join-Path ($OBSProfile | Split-Path | Split-Path | Split-Path) -ChildPath 'global.ini') -ErrorAction Stop
+        $glob = Get-IniContent -FilePath $global
+        Write-Host $global
+
+        if ('OldDarkTheme' -in $MiscTweaks){
+            $glob.General.CurrentTheme3 = 'Dark'
+        }
+
+        if ('OldDarkTheme' -in $MiscTweaks){
+
+            $glob.BasicWindow.geometry = 'AdnQywADAAAAAAe/////uwAADJ0AAAKCAAAHv////9oAAAydAAACggAAAAEAAAAACgAAAAe/////2gAADJ0AAAKC'
+            $glob.BasicWindow.DockState = 'AAAA/wAAAAD9AAAAAgAAAAAAAAJOAAABvPwCAAAAAfsAAAASAHMAdABhAHQAcwBEAG8AYwBrAQAAABYAAAG8AAAA5gD///8AAAADAAAE3wAAALr8AQAAAAX7AAAAFABzAGMAZQBuAGUAcwBEAG8AYwBrAQAAAAAAAAD4AAAAoAD////7AAAAFgBzAG8AdQByAGMAZQBzAEQAbwBjAGsBAAAA/AAAAPoAAACgAP////sAAAASAG0AaQB4AGUAcgBEAG8AYwBrAQAAAfoAAAFBAAAA3gD////7AAAAHgB0AHIAYQBuAHMAaQB0AGkAbwBuAHMARABvAGMAawEAAAM/AAAAtAAAAI4A////+wAAABgAYwBvAG4AdAByAG8AbABzAEQAbwBjAGsBAAAD9wAAAOgAAACeAP///wAAAo0AAAG8AAAABAAAAAQAAAAIAAAACPwAAAAA'
+        }
+
+        $glob | Out-IniFile -FilePath $global -Force
+    }
 }
