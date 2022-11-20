@@ -4,6 +4,21 @@ This file shows you a list of modules and how to use each of them.
 At each commit, [GitHub Actions](https://github.com/couleur-tweak-tips/TweakList/actions) compiles them to a [single file](https://github.com/couleur-tweak-tips/TweakList/blob/master/Master.ps1),
 which you can run to declare all of them by simply typing `iex(irm tl.ctt.cx)` in PowerShell.
 
+## Import-Sophia
+
+Parses farag's [Sophia Script](https://github.com/farag2/Sophia-Script-for-Windows) and imports all functions as a temporary module
+
+#### CB-CleanTaskbar
+This is a Combo function, which imports the Sophia Script's functions (via `Import-Sophia`/`ipso`) and runs the following:
+```PowerShell
+CortanaButton -Hide
+PeopleTaskbar -Hide
+TaskBarSearch -Hide
+TaskViewButton -Hide
+UnpinTaskbarShortcuts Edge, Store, Mail
+```
+Restarting the explorer is needed for a few of them to refresh.
+
 ## Get
 This lets you easily install programs and some of my scripts in a very short command that allows a lot of aliases
 
@@ -12,6 +27,33 @@ Get DisplayDriverUninstaller 7-Zip Smoothie
 # Will do the same thing as:
 g ddu 7z sm
 ```
+
+## Launch
+
+This lets you download some "throw-away" [programs](https://github.com/couleur-tweak-tips/TweakList/blob/master/modules/Installers/Launch.ps1) to TEMP, it returns the path of the main binary
+
+- DisplayDriverUninstaller
+- NVCleanstall
+- NvidiaProfileInspector
+- MSIUtilityV3
+- Rufus
+- AutoRuns
+- Procmon
+- CustomResolutionUtility
+- NotepadReplacer
+- privacy.sexy
+- ReShade
+
+(List may be out of date)
+
+
+You can pair this with PowerShell's `&` operator:
+
+```PowerShell
+iex(irm tl.ctt.cx);
+& (Launch DisplayDriverUninstaller)
+```
+It has tab completion and can loop over multiple apps (e.g `Launch DisplayDriverUninstaller, privacy.sexy, Rufus`)
 
 ## Get-ScoopApp
 Used by `Get`, it installs a specific app using the [Scoop](https://scoop.sh) package manager, if it fails to find it in your available [Buckets](https://github.com/ScoopInstaller/Scoop#known-application-buckets) it look in other known buckets, as well as [mine](https://github.com/couleur-tweak-tips/utils/tree/main/bucket). You can also specify a bucket before the name of the app (e.g `extras/firefox`, `utils/smoothie`) and it will get Git/bucket if needed.
@@ -25,56 +67,54 @@ Get-ScoopApp extras/ddu
 ## Get-FunctionContent
 Simply returns the content of a function you provide
 
-```ps
-Get-FunctionContent CB-CleanTaskbar
+If you're auditing or snooping at what TweakList is capable
+this is a good way to lurk around
+```PowerShell
+Get-FunctionContent Get-ScoopApp
 # or it's alias:
-gfc CB-cleanTaskbar
-```
-<!--
-## Get-NVIDIADriver and Get-AMDDriver
-These two functions will install the latest driver for your GPU, with an option to extract it [using 7-Zip](https://github.com/couleur-tweak-tips/TweakList/tree/master/modules) and strip out miscellaneous components (kind of like NVCleanstall).
-
-You can specify to extract and strip a specific driver:
-```ps
-Get-AMDDriver -Filepath "C:\Users\Example\Downloads\amd-software-adrenalin-edition-22.4.1-win10-win11-april5.exe"
+gfc Get-ScoopApp
 ```
 
-There's also a few switches for Get-NVIDIADriver:
-* `-Minimal` will strip the driver from miscellaneous components using 7-Zip.
-* `-OpenLink` will open the download link in your default browser.
-* `-GetLink` will return the download link.
-* `-Studio` will install Studio drivers
+You can also pipe what it returns to your clipboard (to paste it in your IDE)
+```PowerShell
+Get-FunctionContent Merge-HashTables | Set-Clipboard
+```
+You can also use `bat` to have vim-key navigation and syntax highlighting
+```PowerShell
+gfc Launch | bat -l PowerShell
+```
 
-
--->
 ## Optimize-OBS
 
-This will try find your OBS installation (unless you specify `-OBS64Path`) and adjust the settings that matter for performance
+This will find your OBS installation, ask you which profile to tune, and adjust the settings that matter for performance
 
-```ps
+
+```PowerShell
 Optimize-OBS -Encoder NVENC -OBS64Path "D:\Scoop\OBS\bin\obs64.exe"
 ```
 Available encoders are NVENC (for NVIDIA GPUs), AMF (for AMD GPUs), QuickSync (for intel iGPUs) and x264 (CPU).
 
 ## Optimize-OptiFine
 
-Same process as OBS, if you're not using .minecraft in the APPDATA, indicate it with the parameter `-CustomDirectory`.
+Same process as OBS, if you're not using .minecraft in the APPDATA, indicate it with the GameDir `-CustomDirectory`.
 
-```ps
+```PowerShell
 Optimize-OptiFine -Preset Smart
 ```
 There is also the "Lowest" preset which turns every setting down (prepare for a very ugly game).
 
-## CB-CleanTaskbar
-This is a Combo function, which imports the Sophia Script's functions (via `Import-Sophia`/`ipso`) and runs the following:
-```ps
-CortanaButton -Hide
-PeopleTaskbar -Hide
-TaskBarSearch -Hide
-TaskViewButton -Hide
-UnpinTaskbarShortcuts Edge, Store, Mail
-```
-Restarting the explorer is needed for a few of them to refresh.
+## Optimize-LunarClient
+
+Specify which specific tweak you'd like applying on one (or a new) LunarClient Profile
+- **Performance**: Turn off performance-hungry settings
+- **NoCosmetics**: Disable all emotes, cosmetics, wings, hats..
+- **MinimalViewBobbing**: Keep item movement but disable walk bobbing
+- **No16xSaturationOverlay**: Remove the yellow 16x hunger bar overlay
+- **HideToggleSprint**: Hides the ToggleSprint status from HUD
+- **ToggleSneak**: Turns on ToggleSneak
+- **DisableUHCMods**: Disables ArmorHUD, DirectionHUD and Coordinates mods
+- **FullBright**: literally night vision
+
 
 ## Add-ContextMenu and Remove-ContextMenu
 Remember that list of actions you can do when right-clicking a file/folder? The more programs you install, the more crowded it gets, Windows also has it's fair share of very specific actions no one really cares about
@@ -111,13 +151,20 @@ Remove-ContextMenu WinRAR, Share, EditWithPaind3D
 
 It works the same way as ``Remove-ContextMenu``
 
+## RemovePackBangs
 
-## Simple TweakFuncs
+This simply removes exclamation points and spaces from the start of your resourcepack's filenames
 
-* ``Check-XMP`` - Parses your RAM speed to see if you need to turn on XMP
-* ``Block-RazerSynapse`` - Creates an empty file at ``C:\Windows\Installer\Razer`` to prevent Razer Synapse from automatically installing every few weeks.
-
-<!--
-```ps
-
+It defaults to the default /.minecraft/resourcepacks (override it with `-PackFolderPath`), it does not check recursively for obvious reasons
+turns
+```PowerShell
+!       §1look at me look at me I am first in your pack list!!!!!!.zip
+!    §5Kool§cKirby§fKlan.zip
+! Pack Special Noël !.zip
+```
+into
+```PowerShell
+§1look at me look at me I am first in your pack list!!!!!!.zip
+§5Kool§cKirby§fKlan.zip
+Pack Special Noël !.zip
 ```
