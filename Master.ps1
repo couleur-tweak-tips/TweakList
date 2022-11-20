@@ -1,8 +1,8 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 243
-$FuncsCount = 55
+$CommitCount = 251
+$FuncsCount = 56
 function Get-IniContent {
     <#
     .Synopsis
@@ -2552,10 +2552,10 @@ function Optimize-OBS {
         [ValidateSet(
             'EnableStatsDock', 'OldDarkTheme')]
         [Array]$MiscTweaks = (Invoke-CheckBox -Title "Select misc tweaks to apply" -Items (
-            'EnableStatsDock', 'OldDarkTheme'))
+            'EnableStatsDock', 'OldDarkTheme')),
 
-        # [ValidateScript({ Test-Path -Path $OBSProfile -PathType Container })]
-        # [String]$OBSProfile = $null
+        [ValidateScript({ Test-Path -Path $_ -PathType Container })]
+        [String]$OBSProfile = $null
     )
 
     if (!$Encoder){
@@ -2654,86 +2654,87 @@ function Optimize-OBS {
     $OBSPatches.$Preset.$Encoder = Merge-Hashtables $OBSPatches.$Preset.$Encoder $Global
         # Merge with global, which will be added for all
 
-    if (-Not($OBS64Path)){
+    if (!$OBSProfile){
+        if (-Not($OBS64Path)){
 
-        $Parameters = @{
-            Path = @("$env:APPDATA\Microsoft\Windows\Start Menu","$env:ProgramData\Microsoft\Windows\Start Menu")
-            Recurse = $True
-            Include = 'OBS Studio*.lnk'
-        }
-        $StartMenu = Get-ChildItem @Parameters
-        
-        if (!$StartMenu){
-            if ((Get-Process obs64 -ErrorAction Ignore).Path){$OBS64Path = (Get-Process obs64).Path} # Won't work if OBS is ran as Admin
-            else{
-return @'
+            $Parameters = @{
+                Path = @("$env:APPDATA\Microsoft\Windows\Start Menu","$env:ProgramData\Microsoft\Windows\Start Menu")
+                Recurse = $True
+                Include = 'OBS Studio*.lnk'
+            }
+            $StartMenu = Get-ChildItem @Parameters
+            
+            if (!$StartMenu){
+                if ((Get-Process obs64 -ErrorAction Ignore).Path){$OBS64Path = (Get-Process obs64).Path} # Won't work if OBS is ran as Admin
+                else{
+    return @'
 Your OBS installation could not be found, 
 please manually specify the path to your OBS64 executable, example:
 
 Optimize-OBS -OBS64Path "D:\obs\bin\64bit\obs64.exe"
 
 You can find it this way:             
- Search OBS -> Right click it
- Open file location in Explorer ->
- Open file location again if it's a shortcut ->
- Shift right click obs64.exe -> Copy as path
+Search OBS -> Right click it
+Open file location in Explorer ->
+Open file location again if it's a shortcut ->
+Shift right click obs64.exe -> Copy as path
 '@
+                }
             }
+            if ($StartMenu.Count -gt 1){
+
+                $Shortcuts = $null
+                $StartMenu = Get-Item $StartMenu
+                ForEach($Lnk in $StartMenu){$Shortcuts += @{$Lnk.BaseName = $Lnk.FullName}}
+                "There are multiple OBS shortcuts in your Start Menu folder. Please select one."
+                $ShortcutName = menu ($Shortcuts.Keys -Split [System.Environment]::NewLine)
+                $StartMenu = $Shortcuts.$ShortcutName
+                $OBS64Path = Get-ShortcutTarget $StartMenu
+            }else{
+                $OBS64Path = Get-ShortcutTarget $StartMenu
+            }
+
         }
-        if ($StartMenu.Count -gt 1){
 
-            $Shortcuts = $null
-            $StartMenu = Get-Item $StartMenu
-            ForEach($Lnk in $StartMenu){$Shortcuts += @{$Lnk.BaseName = $Lnk.FullName}}
-            "There are multiple OBS shortcuts in your Start Menu folder. Please select one."
-            $ShortcutName = menu ($Shortcuts.Keys -Split [System.Environment]::NewLine)
-            $StartMenu = $Shortcuts.$ShortcutName
-            $OBS64Path = Get-ShortcutTarget $StartMenu
-        }else{
-            $OBS64Path = Get-ShortcutTarget $StartMenu
-        }
-
-    }
-
-    if (!$IsLinux -or !$IsMacOS){
-        [Version]$CurVer = (Get-Item $OBS64Path).VersionInfo.ProductVersion
-        if ($CurVer -lt [Version]"28.1.0"){
-            Write-Warning @"
+        if (!$IsLinux -or !$IsMacOS){
+            [Version]$CurVer = (Get-Item $OBS64Path).VersionInfo.ProductVersion
+            if ($CurVer -lt [Version]"28.1.0"){
+                Write-Warning @"
 It is strongly advised you update OBS before continuing (for compatibility with new NVENC/AMD settings)
 
 Detected version: $CurVer
 obs64.exe path: $OBS64Path
 pause
 "@
+            }
         }
-    }
 
-    Set-CompatibilitySettings $OBS64Path -RunAsAdmin
+        Set-CompatibilitySettings $OBS64Path -RunAsAdmin
 
-    if (Resolve-Path "$OBS64Path\..\..\..\portable_mode.txt" -ErrorAction Ignore){ # "Portable Mode" makes OBS make the config in it's own folder, else it's in appdata
+        if (Resolve-Path "$OBS64Path\..\..\..\portable_mode.txt" -ErrorAction Ignore){ # "Portable Mode" makes OBS make the config in it's own folder, else it's in appdata
 
-        $ProfilesDir = (Resolve-Path "$OBS64Path\..\..\..\config\obs-studio\basic\profiles" -ErrorAction Stop)
-    }else{
-        $ProfilesDir = (Resolve-Path "$env:APPDATA\obs-studio\basic\profiles" -ErrorAction Stop)
-    }
-    $Profiles = Get-ChildItem $ProfilesDir
-
-    ForEach($OBSProfile in $Profiles){$ProfilesHash += @{$OBSProfile.Name = $OBSProfile.FullName}}
-
-    $ProfileNames = ($ProfilesHash.Keys -Split [System.Environment]::NewLine) + 'Create a new profile'
-    "Please select a profile:"
-    $OBSProfile = menu  $ProfileNames
-
-    if ($OBSProfile -eq 'Create a new profile'){
-        $NewProfileName = Read-Host "Enter a name for the new profile"
-        $OBSProfile = Join-Path $ProfilesDir $NewProfileName
-        New-Item -ItemType Directory -Path $OBSProfile -ErrorAction Stop
-        $DefaultWidth, $DefaultHeight = ((Get-CimInstance Win32_VideoController).VideoModeDescription.Split(' x ') | Where-Object {$_ -ne ''} | Select-Object -First 2)
-        if (!$DefaultWidth -or !$DefaultHeight){
-            $DefaultWidth = 1920
-            $DefaultHeight = 1080
+            $ProfilesDir = (Resolve-Path "$OBS64Path\..\..\..\config\obs-studio\basic\profiles" -ErrorAction Stop)
+        }else{
+            $ProfilesDir = (Resolve-Path "$env:APPDATA\obs-studio\basic\profiles" -ErrorAction Stop)
         }
-        Set-Content "$OBSProfile\basic.ini" -Value @"
+        $Profiles = Get-ChildItem $ProfilesDir
+
+        ForEach($OBSProfile in $Profiles){$ProfilesHash += @{$OBSProfile.Name = $OBSProfile.FullName}}
+
+        $ProfileNames = ($ProfilesHash.Keys -Split [System.Environment]::NewLine) + 'Create a new profile'
+        "Please select a profile:"
+        $OBSProfile = menu  $ProfileNames
+
+        if ($OBSProfile -eq 'Create a new profile'){
+            $NewProfileName = Read-Host "Enter a name for the new profile"
+            $OBSProfile = Join-Path $ProfilesDir $NewProfileName
+            New-Item -ItemType Directory -Path $OBSProfile -ErrorAction Stop
+            $DefaultWidth, $DefaultHeight = ((Get-CimInstance Win32_VideoController).VideoModeDescription.Split(' x ') | Where-Object {$_ -ne ''} | Select-Object -First 2)
+            if (!$DefaultWidth -or !$DefaultHeight){
+                $DefaultWidth = 1920
+                $DefaultHeight = 1080
+            }
+            Set-Content "$OBSProfile\basic.ini" -Value @"
 [General]
 Name=$NewProfileName
 
@@ -2743,12 +2744,13 @@ BaseCY=$DefaultHeight
 OutputCX=$DefaultWidth
 OutputCY=$DefaultHeight
 "@
-        Write-Host "Created new profile '$NewProfileName' with default resolution of $DefaultWidth`x$DefaultHeight" -For Green
-    }else{
-        $OBSProfile = $ProfilesHash.$OBSProfile
+            Write-Host "Created new profile '$NewProfileName' with default resolution of $DefaultWidth`x$DefaultHeight" -For Green
+        }else{
+            $OBSProfile = $ProfilesHash.$OBSProfile
+        }
     }
     if ('basic.ini' -notin ((Get-ChildItem $OBSProfile).Name)){
-       return "FATAL: Profile $OBSProfile is incomplete"
+       return "FATAL: Profile $OBSProfile is incomplete (missing basic.ini)"
     }
     Write-Verbose "Tweaking profile $OBSProfile"
     try {
@@ -2811,7 +2813,6 @@ OutputCY=$DefaultHeight
     if ($True -in [bool]$MiscTweaks){ # If there is anything in $MiscTweaks
         $global = Get-Item (Join-Path ($OBSProfile | Split-Path | Split-Path | Split-Path) -ChildPath 'global.ini') -ErrorAction Stop
         $glob = Get-IniContent -FilePath $global
-        Write-Host $global
 
         if ('OldDarkTheme' -in $MiscTweaks){
             $glob.General.CurrentTheme3 = 'Dark'
@@ -3248,17 +3249,18 @@ Write-Output "Added the registry keys to handle mpv protocol and redirect to wra
 function Install-Voukoder {
     [alias('isvk')]
     param(
-        [Switch]$GetTemplates = $false 
-    )       # Skip Voukoder installation and just get to the template selector
-
-    if ($PSEdition -eq 'Core'){
-        return "Install-Voukoder is only available on Windows PowerShell 5.1 (use of Get-Package)."
-    }       # Get-Package is used for Windows programs, on PowerShell 7 (core) it's for PowerShell modules
+        [Switch]$GetTemplates
+            # Skip Voukoder installation and just get to the template selector
+    )       
 
     if (!$GetTemplates){
 
+        if ($PSEdition -eq 'Core'){
+            return "Install-Voukoder is only available on Windows PowerShell 5.1 (use of Get-Package)."
+        }       # Get-Package is used for Windows programs, on PowerShell 7 (core) it's for PowerShell modules
+    
         $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases/latest)[0]
-            # Get the latest release manifest from GitHub's API
+            # get the latest release manifest from GitHub's API
 
         if (($tag = $LatestCore.tag_name) -NotLike "*.*"){
             $tag += ".0" # E.g "12" will not convert to a version type, "12.0" will
@@ -3303,7 +3305,7 @@ function Install-Voukoder {
             # .zip for Resolve's
 
 
-    # Following block generates a hashtable of all of the latest connectors
+        # Following block generates a hashtable of all of the latest connectors
 
         $Tree = (Invoke-RestMethod 'https://api.github.com/repos/Vouk/voukoder-connectors/git/trees/master?recursive=1').Tree
             # Gets all files from the connectors repo, which contain all filepaths
@@ -3328,7 +3330,7 @@ function Install-Voukoder {
             ForEach-Object {[Version]($_ | ConnectorVer)} | # Parse it's version using the filter
             Sort-Object -Descending | Select-Object -First 1 # Sort then select only the latest
 
-            $Path = $Tree.path | Where-Object {$_ -Like "$Pattern*$LCV*.*"} # Get the absolute path with the latest version
+            $Path = $Tree.path | Where-Object {$_ -Like "$Pattern*$LCV*.*"} # get the absolute path with the latest version
             $Connectors += @{$NLE = "https://github.com/Vouk/voukoder-connectors/raw/master/$Path"}
             Remove-Variable -Name NLE
         }
@@ -3417,23 +3419,32 @@ function Install-Voukoder {
                 'Resolve'{
                     Write-Warning "Voukoder's connector for Resolve is ONLY FOR IT'S PAID `"Studio`" VERSION"
                     pause
+                    
                     $IOPlugins = "$env:ProgramData\Blackmagic Design\DaVinci Resolve\Support\IOPlugins"
+                    $dvcpBundle = "$IOPlugins\voukoder_plugin.dvcp.bundle"
+
                     if (-Not(Test-Path $IOPlugins)){
                         New-Item -ItemType Directory -Path $IOPlugins
                     }
-                    elseif (Test-Path "$IOPlugins\voukoder_plugin.dvcp.bundle"){
+                    elseif (Test-Path $dvcpBundle){
                         if (-Not(Get-Boolean "Would you like to reinstall/update the Voukoder Resolve plugin? (Y/N)")){continue}
-                        Remove-Item "$IOPlugins\voukoder_plugin.dvcp.bundle" -Force -Recurse
+                        Remove-Item $dvcpBundle -Force -Recurse
                     }
-                    curl.exe -# -L $Connectors.Resolve -o"$env:TMP\Voukoder-Connector-Resolve.zip"
-                    Remove-Item "$env:TMP\Voukoder-Connector-Resolve" -Recurse -Force -ErrorAction Ignore
+
+                    $Zip = "$env:TMP\Voukoder-Connector-Resolve.zip"
+                    curl.exe -# -L $Connectors.Resolve -o"$Zip"
+
                     $ExtractDir = "$env:TMP\Voukoder-Connector-Resolve"
-                    Expand-Archive "$env:TMP\Voukoder-Connector-Resolve.zip" -Destination $ExtractDir
+                    Remove-Item $ExtractDir -Recurse -Force -ErrorAction Ignore
+                    Expand-Archive $Zip -Destination $ExtractDir
+
                     Copy-Item "$ExtractDir\voukoder_plugin.dvcp.bundle" $IOPlugins
+                    
                     Write-Warning "If connection failed you should find instructions in $ExtractDir\README.txt"
                 }
             }
         }
+        $NLEBin = $NLE.Path
     }else{
         $AvailableNLETemplates = @{
             "Vegas Pro" = "vegas200.exe"
@@ -3441,7 +3452,7 @@ function Install-Voukoder {
             "After Effects" = "AfterFX.exe"
         }
         $NLE = Menu -menuItems $AvailableNLETemplates.Keys
-        $NLE = $AvailableNLETemplates.$NLE
+        $NLEBin = $AvailableNLETemplates.$NLE
     }
 
         # Converts 
@@ -3449,7 +3460,7 @@ function Install-Voukoder {
         # To hashtable with key "HEVC NVENC + Upscale" and val the URL
 
     filter File2Display {[IO.Path]::GetFileNameWithoutExtension((((($_ | Split-Path -Leaf) -replace '_',' ' -replace " Upscale", " + Upscale")) -replace '  ',' '))}
-                         # Get file ext    Put spaces instead of _       Format Upscale prettily  Remove extension
+                         # get file ext    Put spaces instead of _       Format Upscale prettily  Remove extension
     $VegasTemplates = @(
 
         'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904873517106/HEVC_NVENC_Upscale.sft2'
@@ -3481,9 +3492,9 @@ function Install-Voukoder {
         [Ordered]@{($_ | File2Display) = $_}
     }
 
-    switch([String]$NLE){
+    switch($NLEBin){
 
-        {($NLE.Path | Split-Path -Leaf).StartsWith('vegas')}{
+        {($NLEBin | Split-Path -Leaf).StartsWith('vegas')}{
 
             $NLETerm = "Vegas"
             $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
@@ -3492,7 +3503,7 @@ function Install-Voukoder {
                 New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
             }
 
-            $SelectedTemplates =  Invoke-Checkbox -Items $VegasTemplates.Keys -Title "Select render templates to install"
+            $SelectedTemplates =  Invoke-Checkbox -Items $VegasTemplates.Keys -Title "Select VEGAS render templates to install"
 
             ForEach ($Template in $SelectedTemplates){
                 if (Test-Path ($TPPath = "$TemplatesFolder\$Template.sft2")){
@@ -3504,7 +3515,7 @@ function Install-Voukoder {
 
 
 
-        {($NLE.Path | Split-Path -Leaf).StartsWith('Adobe Premiere Pro.exe')}{
+        {($NLEBin | Split-Path -Leaf).StartsWith('Adobe Premiere Pro.exe')}{
             
             $NLETerm = 'Premiere Pro'
             $TemplatesFolder = "$env:USERPROFILE\Documents\Adobe\Adobe Media Encoder\12.0\Presets"
@@ -3527,7 +3538,7 @@ function Install-Voukoder {
 
 
 
-        {($NLE.Path | Split-Path -Leaf).StartsWith('AfterFX.exe')}{
+        {($NLEBin | Split-Path -Leaf).StartsWith('AfterFX.exe')}{
             $NLETerm = 'After Effects'
 
             "Opening a tutorial in your browser and downloading the AE templates file.."
@@ -3549,11 +3560,11 @@ function Install-Voukoder {
 
 
         default{
-            Write-Host "Your video editor ($([String]$NLE)) does not have any pre-made templates for me to propose you" -ForegroundColor Red
+            Write-Host "Your video editor ($($NLEBin)) does not have any pre-made templates for me to propose you" -ForegroundColor Red
             $NLETerm = "your video editor"
         }
     }
-    Write-Output "Installation script finished, restart $NLETerm to refresh your render templates."
+    Write-Output "Installation script finished, follow instructions (if any) restart $NLETerm to refresh your render templates."
 
 }
 function Invoke-SmoothiePost {
@@ -3636,6 +3647,151 @@ args = "$DIR\Smoothie\src\main.py"
     }
     New-Shortcut @Parameters
 
+}
+function Launch{
+	[alias('l')]
+	param(
+		[ValidateSet(
+			'DisplayDriverUninstaller',
+			'NVCleanstall',
+			'NvidiaProfileInspector',
+			'MSIUtilityV3',
+			'Rufus',
+			'AutoRuns',
+			'Procmon',
+			'CustomResolutionUtility',
+			'NotepadReplacer',
+			'privacy.sexy',
+			'ReShade'
+			#! TODO: NVProfileInspector, MSIUtility, CRU, Notepadreplacer, BulkCrapUninstaller, https://www.bill2-software.com/processmanager/exe/BPM-Setup.exe
+		)]
+		[Array]$Apps,
+		[Switch]$DontLaunch, # Just keep them tidy in the Downloads folder))
+		# This is the non hardcoded Downloads folder path s/o @farag2
+		[String]$OutDir = (Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -Name "{374DE290-123F-4565-9164-39C4925E467B}")
+	)
+
+	Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+	function Invoke-Download{
+		param(
+			[String]$URL, # Parses mediafire
+			[String]$AppName,
+			[Switch]$Scoop, # Scoop 'bucket/manifest' name
+			[String]$PathToBinary, # In the zip
+			[String]$Checksum,
+			[String]$SelfExtracting7z # e.g for DDU
+		)
+
+		if (-Not(Test-Path $env:TMP)){
+			throw "TMP environment variable not found [$env:TMP]"
+		}
+
+		if($Scoop){
+			$Bucket, $Manifest = $URL -split '/'
+
+			$Repos = @{
+
+				main = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
+				extras = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
+				utils = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
+				nirsoft = @{org = 'kodybrown';repo = 'scoop-nirsoft';branch = 'master'}
+				games = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
+				'nerd-fonts' = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
+				versions = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
+				java = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
+			}
+			$repo = $Repos.$Bucket
+			$URL = "https://raw.githubusercontent.com/$($repo.org)/$($repo.repo)/$($repo.branch)/bucket/$Manifest.json"
+			$URL, $Version = Invoke-RestMethod $URL | ForEach-Object {$PSItem.URL, $PSItem.Version}
+		}elseif($URL -Like "*mediafire.com*"){
+			$URL = (Invoke-WebRequest -UseBasicParsing $URL).Links.href | Where-Object {$PSItem -Like "http*://download*.mediafire.com/*"}
+		}
+
+		if ($AppName){
+			$FileName = $AppName
+		}else{
+			$FileName = $Manifest
+		}
+		
+		if ($Version){$FileName += " $Version"}
+
+		$Extension = [io.path]::GetExtension((($URL -replace '#/dl.7z') | Split-Path -Leaf))
+
+		$OutFile = "$env:TMP\$FileName$Extension"
+		if (-Not(Test-Path $OutFile)){
+			curl.exe -#L -A "Scoop" $URL -o"$OutFile"
+		}
+
+		if($Checksum){
+			$Parameters = @{
+				Path = $OutFile
+			}
+			if ($Checksum -Like "*:*"){ # Contains a :
+				$Algo, $Checksum = $Checksum -Split ':' # To split hash and algo, eg md5:8424509737CEDBDE4BA9E9A780D5CE96
+				$Parameters += @{
+					Algorithm = $Algo 
+				}
+			}
+			if ($Checksum -ne (Get-FileHash @Parameters).Hash){
+				throw "Hash provided $Checksum does not match $OutFile"
+			}
+		}
+
+		if ($Extension -eq '.zip'){
+			$OutDir = "$env:TMP\$FileName\"
+			if (-Not(Test-Path $OutDir)){
+				[System.IO.Compression.ZipFile]::ExtractToDirectory($OutFile, $OutDir)
+			}
+
+			if ($PathToBinary){
+				$OutDir = Join-Path $OutDir $PathToBinary
+			}
+			$OutFile = $OutDir # To not have to check for the following statement twice
+		}elseif($SelfExtracting7z){
+			Start-Process -FilePath $OutFile -ArgumentList "-y" -Wait
+			$SelfExtracting7z = $SelfExtracting7z -replace "%VER%", $Version
+			if (-Not(Test-Path "$env:TMP\$SelfExtracting7z" -PathType Container)){
+				throw "Self extracting 7-Zip got wrong path: $SelfExtracting7z"
+			}
+			$OutDir = $SelfExtracting7z
+		}
+
+		if (-Not(Test-Path $OutFile)){
+			throw "$OutFile could not be found"
+		}
+
+		return $OutFile
+
+	}
+
+	$Paths = @()
+
+	$Apps | ForEach-Object { # Cycles through given apps
+		Write-Host "getting $PSItem"
+		$Paths += switch ($PSItem){
+			DisplayDriverUninstaller{ Invoke-Download -URL extras/ddu -Scoop -PathToBinary "Display Driver Uninstaller.exe" -SelfExtracting7z "DDU v%VER%" -AppName DDU }
+			NVCleanstall{ Invoke-Download -URL extras/nvcleanstall -Scoop -AppName NVCleanstall -PathToBinary "NVCleanstall.exe" }
+			NvidiaProfileInspector{ Invoke-Download -URL extras/nvidia-profile-inspector -Scoop -AppName NvidiaProfileInspector -PathToBinary 'nvidiaProfileInspector.exe' }
+			MSIUtilityV3{
+				Write-Warning "MSI mode is already applied by default on NVIDIA 1600/2000/3000 GPUs and AMD cards"
+				Invoke-Download -URL https://www.mediafire.com/file/ewpy1p0rr132thk/MSI_util_v3.zip/file -AppName "MSIUtilV3" -PathToBinary "MSI_util_v3.exe" -Checksum "md5:8424509737CEDBDE4BA9E9A780D5CE96"
+			}
+			Rufus{ Invoke-Download -URL extras/rufus -Scoop -AppName rufus}
+			AutoRuns{ Invoke-Download -URL https://download.sysinternals.com/files/Autoruns.zip -AppName AutoRuns -PathToBinary Autoruns64.exe }
+			Procmon{ Invoke-Download -URL https://download.sysinternals.com/files/ProcessMonitor.zip -AppName Procmon -PathToBinary Procmon64.exe }
+			CustomResolutionUtility { Invoke-Download -URL extras/cru -Scoop -AppName CRU -PathToBinary CRU.exe}
+			NotepadReplacer { Invoke-Download -URL utils/notepadreplacer -Scoop -AppName NotepadReplacer}
+			privacy.sexy { Invoke-Download -URL utils/privacysexy -Scoop -AppName privacysexy}
+			ReShade{
+				$Website = "https://reshade.me/"
+				$DLLink = (Invoke-WebRequest "$Website#download").Links.Href | Where-Object {$_ -Like "*.exe"} | Where-Object {$_ -NotLike "*_Addon.exe"}
+				$URL = $Website + $DLLink
+				Invoke-Download -URL $URL -AppName ReShade
+			}
+		}
+	}
+	return $Paths
 }
 function 4K-Notifier {
     param(
@@ -3759,7 +3915,10 @@ if %ERRORLEVEL% == 0 (exit) else (pause)
     return
 
 }
-function Remove-DesktopShortcuts ([Switch]$ConfirmEach){
+function Remove-DesktopShortcuts {
+    param(
+        [Switch]$ConfirmEach
+    )
     
     if($ConfirmEach){
         Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
@@ -4136,144 +4295,6 @@ function Invoke-GitHubScript {
         'SophiaScript'{Import-Sophia}
     }
 }
-function Launch{
-	[alias('l')]
-	param(
-		[ValidateSet(
-			'DisplayDriverUninstaller',
-			'NVCleanstall',
-			'NvidiaProfileInspector',
-			'MSIUtilityV3',
-			'Rufus',
-			'AutoRuns',
-			'Procmon',
-			'CustomResolutionUtility',
-			'NotepadReplacer',
-			'privacy.sexy'
-			#! TODO: NVProfileInspector, MSIUtility, CRU, Notepadreplacer, BulkCrapUninstaller, https://www.bill2-software.com/processmanager/exe/BPM-Setup.exe
-		)]
-		[Array]$Apps,
-		[Switch]$DontLaunch, # Just keep them tidy in the Downloads folder))
-		# This is the non hardcoded Downloads folder path s/o @farag2
-		[String]$OutDir = (Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -Name "{374DE290-123F-4565-9164-39C4925E467B}")
-	)
-
-	Add-Type -AssemblyName System.IO.Compression.FileSystem
-
-	function Invoke-Download{
-		param(
-			[String]$URL, # Parses mediafire
-			[String]$AppName,
-			[Switch]$Scoop, # Scoop 'bucket/manifest' name
-			[String]$PathToBinary, # In the zip
-			[String]$Checksum,
-			[String]$SelfExtracting7z # e.g for DDU
-		)
-
-		if (-Not(Test-Path $env:TMP)){
-			throw "TMP environment variable not found [$env:TMP]"
-		}
-
-		if($Scoop){
-			$Bucket, $Manifest = $URL -split '/'
-
-			$Repos = @{
-
-				main = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
-				extras = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
-				utils = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
-				nirsoft = @{org = 'kodybrown';repo = 'scoop-nirsoft';branch = 'master'}
-				games = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
-				'nerd-fonts' = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
-				versions = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
-				java = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
-			}
-			$repo = $Repos.$Bucket
-			$URL = "https://raw.githubusercontent.com/$($repo.org)/$($repo.repo)/$($repo.branch)/bucket/$Manifest.json"
-			$URL, $Version = Invoke-RestMethod $URL | ForEach-Object {$PSItem.URL, $PSItem.Version}
-		}elseif($URL -Like "*mediafire.com*"){
-			$URL = (Invoke-WebRequest -UseBasicParsing $URL).Links.href | Where-Object {$PSItem -Like "http*://download*.mediafire.com/*"}
-		}
-
-		if ($AppName){
-			$FileName = $AppName
-		}else{
-			$FileName = $Manifest
-		}
-		
-		if ($Version){$FileName += " $Version"}
-
-		$Extension = [io.path]::GetExtension((($URL -replace '#/dl.7z') | Split-Path -Leaf))
-
-		$OutFile = "$env:TMP\$FileName$Extension"
-		if (-Not(Test-Path $OutFile)){
-			curl.exe -#L -A "Scoop" $URL -o"$OutFile"
-		}
-
-		if($Checksum){
-			$Parameters = @{
-				Path = $OutFile
-			}
-			if ($Checksum -Like "*:*"){ # Contains a :
-				$Algo, $Checksum = $Checksum -Split ':' # To split hash and algo, eg md5:8424509737CEDBDE4BA9E9A780D5CE96
-				$Parameters += @{
-					Algorithm = $Algo 
-				}
-			}
-			if ($Checksum -ne (Get-FileHash @Parameters).Hash){
-				throw "Hash provided $Checksum does not match $OutFile"
-			}
-		}
-
-		if ($Extension -eq '.zip'){
-			$OutDir = "$env:TMP\$FileName\"
-			if (-Not(Test-Path $OutDir)){
-				[System.IO.Compression.ZipFile]::ExtractToDirectory($OutFile, $OutDir)
-			}
-
-			if ($PathToBinary){
-				$OutDir = Join-Path $OutDir $PathToBinary
-			}
-			$OutFile = $OutDir # To not have to check for the following statement twice
-		}elseif($SelfExtracting7z){
-			Start-Process -FilePath $OutFile -ArgumentList "-y" -Wait
-			$SelfExtracting7z = $SelfExtracting7z -replace "%VER%", $Version
-			if (-Not(Test-Path "$env:TMP\$SelfExtracting7z" -PathType Container)){
-				throw "Self extracting 7-Zip got wrong path: $SelfExtracting7z"
-			}
-			$OutDir = $SelfExtracting7z
-		}
-
-		if (-Not(Test-Path $OutFile)){
-			throw "$OutFile could not be found"
-		}
-
-		return $OutFile
-
-	}
-
-	$Paths = @()
-
-	$Apps | ForEach-Object { # Cycles through given apps
-		Write-Host "getting $PSItem"
-		$Paths += switch ($PSItem){
-			DisplayDriverUninstaller{ Invoke-Download -URL extras/ddu -Scoop -PathToBinary "Display Driver Uninstaller.exe" -SelfExtracting7z "DDU v%VER%" -AppName DDU }
-			NVCleanstall{ Invoke-Download -URL extras/nvcleanstall -Scoop -AppName NVCleanstall -PathToBinary "NVCleanstall.exe" }
-			NvidiaProfileInspector{ Invoke-Download -URL extras/nvidia-profile-inspector -Scoop -AppName NvidiaProfileInspector -PathToBinary 'nvidiaProfileInspector.exe' }
-			MSIUtilityV3{
-				Write-Warning "MSI mode is already applied by default on NVIDIA 1600/2000/3000 GPUs and AMD cards"
-				Invoke-Download -URL https://www.mediafire.com/file/ewpy1p0rr132thk/MSI_util_v3.zip/file -AppName "MSIUtilV3" -PathToBinary "MSI_util_v3.exe" -Checksum "md5:8424509737CEDBDE4BA9E9A780D5CE96"
-			}
-			Rufus{ Invoke-Download -URL extras/rufus -Scoop -AppName rufus}
-			AutoRuns{ Invoke-Download -URL https://download.sysinternals.com/files/Autoruns.zip -AppName AutoRuns -PathToBinary Autoruns64.exe }
-			Procmon{ Invoke-Download -URL https://download.sysinternals.com/files/ProcessMonitor.zip -AppName Procmon -PathToBinary Procmon64.exe }
-			CustomResolutionUtility { Invoke-Download -URL extras/cru -Scoop -AppName CRU -PathToBinary CRU.exe}
-			NotepadReplacer { Invoke-Download -URL utils/notepadreplacer -Scoop -AppName NotepadReplacer}
-			privacy.sexy { Invoke-Download -URL utils/privacysexy -Scoop -AppName privacysexy}
-		}
-	}
-	return $Paths
-}
 <#!TODO:
     Scan windows defender
     Git Bash
@@ -4552,6 +4573,31 @@ function Remove-FromThisPC {
 
         }
     }
+}
+function RemovePackBangs {
+    # Removes the exclamation bangs and spaces from all your !   PackName.zip
+    param(
+        [ValidateScript({
+            Test-Path $_ -PathType Container
+        })]
+        [String]$PackFolderPath = $(if ($IsLinux){"$env:HOME/.minecraft/resourcepacks"} else {"$env:APPDATA\.minecraft\resourcepacks"})
+    )
+
+    Get-ChildItem $PackFolderPath  | ForEach-Object {
+
+        $NewName = $_.Name.TrimStart("! ")
+
+        if ($_.Name -ne $NewName){
+            if (Test-Path -LiteralPath (Join-Path $PackFolderPath $NewName)){
+
+                Write-Warning "Skipping renaming [$($_.Name)], copy exists with no bangs"
+
+            } else{
+                Write-Host "Renaming to $NewName" -ForegroundColor Green
+                Rename-Item -Path $PSItem -NewName $NewName -Verbose
+            }
+        }
+    } 
 }
 function Set-CompatibilitySettings {
     [alias('scs')]
