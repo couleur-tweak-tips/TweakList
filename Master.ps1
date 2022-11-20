@@ -1,8 +1,8 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 251
-$FuncsCount = 56
+$CommitCount = 258
+$FuncsCount = 57
 function Get-IniContent {
     <#
     .Synopsis
@@ -418,9 +418,54 @@ function Assert-Choice {
         exit 1
     }
 }
-function Assert-Path ($Path) {
+function Assert-Path {
+    param(
+        $Path
+    )
     if (-Not(Test-Path -Path $Path)) {
         New-Item -Path $Path -Force | Out-Null
+    }
+}
+function FindInText{
+    <#
+    Recreated a simple grep for finding shit in TweakList,
+    I mostly use this to check if a function/word has ever been mentionned in all my code
+    #>
+    param(
+        [String]$String,
+        $Path = (Get-Location),
+        [Array]$Exclude,
+        [Switch]$Recurse
+    )
+
+    $Exclude += @(
+    '*.exe','*.bin','*.dll'
+    '*.png','*.jpg'
+    '*.mkv','*.mp4','*.webm'
+    '*.zip','*.tar','*.gz','*.rar','*.7z','*.so'
+    '*.pyc','*.pyd'
+    )
+
+    $Parameters = @{
+        Path = $Path
+        Recurse = $Recurse
+        Exclude = $Exclude
+    }
+    $script:FoundOnce = $False
+    $script:Match = $null
+    Get-ChildItem @Parameters -File | ForEach-Object {
+        $Match = $null
+        Write-Verbose ("Checking " + $PSItem.Name)
+        $Match = Get-Content $PSItem.FullName | Where-Object {$_ -Like "*$String*"}
+        if ($Match){
+            $script:FoundOnce = $True
+            Write-Host "- Found in $($_.Name) ($($_.FullName))" -ForegroundColor Green
+            $Match
+        }
+    }
+
+    if (!$FoundOnce){
+        Write-Host "Not found" -ForegroundColor red
     }
 }
 function Get-7zPath {
@@ -598,14 +643,14 @@ function Get-ScoopApp {
 
     $Repos = @{
 
-        main = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
-        extras = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
-        utils = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
-        nirsoft = @{org = 'kodybrown';repo = 'scoop-nirsoft';branch = 'master'}
-        games = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
-        'nerd-fonts' = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
-        versions = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
-        java = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
+        main            = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
+        extras          = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
+        utils           = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
+        nirsoft         = @{org = 'kodybrown'     ;repo = 'scoop-nirsoft';branch = 'master'}
+        games           = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
+        'nerd-fonts'    = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
+        versions        = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
+        java            = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
     }
     $RepoNames = $Repos.Keys -Split('\r?\n')
 
