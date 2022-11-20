@@ -11,7 +11,8 @@ function Launch{
 			'Procmon',
 			'CustomResolutionUtility',
 			'NotepadReplacer',
-			'privacy.sexy'
+			'privacy.sexy',
+			'ReShade'
 			#! TODO: NVProfileInspector, MSIUtility, CRU, Notepadreplacer, BulkCrapUninstaller, https://www.bill2-software.com/processmanager/exe/BPM-Setup.exe
 		)]
 		[Array]$Apps,
@@ -132,6 +133,12 @@ function Launch{
 			CustomResolutionUtility { Invoke-Download -URL extras/cru -Scoop -AppName CRU -PathToBinary CRU.exe}
 			NotepadReplacer { Invoke-Download -URL utils/notepadreplacer -Scoop -AppName NotepadReplacer}
 			privacy.sexy { Invoke-Download -URL utils/privacysexy -Scoop -AppName privacysexy}
+			ReShade{
+				$Website = "https://reshade.me/"
+				$DLLink = (Invoke-WebRequest "$Website#download").Links.Href | Where-Object {$_ -Like "*.exe"} | Where-Object {$_ -NotLike "*_Addon.exe"}
+				$URL = $Website + $DLLink
+				Invoke-Download -URL $URL -AppName ReShade
+			}
 		}
 	}
 	return $Paths
