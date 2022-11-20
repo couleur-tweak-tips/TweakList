@@ -1,8 +1,8 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 228
-$FuncsCount = 60
+$CommitCount = 243
+$FuncsCount = 55
 function Get-IniContent {
     <#
     .Synopsis
@@ -453,7 +453,10 @@ function Get-7zPath {
     # $7Zip = (Get-ChildItem -Path "$env:HOMEDRIVE\*7z.exe" -Recurse -Force -ErrorAction Ignore).FullName | Select-Object -First 1
 
 }
-function Get-Boolean ($Message){
+function Get-Boolean {
+    param(
+        $Message
+    )
     $null = $Response
     $Response = Read-Host $Message
     While ($Response -NotIn 'yes','y','n','no'){
@@ -664,16 +667,6 @@ function Get-ShortcutTarget {
     }
     
     return (New-Object -ComObject WScript.Shell).CreateShortcut($ShortcutPath).TargetPath
-}
-function HEVCCheck {
-
-    if ((cmd /c .mp4) -eq '.mp4=WMP11.AssocFile.MP4'){ # If default video player for .mp4 is Movies & TV
-        
-        if(Test-Path "Registry::HKEY_CLASSES_ROOT\ms-windows-store"){
-            "Opening HEVC extension in Windows Store.."
-            Start-Process ms-windows-store://pdp/?ProductId=9n4wgh0z6vhq
-        }
-    }
 }
 function Install-FFmpeg {
 
@@ -1447,54 +1440,25 @@ function New-Shortcut {
         [System.IO.File]::WriteAllBytes($LnkPath, $bytes)
     }
 }
-function Optimize{
-    [alias('opt')]
-    param(
-        $Script,
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [System.Collections.Arraylist]
-        $Arguments
-    )
-    switch ($Script){
-        'OBS'{Invoke-Expression "Optimize-OBS $Arguments"}
-        {$_ -in 'OF','Minecraft','Mc','OptiFine'}{Invoke-Expression "Optimize-OptiFine $Arguments"}
-        #{$_ -in 'LC','LunarClient'}{Optimize-LunarClient $Arguments}
-        #{$_ -in 'Apex','AL','ApexLegends'}{Optimize-ApexLegends $Arguments}
-    }
-}
 function PauseNul {
     $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null
 }
-# The prompt function itself isn't 
 <# This function messes with the message that appears before the commands you type
 
 # Turns:
-PS D:\>
+PS D:\Scoop>
 # into
-TL D:\>
+TL D:\Scoop>
 
-To obviously indicate TweakList has been imported
+To indicate TweakList has been imported
 
-You can prevent this from happening
+You can prevent this from happening by setting the environment variable TL_NOPROMPT to 1
 #>
 $global:CSI = [char] 27 + '['
 if (!$env:TL_NOPROMPT -and !$TL_NOPROMPT){
-    function Prompt {
-        "$CSI`97;7mTL$CSI`m $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) ";
+    function global:prompt {
+            "$CSI`97;7mTL$CSI`m $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) ";
     }
-}
-function Restart-ToBIOS {
-    
-    Remove-Variable -Name Choice -Ea Ignore
-
-    while ($Choice -NotIn 'y','yes','n','no'){
-        $Choice = Read-Host "Restart to BIOS? (Y/N)"
-    }
-
-    if ($Choice -in 'y','yes'){
-        shutdown /fw /r /t 0
-    }
-    
 }
 function Set-Choice { # Converts passed string to an array of chars
     param(
@@ -1508,8 +1472,11 @@ function Set-Choice { # Converts passed string to an array of chars
     }
     return $Key
 }
-function Set-Title ($Title) {
-    Invoke-Expression "$Host.UI.RawUI.WindowTitle = `"TweakList - `$(`$MyInvocation.MyCommand.Name) [$Title]`""
+function Set-Title {
+    param(
+        $Title
+    )
+    $Host.UI.RawUI.WindowTitle = "TweakList - $Title"
 }
 function Set-Verbosity {
     [alias('Verbose','Verb')]
@@ -1534,14 +1501,16 @@ function Set-Verbosity {
     }
 }
 function Test-Admin {
-<#
-.SYNOPSIS
-Determines if the console is elevated
 
-#>
-    $identity  = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object System.Security.Principal.WindowsPrincipal( $identity )
-    return $principal.IsInRole( [System.Security.Principal.WindowsBuiltInRole]::Administrator )
+    if (!$IsLinux -and !$IsMacOS){
+
+        $identity  = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object System.Security.Principal.WindowsPrincipal( $identity )
+        return $principal.IsInRole( [System.Security.Principal.WindowsBuiltInRole]::Administrator )
+    
+    }else{ # Running on *nix
+        return ((id -u) -eq 0)
+    }
 }
 function Write-Diff {
 	param(
@@ -2179,15 +2148,24 @@ function CB-CleanTaskbar {
 function Optimize-LunarClient {
     <#
     .SYNOPSIS
-    Display Name: Optimize LunarClient
+    Display Name: Optimize Lunar Client
     Platform: Linux; Windows
     Category: Optimizations
+    Depends: Write-Diff; Merge-HashTables
 
     .DESCRIPTION
-    Tunes a selected Lunar Client profile to your liking
+    Tunes a selected Lunar Client profile to your liking, it has some good defaults everyone should have (no numbers in scoreboard, modern keybind handling, no achievements, transparent texture packs section, borderless fullscreen..)
 
     .PARAMETER Settings
     Specify which specific tweak you'd like applying on your profile
+    Performance: Turn off performance-hungry settings
+    NoCosmetics: Disable all emotes, cosmetics, wings, hats..
+    MinimalViewBobbing: Keep item movement but disable walk bobbing
+    No16xSaturationOverlay: Remove the yellow 16x hunger bar overlay
+    HideToggleSprint: Hides the ToggleSprint status from HUD
+    ToggleSneak: Turns on ToggleSneak
+    DisableUHCMods: Disables ArmorHUD, DirectionHUD and Coordinates mods
+    FullBright: literally night vision    
     #>
     [alias('optlc')]
     param(
@@ -2566,15 +2544,22 @@ function Optimize-OBS {
         [String]$Encoder,
         
         [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
-        [String]$OBS64Path, #//Indicate your OBS installation by passing -OBS64Path "C:\..\bin\64bit\obs64.exe"
+        [String]$OBS64Path,
 
         [ValidateSet('HighPerformance')]
-        [String]$Preset = 'HighPerformance'
+        [String]$Preset = 'HighPerformance',
 
+        [ValidateSet(
+            'EnableStatsDock', 'OldDarkTheme')]
+        [Array]$MiscTweaks = (Invoke-CheckBox -Title "Select misc tweaks to apply" -Items (
+            'EnableStatsDock', 'OldDarkTheme'))
+
+        # [ValidateScript({ Test-Path -Path $OBSProfile -PathType Container })]
+        # [String]$OBSProfile = $null
     )
 
     if (!$Encoder){
-        $Encoders = @{
+        $Encoders = [Ordered]@{
             "NVENC (NVIDIA GPUs)" = "NVENC"
             "AMF (AMD GPUs)" = "AMF"
             "QuickSync (Intel iGPUs)" = "QuickSync"
@@ -2582,7 +2567,7 @@ function Optimize-OBS {
         }
         Write-Host "Select what OBS will use to record (use arrow keys and press ENTER to confirm)"
         $Key = Menu ([Collections.ArrayList]$Encoders.Keys)
-        $Encoder = $Encoders.$Key # Getting it back from 
+        $Encoder = $Encoders.$Key
     }
 
     $OBSPatches = @{
@@ -2667,6 +2652,7 @@ function Optimize-OBS {
         }
     }
     $OBSPatches.$Preset.$Encoder = Merge-Hashtables $OBSPatches.$Preset.$Encoder $Global
+        # Merge with global, which will be added for all
 
     if (-Not($OBS64Path)){
 
@@ -2772,21 +2758,14 @@ OutputCY=$DefaultHeight
         $_
         return
     }
-    if ($Basic.Video.FPSCommon){ # Switch to fractional FPS
+    if ($Basic.Video.FPSType -ne 2){ # then switch to fractional FPS
         $FPS=$Basic.Video.FPSCommon
-        $Basic.Video.Remove('FPSCommon')
         $Basic.Video.FPSType = 2
-        $Basic.Video.FPSNum = $FPS
+        $Basic.Video.FPSNum = 60
         $Basic.Video.FPSDen = 1
-    }elseif(!$Basic.Video.FPSCommon -and !$Basic.Video.FPSType){
-        Write-Warning "Your FPS is at the default (30), you can go in Settings -> Video to set it to a higher value"
-    }
 
-    if ($Basic.RecRBSize -in 512,'',$null){
-        $Basic.RecRBSize = 2048
+        Write-Warning "Your FPS is at the default (60), you can go in Settings -> Video to set it to a higher value"
     }
-
-    if (!$Basic.Video.FPSDen){$Basic.Video.FPSDen = 1}
 
     $FPS = $Basic.Video.FPSNum/$Basic.Video.FPSDen
     $Pixels = [int]$Basic.Video.BaseCX*[int]$Basic.Video.BaseCY
@@ -2802,12 +2781,15 @@ OutputCY=$DefaultHeight
     $Basic = Merge-Hashtables -Original $Basic -Patch $OBSPatches.$Preset.$Encoder.basic -ErrorAction Stop
     Out-IniFile -FilePath "$OBSProfile\basic.ini" -InputObject $Basic -Pretty -Force
 
-    $Base = "{0}x{1}" -f $Basic.Video.BaseCX,$Basic.Video.BaseCY
-    $Output = "{0}x{1}" -f $Basic.Video.OutputCX,$Basic.Video.OutputCY
-    if ($Base -Ne $Output){
-        Write-Warning "Your Base/Canvas resolution ($Base) is not the same as the Output/Scaled resolution ($Output), this means OBS is scaling your video. This is not recommended."
-    }
+    if ($Basic.Video.BaseCX -and $Basic.Video.BaseCY -and $Basic.Video.OutputCX -and $Basic.Video.OutputCY){
 
+        $Base = "{0}x{1}" -f $Basic.Video.BaseCX,$Basic.Video.BaseCY
+        $Output = "{0}x{1}" -f $Basic.Video.OutputCX,$Basic.Video.OutputCY
+        if ($Base -Ne $Output){
+            Write-Warning "Your Base/Canvas resolution ($Base) is not the same as the Output/Scaled resolution ($Output),`nthis means OBS is scaling your video. This is not recommended."
+        }    
+    }
+    
     $NoEncSettings = -Not(Test-Path "$OBSProfile\recordEncoder.json")
     $EmptyEncSettings = (Get-Content "$OBSProfile\recordEncoder.json" -ErrorAction Ignore) -in '',$null
 
@@ -2826,6 +2808,23 @@ OutputCY=$DefaultHeight
     }
     Set-Content -Path "$OBSProfile\recordEncoder.json" -Value (ConvertTo-Json -InputObject $RecordEncoder -Depth 100) -Force
 
+    if ($True -in [bool]$MiscTweaks){ # If there is anything in $MiscTweaks
+        $global = Get-Item (Join-Path ($OBSProfile | Split-Path | Split-Path | Split-Path) -ChildPath 'global.ini') -ErrorAction Stop
+        $glob = Get-IniContent -FilePath $global
+        Write-Host $global
+
+        if ('OldDarkTheme' -in $MiscTweaks){
+            $glob.General.CurrentTheme3 = 'Dark'
+        }
+
+        if ('OldDarkTheme' -in $MiscTweaks){
+
+            $glob.BasicWindow.geometry = 'AdnQywADAAAAAAe/////uwAADJ0AAAKCAAAHv////9oAAAydAAACggAAAAEAAAAACgAAAAe/////2gAADJ0AAAKC'
+            $glob.BasicWindow.DockState = 'AAAA/wAAAAD9AAAAAgAAAAAAAAJOAAABvPwCAAAAAfsAAAASAHMAdABhAHQAcwBEAG8AYwBrAQAAABYAAAG8AAAA5gD///8AAAADAAAE3wAAALr8AQAAAAX7AAAAFABzAGMAZQBuAGUAcwBEAG8AYwBrAQAAAAAAAAD4AAAAoAD////7AAAAFgBzAG8AdQByAGMAZQBzAEQAbwBjAGsBAAAA/AAAAPoAAACgAP////sAAAASAG0AaQB4AGUAcgBEAG8AYwBrAQAAAfoAAAFBAAAA3gD////7AAAAHgB0AHIAYQBuAHMAaQB0AGkAbwBuAHMARABvAGMAawEAAAM/AAAAtAAAAI4A////+wAAABgAYwBvAG4AdAByAG8AbABzAEQAbwBjAGsBAAAD9wAAAOgAAACeAP///wAAAo0AAAG8AAAABAAAAAQAAAAIAAAACPwAAAAA'
+        }
+
+        $glob | Out-IniFile -FilePath $global -Force
+    }
 }
 function Optimize-OptiFine {
     [alias('optof')]
@@ -2983,6 +2982,43 @@ $Hash.maxFPS = 260
 Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force
 
 }
+function Get-GraalVM {
+    param(
+        [Switch]$Reinstall
+    )
+
+    if ((Test-Path "$env:ProgramData\GraalVM") -and !$Reinstall){
+        return "GraalVM is already installed, run with -Reinstall to force reinstallation"
+    }
+    if (-Not(Get-Command curl.exe -ErrorAction Ignore)){
+        return "curl is not found (comes with windows per default?)"
+    }
+    Remove-Item "$env:ProgramData\GraalVM" -ErrorAction Ignore -Force -Recurse
+
+    $URL = 'https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-21.2.0/graalvm-ce-java16-windows-amd64-21.2.0.zip'
+    $SHA256 = 'DAE2511ABFF8EAD3EBC90CD9FC81A8E84B762FC91462B198C3EDDF28F81A937E'
+    $Zip = "$env:TMP\GraalVM.zip"
+
+
+    if (-Not(Test-Path $Zip)){
+        Write-Host "Downloading GraalVM ($(Get-HeaderSize $URL)`MB).." -ForegroundColor Green
+        curl.exe -# -L $URL -o"$Zip"
+    }
+
+    if ((Get-FileHash $Zip).Hash -ne $SHA256){
+        Remove-Item "$env:TMP\GraalVM.zip"
+        return "Failed to download GraalVM (SHA256 checksum mismatch, not the expected file)"
+        
+    }
+
+    if (Get-Command 7z -ErrorAction Ignore){
+
+        Invoke-Expression "& `"7z`" x -bso0 -bsp1 -bse1 -aoa `"$env:TMP\GraalVM.zip`" -o`"$env:ProgramData\GraalVM`""
+    } else {
+        Expand-Archive -Path $Zip -Destination "$env:ProgramData\GraalVM"
+    }
+    Move-Item -Path "$env:ProgramData\GraalVM\graalvm-?e*\*" "C:\ProgramData\GraalVM"
+}
 function Get-TLShell {
     param(
         [switch]$Offline,
@@ -3070,6 +3106,97 @@ Write-Host \"`rTweakList Shell - dsc.gg/CTT                  `n\" -Foregroundcol
     
     
 }
+}
+# This function centralizes most of what you can download/install on CTT
+# Anything it doesn't find in that switch ($App){ statement is passed to scoop
+$global:SendTo = [System.Environment]::GetFolderPath('SendTo')
+function Get {
+    [alias('g')] # minimalism at it's finest
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [Array]$Apps,
+        [Switch]$DryRun
+    )
+
+    $FailedToInstall = $null # Reset that variable for later
+    if ($Apps.Count -eq 1 -and (($Apps[0] -Split '\r?\n') -gt 1)){
+        $Apps = $Apps[0] -Split '\r?\n'
+    }
+    if ($DryRun){
+        ForEach($App in $Apps){
+            "Installing $app."
+        }
+        return
+    }
+
+    ForEach($App in $Apps){ # Scoop exits when it throws
+
+        switch ($App){
+            'nvddl'{Get-ScoopApp utils/nvddl}
+            {$_ -in 'Remux','Remuxer'}{
+                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
+                Out-File "$SendTo\Remux.bat"
+
+            }
+            {$_ -in 'RemuxAVI','AVIRemuxer'}{
+                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
+                Out-File "$SendTo\Remux - AVI.bat"
+                $Content = (Get-Content "$SendTo\Remux - AVI.bat") -replace 'set container=mp4','set container=avi'
+                Set-Content "$SendTo\Remux - AVI.bat" $Content
+            }
+            {$_ -in 'Voukoder','vk'}{Install-Voukoder }
+            'Upscaler'{
+
+                Install-FFmpeg 
+                Invoke-RestMethod 'https://github.com/couleur-tweak-tips/utils/raw/main/Miscellaneous/CTT%20Upscaler.cmd' |
+                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'CTT Upscaler.cmd') -Encoding ASCII -Force
+                Write-Host @"
+CTT Upscaler has been installed,
+I strongly recommend you open settings to tune it to your PC, there's lots of cool stuff to do there!
+"@ -ForegroundColor Green
+
+            }
+            {$_ -In 'QualityMuncher','qm'}{
+                Install-FFmpeg 
+
+                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/Quality%20Muncher.bat' |
+                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'Quality Muncher.bat') -Encoding ASCII -Force
+
+                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/!!qualitymuncher%20multiqueue.bat' |
+                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) '!!qualitymuncher multiqueue.bat') -Encoding ASCII -Force
+
+            }
+
+            'Scoop'{Install-Scoop }
+            'FFmpeg'{Install-FFmpeg }
+
+            {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
+            {$_ -in 'wt','windowsterminal','windows-terminal'}{Get-ScoopApp extras/windows-terminal}
+            {$_ -in 'np++','Notepad++','notepadplusplus'}{Get-ScoopApp extras/notepadplusplus}
+            {$_ -in 'DDU','DisplayDriverUninstaller'}{Get-ScoopApp extras/ddu}
+            {$_ -in 'Afterburner','MSIAfterburner'}{Get-ScoopApp utils/msiafterburner}
+            {$_ -in 'Everything','Everything-Alpha','Everything-Beta'}{Get-ScoopApp extras/everything-alpha}
+            {$_ -In '7-Zip','7z','7Zip'}{Get-ScoopApp 7zip}
+            {$_ -In 'Smoothie','sm'}{Install-FFmpeg ;Get-ScoopApp utils/Smoothie}
+            {$_ -In 'OBS','OBSstudio','OBS-Studio'}{Get-ScoopApp extras/obs-studio}
+            {$_ -In 'UTVideo'}{Get-ScoopApp utils/utvideo}
+            {$_ -In 'Nmkoder'}{Get-ScoopApp utils/nmkoder}
+            {$_ -In 'Librewolf'}{Get-ScoopApp extras/librewolf}
+            {$_ -In 'ffmpeg-nightly'}{Get-ScoopApp versions/ffmpeg-nightly}
+            {$_ -In 'Graal','GraalVM'}{Get-ScoopApp utils/GraalVM}
+            {$_ -In 'DiscordCompressor','dc'}{Install-FFmpeg ;Get-ScoopApp utils/discordcompressor}
+            {$_ -In 'Moony','mn'}{if (-Not(Test-Path "$HOME\.lunarclient")){Write-Warning "You NEED Lunar Client to launch it with Moony"};Get-ScoopApp utils/Moony}
+            {$_ -In 'TLShell','TLS'}{Get-TLShell }
+            default{Get-ScoopApp $App}
+        }
+        Write-Verbose "Finished installing $app"
+
+    }
+    if ($FailedToInstall){
+        
+        Write-Host "[!] The following apps failed to install (scroll up for details):" -ForegroundColor Red
+        $FailedToInstall
+    }
 }
 function Install-MPVProtocol {
     param(
@@ -3764,6 +3891,10 @@ function Add-ContextMenu {
             )]
         [Array]$Entries
     )
+    if (!(Test-Admin)){
+        return 'Changing the context menu / default file extensions requires running as Admin, exitting..'
+
+    }
 
     if ('SendTo' -in $Entries){
         New-ItemProperty -Path Registry::HKEY_CLASSES_ROOT\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo -Name "(default)" -PropertyType String -Value "{7BA4C740-9E81-11CF-99D3-00AA004AE837}" -Force
@@ -3833,299 +3964,6 @@ Check if your RAM allows running at a higher speed, and if yes, turn on $RamOCTy
     if ($null -ne $IsDDR4){"- Your RAM is DDR4: $IsDDR4"}
 }
 
-# Completely inspired from Felipe: dsc.gg/Felipe
-# Reference video: https://www.youtube.com/watch?v=hJfxTXYpSLI
-function Get-AMDDriver {
-    [alias('gamd')]
-    param(
-        [String]$DriverFilePath
-    )
-
-    if (-Not($DriverFilePath)){
-        Write-Host @"
-AMD does not allow automatic downloads,
-go on https://www.amd.com/support and download a driver FROM THE LIST, not the automatic detection one
-
-You can then call this function again with the -DriverFilePath parameter, example:
-
-Get-AMDDriver -DriverFilePath 'C:\Users\$env:USERNAME\Downloads\amd-software-adrenalin-edition-22.4.1-win10-win11-april5.exe'
-"@ -ForegroundColor Red
-return
-    }
-
-    Try {
-        Test-Path $DriverFilePath -PathType Leaf -ErrorAction Stop | Out-Null
-    } Catch {
-        "The driver file $DriverFilePath does not exist"
-        exit 1
-    }
-
-    $7z = Get-7zPath
-    $Folder = "$env:TMP\AMD Driver - $(Get-Random)"
-
-    Invoke-Expression "& `"$7z`" x -bso0 -bsp1 -bse1 -aoa `"$DriverFilePath`" -o`"$Folder`""
-
-    Remove-Item "$Folder\Packages\Drivers\Display\WT6A_INF\amd*"
-
-    $DLLsDir = Resolve-Path "$Folder\Packages\Drivers\Display\WT*_INF\B*"
-
-    $ToStrip = [Ordered]@{
-        'ccc2_install.exe' = 'ccc2_install.exe=1'
-        'atiesrxx.exe' = 'atiesrxx.exe'
-        'amdlogum.exe' = 'amdlogum.exe,,,0x00004000', 'amdlogum.exe=1'
-        'dgtrayicon.exe' = 'dgtrayicon.exe,,,0x00004000', 'dgtrayicon.exe=1'
-        'GameManager64.dll' = 'GameManager64.dll,,,0x00004000', 'gamemanager64.dll=1'
-        'amdlvr64.dll' = 'amdlvr64.dll,,,0x00004000', 'amdlvr64.dll=1'
-        'RapidFireServer64.dll' = 'RapidFireServer64.dll,,,0x00004000', 'rapidfireserver64.dll=1'
-        'Rapidfire64.dll' = 'Rapidfire64.dll,,,0x00004000', 'rapidfire64.dll=1'
-        'atieclxx.exe' = 'atieclxx.exe,,,0x00004000', 'atieclxx.exe=1'
-        'branding.bmp' = 'branding.bmp,,,0x00004000', 'branding.bmp=1'
-        'brandingRSX.bmp' = 'brandingRSX.bmp,,,0x00004000','brandingrsx.bmp=1'
-        'brandingWS_RSX.bmp' = 'brandingWS_RSX.bmp,,,0x00004000', 'brandingws_rsx.bmp=1'
-        'GameManager32.dll' = 'GameManager32.dll,,,0x00004000', 'gamemanager32.dll=1'
-        'amdlvr32.dll' = 'amdlvr32.dll,,,0x00004000', 'amdlvr32.dll=1'
-        'RapidFireServer.dll' = 'RapidFireServer.dll,,,0x00004000', 'rapidfireserver.dll=1'
-        'Rapidfire.dll' = 'Rapidfire.dll,,,0x00004000', 'rapidfire.dll=1'
-        'amdfendr.ctz' = 'amdfendr.ctz=1'
-        'amdfendr.itz' = 'amdfendr.itz=1'
-        'amdfendr.stz' = 'amdfendr.stz=1'
-        'amdfendrmgr.stz' = 'amdfendrmgr.stz=1'
-        'amdfendrsr.etz' = 'amdfendrsr.etz=1'
-        'atiesrxx.ex' = 'atiesrxx.exe=1'
-
-        'amdmiracast.dll' = 'amdmiracast.dll,,,0x00004000', 
-                            'HKR,,ContentProtectionDriverName,%REG_SZ%,amdmiracast.dll', 
-                            'amdmiracast.dll=1', 
-                            'amdmiracast.dll=SignatureAttributes.PETrust'
-
-        CopyINFs = 'CopyINF = .\amdxe\amdxe.inf', 
-                   'CopyINF = .\amdfendr\amdfendr.inf', 
-                   'CopyINF = .\amdafd\amdafd.inf'
-    }
-    Remove-Item (Get-ChildItem $DLLsDir -Force | Where-Object {$_.Name -in $ToStrip.Keys}) -Force -ErrorAction Ignore
-
-    $inf = Resolve-Path "$DLLsDir\..\U*.inf"
-
-    (Get-Content $inf ) | Where-Object {$_ -NotIn $ToStrip.Values} | Set-Content $inf -Force
-
-}
-function Get-GraalVM {
-    param(
-        [Switch]$Reinstall
-    )
-
-    if ((Test-Path "$env:ProgramData\GraalVM") -and !$Reinstall){
-        return "GraalVM is already installed, run with -Reinstall to force reinstallation"
-    }
-    if (-Not(Get-Command curl.exe -ErrorAction Ignore)){
-        return "curl is not found (comes with windows per default?)"
-    }
-    Remove-Item "$env:ProgramData\GraalVM" -ErrorAction Ignore -Force -Recurse
-
-    $URL = 'https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-21.2.0/graalvm-ce-java16-windows-amd64-21.2.0.zip'
-    $SHA256 = 'DAE2511ABFF8EAD3EBC90CD9FC81A8E84B762FC91462B198C3EDDF28F81A937E'
-    $Zip = "$env:TMP\GraalVM.zip"
-
-
-    if (-Not(Test-Path $Zip)){
-        Write-Host "Downloading GraalVM ($(Get-HeaderSize $URL)`MB).." -ForegroundColor Green
-        curl.exe -# -L $URL -o"$Zip"
-    }
-
-    if ((Get-FileHash $Zip).Hash -ne $SHA256){
-        Remove-Item "$env:TMP\GraalVM.zip"
-        return "Failed to download GraalVM (SHA256 checksum mismatch, not the expected file)"
-        
-    }
-
-    if (Get-Command 7z -ErrorAction Ignore){
-
-        Invoke-Expression "& `"7z`" x -bso0 -bsp1 -bse1 -aoa `"$env:TMP\GraalVM.zip`" -o`"$env:ProgramData\GraalVM`""
-    } else {
-        Expand-Archive -Path $Zip -Destination "$env:ProgramData\GraalVM"
-    }
-    Move-Item -Path "$env:ProgramData\GraalVM\graalvm-?e*\*" "C:\ProgramData\GraalVM"
-}
-# Made by Aetopia, rewrote by Couleur
-
-function Get-NVIDIADriver {
-    [alias('gnvd')]
-    param(
-        [String]$DriverLink, # Use your own driver link, it must be direct (no google drive)
-        [Switch]$Minimal,    # If you want to use 7-Zip to extract and strip the driver
-        [Switch]$GetLink,    # Returns the download link
-        [Switch]$OpenLink    # Opens the download link in your default browser
-    )
-
-    if (-Not($DriverLink)){
-
-        $File = Invoke-RestMethod 'https://www.nvidia.com/Download/processFind.aspx?psid=101&pfid=845&osid=57&lid=1&whql=1&ctk=0&dtcid=1'
-        $GameReadyVersions = @()
-        foreach ($Line in $File.Split('`n')){
-            if ($Line -match "<td class=""gridItem"">*.*</td>") {
-                $Version = $Line.Split('>')[5].Split('<')[0]
-                $GameReadyVersions += $Version 
-            }
-        }
-        $Version = $GameReadyVersions | Select-Object -First 1
-    
-        $DriverFile = "$env:TEMP\NVIDIA Driver - Game Ready - $Version.exe"
-    
-        $DriverLink = "https://international.download.nvidia.com/Windows/$Version/$Version-desktop-win10-win11-64bit-international-dch-whql.exe"
-    
-    }elseif($DriverLink){
-
-        $DriverFile = "$env:TEMP\NVIDIA Driver - (Custom DL Link).exe"
-    }
-
-    # If any of these two args are used this function is simply a NVIDIA driver link parser
-    if ($GetLink){return $DriverLink}
-    elseif($OpenLink){Start-Process $DriverLink;return}
-
-    Try {
-        $DriverSize = (Invoke-WebRequest -Useb $DriverLink -Method Head).Headers.'Content-Length'
-    } Catch {
-        Write-Host "Failed to parse driver size (Invalid URL?):" -ForegroundColor DarkRed
-        Write-Host $_.Exception.Message -ForegroundColor Red
-        return
-    }
-    $DriverSize = [int]($DriverSize/1MB)
-    Write-Host "Downloading NVIDIA Driver $Version ($DriverSize`MB)..." -ForegroundColor Green
-
-    curl.exe -L -# $DriverLink -o $DriverFile
-
-    if ($Minimal){
-
-        $Components = @(
-            "Display.Driver"
-            "NVI2"
-            "EULA.txt"
-            "ListDevices.txt"
-            "GFExperience/*.txt"
-            "GFExperience/locales"
-            "GFExperience/EULA.html"
-            "GFExperience/PrivacyPolicy"
-            "setup.cfg"
-            "setup.exe"
-        )
-        
-        $7z = Get-7zPath
-
-        Write-Outp "Unpacking driver package with minimal components..."
-        $Folder = "$env:TEMP\7z-$(Get-Item $DriverFile | Select-Object -ExpandProperty BaseName)"
-        Invoke-Expression "& `"$7z`" x -bso0 -bsp1 -bse1 -aoa `"$DriverFile`" $Components -o`"$Folder`""
-        Get-ChildItem $Folder -Exclude $Components | Remove-Item -Force -Recurse
-        
-        $CFG = Get-Item (Join-Path $Folder setup.cfg)
-        $XML = @(
-            '		<file name="${{EulaHtmlFile}}"/>'
-            '		<file name="${{FunctionalConsentFile}}"/>'
-            '		<file name="${{PrivacyPolicyFile}}"/>'
-        )
-        (Get-Content $CFG) | Where-Object {$_ -NotIn $XML} | Set-Content $CFG
-
-        $setup = Join-Path $Folder setup.exe
-    }else{
-        $setup = $DriverFile
-    }
-
-    Write-Host "Launching the installer, press any key to continue and accept the UAC"
-    Write-Verbose $setup
-    PauseNul
-    Start-Process $setup -Verb RunAs
-
-}
-# This function centralizes most of what you can download/install on CTT
-# Anything it doesn't find in that switch ($App){ statement is passed to scoop
-$global:SendTo = [System.Environment]::GetFolderPath('SendTo')
-function Get {
-    [alias('g')] # minimalism at it's finest
-    param(
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [Array]$Apps,
-        [Switch]$DryRun
-    )
-
-    $FailedToInstall = $null # Reset that variable for later
-    if ($Apps.Count -eq 1 -and (($Apps[0] -Split '\r?\n') -gt 1)){
-        $Apps = $Apps[0] -Split '\r?\n'
-    }
-    if ($DryRun){
-        ForEach($App in $Apps){
-            "Installing $app."
-        }
-        return
-    }
-
-    ForEach($App in $Apps){ # Scoop exits when it throws
-
-        switch ($App){
-            'nvddl'{Get-ScoopApp utils/nvddl}
-            {$_ -in 'Remux','Remuxer'}{
-                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
-                Out-File "$SendTo\Remux.bat"
-
-            }
-            {$_ -in 'RemuxAVI','AVIRemuxer'}{
-                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
-                Out-File "$SendTo\Remux - AVI.bat"
-                $Content = (Get-Content "$SendTo\Remux - AVI.bat") -replace 'set container=mp4','set container=avi'
-                Set-Content "$SendTo\Remux - AVI.bat" $Content
-            }
-            {$_ -in 'Voukoder','vk'}{Install-Voukoder}
-            'Upscaler'{
-
-                Install-FFmpeg
-                Invoke-RestMethod 'https://github.com/couleur-tweak-tips/utils/raw/main/Miscellaneous/CTT%20Upscaler.cmd' |
-                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'CTT Upscaler.cmd') -Encoding ASCII -Force
-                Write-Host @"
-CTT Upscaler has been installed,
-I strongly recommend you open settings to tune it to your PC, there's lots of cool stuff to do there!
-"@ -ForegroundColor Green
-
-            }
-            {$_ -In 'QualityMuncher','qm'}{
-                Install-FFmpeg
-
-                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/Quality%20Muncher.bat' |
-                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'Quality Muncher.bat') -Encoding ASCII -Force
-
-                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/!!qualitymuncher%20multiqueue.bat' |
-                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) '!!qualitymuncher multiqueue.bat') -Encoding ASCII -Force
-
-            }
-
-            'Scoop'{Install-Scoop}
-            'FFmpeg'{Install-FFmpeg}
-
-            {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
-            {$_ -in 'wt','windowsterminal','windows-terminal'}{Get-ScoopApp extras/windows-terminal}
-            {$_ -in 'np++','Notepad++','notepadplusplus'}{Get-ScoopApp extras/notepadplusplus}
-            {$_ -in 'DDU','DisplayDriverUninstaller'}{Get-ScoopApp extras/ddu}
-            {$_ -in 'Afterburner','MSIAfterburner'}{Get-ScoopApp utils/msiafterburner}
-            {$_ -in 'Everything','Everything-Alpha','Everything-Beta'}{Get-ScoopApp extras/everything-alpha}
-            {$_ -In '7-Zip','7z','7Zip'}{Get-ScoopApp 7zip}
-            {$_ -In 'Smoothie','sm'}{Install-FFmpeg;Get-ScoopApp utils/Smoothie}
-            {$_ -In 'OBS','OBSstudio','OBS-Studio'}{Get-ScoopApp extras/obs-studio}
-            {$_ -In 'UTVideo'}{Get-ScoopApp utils/utvideo}
-            {$_ -In 'Nmkoder'}{Get-ScoopApp utils/nmkoder}
-            {$_ -In 'Librewolf'}{Get-ScoopApp extras/librewolf}
-            {$_ -In 'ffmpeg-nightly'}{Get-ScoopApp versions/ffmpeg-nightly}
-            {$_ -In 'Graal','GraalVM'}{Get-ScoopApp utils/GraalVM}
-            {$_ -In 'DiscordCompressor','dc'}{Install-FFmpeg;Get-ScoopApp utils/discordcompressor}
-            {$_ -In 'Moony','mn'}{if (-Not(Test-Path "$HOME\.lunarclient")){Write-Warning "You NEED Lunar Client to launch it with Moony"};Get-ScoopApp utils/Moony}
-            {$_ -In 'TLShell','TLS'}{Get-TLShell}
-            default{Get-ScoopApp $App}
-        }
-        Write-Verbose "Finished installing $app"
-
-    }
-    if ($FailedToInstall){
-        
-        Write-Host "[!] The following apps failed to install (scroll up for details):" -ForegroundColor Red
-        $FailedToInstall
-    }
-}
 <#
 	.SYNOPSIS
 	Scraps the latest version of Sophia edition weither you have W10/11/LTSC/PS7,
@@ -4477,6 +4315,12 @@ function Remove-ContextMenu {
             )]
         [Array]$Entries
     )
+
+    if (!(Test-Admin)){
+        return 'Changing the context menu / default file extensions requires running as Admin, exitting..'
+
+    }
+
 
     $CurrentPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Ignore'
