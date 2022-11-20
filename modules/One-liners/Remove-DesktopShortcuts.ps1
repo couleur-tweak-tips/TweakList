@@ -1,4 +1,7 @@
-function Remove-DesktopShortcuts ([Switch]$ConfirmEach){
+function Remove-DesktopShortcuts {
+    param(
+        [Switch]$ConfirmEach
+    )
     
     if($ConfirmEach){
         Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
