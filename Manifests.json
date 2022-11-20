@@ -1,14 +1,21 @@
 [
   {
     "Path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
-    "Description": "Tunes a selected Lunar Client profile to your liking",
-    "Name": "Optimize-LunarClient",
     "Parameters": [
       {
-        "Required": "false",
-        "Name": "Settings",
         "Type": "Array",
-        "KeyValues": {},
+        "Name": "Settings",
+        "Required": "false",
+        "KeyValues": {
+          "Performance": "Turn off performance-hungry settings",
+          "NoCosmetics": "Disable all emotes, cosmetics, wings, hats..",
+          "MinimalViewBobbing": "Keep item movement but disable walk bobbing",
+          "No16xSaturationOverlay": "Remove the yellow 16x hunger bar overlay",
+          "HideToggleSprint": "Hides the ToggleSprint status from HUD",
+          "ToggleSneak": "Turns on ToggleSneak",
+          "DisableUHCMods": "Disables ArmorHUD, DirectionHUD and Coordinates mods",
+          "FullBright": "literally night vision"
+        },
         "Description": "Specify which specific tweak you'd like applying on your profile",
         "ValidateSet": [
           "Performance",
@@ -23,22 +30,26 @@
         ]
       }
     ],
-    "Display Name": "Optimize LunarClient",
+    "Description": "Tunes a selected Lunar Client profile to your liking, it has some good defaults everyone should have (no numbers in scoreboard, modern keybind handling, no achievements, transparent texture packs section, borderless fullscreen..)",
+    "Name": "Optimize-LunarClient",
+    "Display Name": "Optimize Lunar Client",
     "Platform": [
       "Linux",
       "Windows"
     ],
-    "Category": "Optimizations"
+    "Category": "Optimizations",
+    "Depends": [
+      "Write-Diff",
+      "Merge-HashTables"
+    ]
   },
   {
     "Path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
-    "Description": "Tune your OBS for a specific usecase in the snap of a finger!",
-    "Name": "Optimize-OBS",
     "Parameters": [
       {
-        "Required": "false",
-        "Name": "Encoder",
         "Type": "String",
+        "Name": "Encoder",
+        "Required": "false",
         "KeyValues": {
           "NVENC": "NVIDIA's Fastest encoder, it lets you record in hundreds of FPS easily",
           "AMF": "AMD GPUs/Integrated GPUs encoder, not as good as NVENC but can still get out ~240FPS at most",
@@ -54,13 +65,29 @@
         ]
       },
       {
-        "Required": "false",
-        "Name": "OBS64Path",
         "Type": "String",
+        "Name": "OBS64Path",
+        "Required": "false",
         "KeyValues": {},
         "Description": "If you've got a portable install or something, pass in the main OBS binary's path here"
+      },
+      {
+        "Type": "Array",
+        "Name": "MiscTweaks",
+        "Required": "false",
+        "KeyValues": {},
+        "Description": [
+          "[ValidateScript({ Test-Path -Path $OBSProfile -PathType Container })]",
+          "[String]$OBSProfile = $null"
+        ],
+        "ValidateSet": [
+          "EnableStatsDock",
+          "OldDarkTheme"
+        ]
       }
     ],
+    "Description": "Tune your OBS for a specific usecase in the snap of a finger!",
+    "Name": "Optimize-OBS",
     "Display Name": "Optimize OBS",
     "Platform": [
       "Linux",
