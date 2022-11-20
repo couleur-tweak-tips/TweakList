@@ -35,10 +35,10 @@ function Get {
                 $Content = (Get-Content "$SendTo\Remux - AVI.bat") -replace 'set container=mp4','set container=avi'
                 Set-Content "$SendTo\Remux - AVI.bat" $Content
             }
-            {$_ -in 'Voukoder','vk'}{Install-Voukoder}
+            {$_ -in 'Voukoder','vk'}{Install-Voukoder }
             'Upscaler'{
 
-                Install-FFmpeg
+                Install-FFmpeg 
                 Invoke-RestMethod 'https://github.com/couleur-tweak-tips/utils/raw/main/Miscellaneous/CTT%20Upscaler.cmd' |
                 Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'CTT Upscaler.cmd') -Encoding ASCII -Force
                 Write-Host @"
@@ -48,7 +48,7 @@ I strongly recommend you open settings to tune it to your PC, there's lots of co
 
             }
             {$_ -In 'QualityMuncher','qm'}{
-                Install-FFmpeg
+                Install-FFmpeg 
 
                 Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/Quality%20Muncher.bat' |
                 Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'Quality Muncher.bat') -Encoding ASCII -Force
@@ -58,8 +58,8 @@ I strongly recommend you open settings to tune it to your PC, there's lots of co
 
             }
 
-            'Scoop'{Install-Scoop}
-            'FFmpeg'{Install-FFmpeg}
+            'Scoop'{Install-Scoop }
+            'FFmpeg'{Install-FFmpeg }
 
             {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
             {$_ -in 'wt','windowsterminal','windows-terminal'}{Get-ScoopApp extras/windows-terminal}
@@ -68,16 +68,16 @@ I strongly recommend you open settings to tune it to your PC, there's lots of co
             {$_ -in 'Afterburner','MSIAfterburner'}{Get-ScoopApp utils/msiafterburner}
             {$_ -in 'Everything','Everything-Alpha','Everything-Beta'}{Get-ScoopApp extras/everything-alpha}
             {$_ -In '7-Zip','7z','7Zip'}{Get-ScoopApp 7zip}
-            {$_ -In 'Smoothie','sm'}{Install-FFmpeg;Get-ScoopApp utils/Smoothie}
+            {$_ -In 'Smoothie','sm'}{Install-FFmpeg ;Get-ScoopApp utils/Smoothie}
             {$_ -In 'OBS','OBSstudio','OBS-Studio'}{Get-ScoopApp extras/obs-studio}
             {$_ -In 'UTVideo'}{Get-ScoopApp utils/utvideo}
             {$_ -In 'Nmkoder'}{Get-ScoopApp utils/nmkoder}
             {$_ -In 'Librewolf'}{Get-ScoopApp extras/librewolf}
             {$_ -In 'ffmpeg-nightly'}{Get-ScoopApp versions/ffmpeg-nightly}
             {$_ -In 'Graal','GraalVM'}{Get-ScoopApp utils/GraalVM}
-            {$_ -In 'DiscordCompressor','dc'}{Install-FFmpeg;Get-ScoopApp utils/discordcompressor}
+            {$_ -In 'DiscordCompressor','dc'}{Install-FFmpeg ;Get-ScoopApp utils/discordcompressor}
             {$_ -In 'Moony','mn'}{if (-Not(Test-Path "$HOME\.lunarclient")){Write-Warning "You NEED Lunar Client to launch it with Moony"};Get-ScoopApp utils/Moony}
-            {$_ -In 'TLShell','TLS'}{Get-TLShell}
+            {$_ -In 'TLShell','TLS'}{Get-TLShell }
             default{Get-ScoopApp $App}
         }
         Write-Verbose "Finished installing $app"
