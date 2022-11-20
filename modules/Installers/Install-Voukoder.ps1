@@ -1,17 +1,18 @@
 function Install-Voukoder {
     [alias('isvk')]
     param(
-        [Switch]$GetTemplates = $false 
-    )       # Skip Voukoder installation and just get to the template selector
-
-    if ($PSEdition -eq 'Core'){
-        return "Install-Voukoder is only available on Windows PowerShell 5.1 (use of Get-Package)."
-    }       # Get-Package is used for Windows programs, on PowerShell 7 (core) it's for PowerShell modules
+        [Switch]$GetTemplates
+            # Skip Voukoder installation and just get to the template selector
+    )       
 
     if (!$GetTemplates){
 
+        if ($PSEdition -eq 'Core'){
+            return "Install-Voukoder is only available on Windows PowerShell 5.1 (use of Get-Package)."
+        }       # Get-Package is used for Windows programs, on PowerShell 7 (core) it's for PowerShell modules
+    
         $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases/latest)[0]
-            # Get the latest release manifest from GitHub's API
+            # get the latest release manifest from GitHub's API
 
         if (($tag = $LatestCore.tag_name) -NotLike "*.*"){
             $tag += ".0" # E.g "12" will not convert to a version type, "12.0" will
@@ -56,7 +57,7 @@ function Install-Voukoder {
             # .zip for Resolve's
 
 
-    # Following block generates a hashtable of all of the latest connectors
+        # Following block generates a hashtable of all of the latest connectors
 
         $Tree = (Invoke-RestMethod 'https://api.github.com/repos/Vouk/voukoder-connectors/git/trees/master?recursive=1').Tree
             # Gets all files from the connectors repo, which contain all filepaths
@@ -81,7 +82,7 @@ function Install-Voukoder {
             ForEach-Object {[Version]($_ | ConnectorVer)} | # Parse it's version using the filter
             Sort-Object -Descending | Select-Object -First 1 # Sort then select only the latest
 
-            $Path = $Tree.path | Where-Object {$_ -Like "$Pattern*$LCV*.*"} # Get the absolute path with the latest version
+            $Path = $Tree.path | Where-Object {$_ -Like "$Pattern*$LCV*.*"} # get the absolute path with the latest version
             $Connectors += @{$NLE = "https://github.com/Vouk/voukoder-connectors/raw/master/$Path"}
             Remove-Variable -Name NLE
         }
@@ -170,23 +171,32 @@ function Install-Voukoder {
                 'Resolve'{
                     Write-Warning "Voukoder's connector for Resolve is ONLY FOR IT'S PAID `"Studio`" VERSION"
                     pause
+                    
                     $IOPlugins = "$env:ProgramData\Blackmagic Design\DaVinci Resolve\Support\IOPlugins"
+                    $dvcpBundle = "$IOPlugins\voukoder_plugin.dvcp.bundle"
+
                     if (-Not(Test-Path $IOPlugins)){
                         New-Item -ItemType Directory -Path $IOPlugins
                     }
-                    elseif (Test-Path "$IOPlugins\voukoder_plugin.dvcp.bundle"){
+                    elseif (Test-Path $dvcpBundle){
                         if (-Not(Get-Boolean "Would you like to reinstall/update the Voukoder Resolve plugin? (Y/N)")){continue}
-                        Remove-Item "$IOPlugins\voukoder_plugin.dvcp.bundle" -Force -Recurse
+                        Remove-Item $dvcpBundle -Force -Recurse
                     }
-                    curl.exe -# -L $Connectors.Resolve -o"$env:TMP\Voukoder-Connector-Resolve.zip"
-                    Remove-Item "$env:TMP\Voukoder-Connector-Resolve" -Recurse -Force -ErrorAction Ignore
+
+                    $Zip = "$env:TMP\Voukoder-Connector-Resolve.zip"
+                    curl.exe -# -L $Connectors.Resolve -o"$Zip"
+
                     $ExtractDir = "$env:TMP\Voukoder-Connector-Resolve"
-                    Expand-Archive "$env:TMP\Voukoder-Connector-Resolve.zip" -Destination $ExtractDir
+                    Remove-Item $ExtractDir -Recurse -Force -ErrorAction Ignore
+                    Expand-Archive $Zip -Destination $ExtractDir
+
                     Copy-Item "$ExtractDir\voukoder_plugin.dvcp.bundle" $IOPlugins
+                    
                     Write-Warning "If connection failed you should find instructions in $ExtractDir\README.txt"
                 }
             }
         }
+        $NLEBin = $NLE.Path
     }else{
         $AvailableNLETemplates = @{
             "Vegas Pro" = "vegas200.exe"
@@ -194,7 +204,7 @@ function Install-Voukoder {
             "After Effects" = "AfterFX.exe"
         }
         $NLE = Menu -menuItems $AvailableNLETemplates.Keys
-        $NLE = $AvailableNLETemplates.$NLE
+        $NLEBin = $AvailableNLETemplates.$NLE
     }
 
         # Converts 
@@ -202,7 +212,7 @@ function Install-Voukoder {
         # To hashtable with key "HEVC NVENC + Upscale" and val the URL
 
     filter File2Display {[IO.Path]::GetFileNameWithoutExtension((((($_ | Split-Path -Leaf) -replace '_',' ' -replace " Upscale", " + Upscale")) -replace '  ',' '))}
-                         # Get file ext    Put spaces instead of _       Format Upscale prettily  Remove extension
+                         # get file ext    Put spaces instead of _       Format Upscale prettily  Remove extension
     $VegasTemplates = @(
 
         'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904873517106/HEVC_NVENC_Upscale.sft2'
@@ -234,9 +244,9 @@ function Install-Voukoder {
         [Ordered]@{($_ | File2Display) = $_}
     }
 
-    switch([String]$NLE){
+    switch($NLEBin){
 
-        {($NLE.Path | Split-Path -Leaf).StartsWith('vegas')}{
+        {($NLEBin | Split-Path -Leaf).StartsWith('vegas')}{
 
             $NLETerm = "Vegas"
             $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
@@ -245,7 +255,7 @@ function Install-Voukoder {
                 New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
             }
 
-            $SelectedTemplates =  Invoke-Checkbox -Items $VegasTemplates.Keys -Title "Select render templates to install"
+            $SelectedTemplates =  Invoke-Checkbox -Items $VegasTemplates.Keys -Title "Select VEGAS render templates to install"
 
             ForEach ($Template in $SelectedTemplates){
                 if (Test-Path ($TPPath = "$TemplatesFolder\$Template.sft2")){
@@ -257,7 +267,7 @@ function Install-Voukoder {
 
 
 
-        {($NLE.Path | Split-Path -Leaf).StartsWith('Adobe Premiere Pro.exe')}{
+        {($NLEBin | Split-Path -Leaf).StartsWith('Adobe Premiere Pro.exe')}{
             
             $NLETerm = 'Premiere Pro'
             $TemplatesFolder = "$env:USERPROFILE\Documents\Adobe\Adobe Media Encoder\12.0\Presets"
@@ -280,7 +290,7 @@ function Install-Voukoder {
 
 
 
-        {($NLE.Path | Split-Path -Leaf).StartsWith('AfterFX.exe')}{
+        {($NLEBin | Split-Path -Leaf).StartsWith('AfterFX.exe')}{
             $NLETerm = 'After Effects'
 
             "Opening a tutorial in your browser and downloading the AE templates file.."
@@ -302,10 +312,10 @@ function Install-Voukoder {
 
 
         default{
-            Write-Host "Your video editor ($([String]$NLE)) does not have any pre-made templates for me to propose you" -ForegroundColor Red
+            Write-Host "Your video editor ($($NLEBin)) does not have any pre-made templates for me to propose you" -ForegroundColor Red
             $NLETerm = "your video editor"
         }
     }
-    Write-Output "Installation script finished, restart $NLETerm to refresh your render templates."
+    Write-Output "Installation script finished, follow instructions (if any) restart $NLETerm to refresh your render templates."
 
 }
