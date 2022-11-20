@@ -29,14 +29,14 @@ function Get-ScoopApp {
 
     $Repos = @{
 
-        main = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
-        extras = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
-        utils = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
-        nirsoft = @{org = 'kodybrown';repo = 'scoop-nirsoft';branch = 'master'}
-        games = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
-        'nerd-fonts' = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
-        versions = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
-        java = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
+        main            = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
+        extras          = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
+        utils           = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
+        nirsoft         = @{org = 'kodybrown'     ;repo = 'scoop-nirsoft';branch = 'master'}
+        games           = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
+        'nerd-fonts'    = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
+        versions        = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
+        java            = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
     }
     $RepoNames = $Repos.Keys -Split('\r?\n')
 
