@@ -1,4 +1,7 @@
-function Get-Boolean ($Message){
+function Get-Boolean {
+    param(
+        $Message
+    )
     $null = $Response
     $Response = Read-Host $Message
     While ($Response -NotIn 'yes','y','n','no'){
