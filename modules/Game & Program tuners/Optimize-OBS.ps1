@@ -136,6 +136,7 @@ function Optimize-OBS {
         # Merge with global, which will be added for all
 
     if (!$OBSProfile){
+        Remove-Variable -Name OBSProfile
         if (-Not($OBS64Path)){
 
             $Parameters = @{
