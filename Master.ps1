@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 258
+$CommitCount = 260
 $FuncsCount = 57
 function Get-IniContent {
     <#
@@ -2700,6 +2700,7 @@ function Optimize-OBS {
         # Merge with global, which will be added for all
 
     if (!$OBSProfile){
+        Remove-Variable -Name OBSProfile
         if (-Not($OBS64Path)){
 
             $Parameters = @{
