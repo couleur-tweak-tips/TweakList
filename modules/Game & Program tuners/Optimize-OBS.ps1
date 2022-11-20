@@ -33,10 +33,10 @@ function Optimize-OBS {
         [ValidateSet(
             'EnableStatsDock', 'OldDarkTheme')]
         [Array]$MiscTweaks = (Invoke-CheckBox -Title "Select misc tweaks to apply" -Items (
-            'EnableStatsDock', 'OldDarkTheme'))
+            'EnableStatsDock', 'OldDarkTheme')),
 
-        # [ValidateScript({ Test-Path -Path $OBSProfile -PathType Container })]
-        # [String]$OBSProfile = $null
+        [ValidateScript({ Test-Path -Path $_ -PathType Container })]
+        [String]$OBSProfile = $null
     )
 
     if (!$Encoder){
@@ -135,86 +135,87 @@ function Optimize-OBS {
     $OBSPatches.$Preset.$Encoder = Merge-Hashtables $OBSPatches.$Preset.$Encoder $Global
         # Merge with global, which will be added for all
 
-    if (-Not($OBS64Path)){
+    if (!$OBSProfile){
+        if (-Not($OBS64Path)){
 
-        $Parameters = @{
-            Path = @("$env:APPDATA\Microsoft\Windows\Start Menu","$env:ProgramData\Microsoft\Windows\Start Menu")
-            Recurse = $True
-            Include = 'OBS Studio*.lnk'
-        }
-        $StartMenu = Get-ChildItem @Parameters
-        
-        if (!$StartMenu){
-            if ((Get-Process obs64 -ErrorAction Ignore).Path){$OBS64Path = (Get-Process obs64).Path} # Won't work if OBS is ran as Admin
-            else{
-return @'
+            $Parameters = @{
+                Path = @("$env:APPDATA\Microsoft\Windows\Start Menu","$env:ProgramData\Microsoft\Windows\Start Menu")
+                Recurse = $True
+                Include = 'OBS Studio*.lnk'
+            }
+            $StartMenu = Get-ChildItem @Parameters
+            
+            if (!$StartMenu){
+                if ((Get-Process obs64 -ErrorAction Ignore).Path){$OBS64Path = (Get-Process obs64).Path} # Won't work if OBS is ran as Admin
+                else{
+    return @'
 Your OBS installation could not be found, 
 please manually specify the path to your OBS64 executable, example:
 
 Optimize-OBS -OBS64Path "D:\obs\bin\64bit\obs64.exe"
 
 You can find it this way:             
- Search OBS -> Right click it
- Open file location in Explorer ->
- Open file location again if it's a shortcut ->
- Shift right click obs64.exe -> Copy as path
+Search OBS -> Right click it
+Open file location in Explorer ->
+Open file location again if it's a shortcut ->
+Shift right click obs64.exe -> Copy as path
 '@
+                }
             }
+            if ($StartMenu.Count -gt 1){
+
+                $Shortcuts = $null
+                $StartMenu = Get-Item $StartMenu
+                ForEach($Lnk in $StartMenu){$Shortcuts += @{$Lnk.BaseName = $Lnk.FullName}}
+                "There are multiple OBS shortcuts in your Start Menu folder. Please select one."
+                $ShortcutName = menu ($Shortcuts.Keys -Split [System.Environment]::NewLine)
+                $StartMenu = $Shortcuts.$ShortcutName
+                $OBS64Path = Get-ShortcutTarget $StartMenu
+            }else{
+                $OBS64Path = Get-ShortcutTarget $StartMenu
+            }
+
         }
-        if ($StartMenu.Count -gt 1){
 
-            $Shortcuts = $null
-            $StartMenu = Get-Item $StartMenu
-            ForEach($Lnk in $StartMenu){$Shortcuts += @{$Lnk.BaseName = $Lnk.FullName}}
-            "There are multiple OBS shortcuts in your Start Menu folder. Please select one."
-            $ShortcutName = menu ($Shortcuts.Keys -Split [System.Environment]::NewLine)
-            $StartMenu = $Shortcuts.$ShortcutName
-            $OBS64Path = Get-ShortcutTarget $StartMenu
-        }else{
-            $OBS64Path = Get-ShortcutTarget $StartMenu
-        }
-
-    }
-
-    if (!$IsLinux -or !$IsMacOS){
-        [Version]$CurVer = (Get-Item $OBS64Path).VersionInfo.ProductVersion
-        if ($CurVer -lt [Version]"28.1.0"){
-            Write-Warning @"
+        if (!$IsLinux -or !$IsMacOS){
+            [Version]$CurVer = (Get-Item $OBS64Path).VersionInfo.ProductVersion
+            if ($CurVer -lt [Version]"28.1.0"){
+                Write-Warning @"
 It is strongly advised you update OBS before continuing (for compatibility with new NVENC/AMD settings)
 
 Detected version: $CurVer
 obs64.exe path: $OBS64Path
 pause
 "@
+            }
         }
-    }
 
-    Set-CompatibilitySettings $OBS64Path -RunAsAdmin
+        Set-CompatibilitySettings $OBS64Path -RunAsAdmin
 
-    if (Resolve-Path "$OBS64Path\..\..\..\portable_mode.txt" -ErrorAction Ignore){ # "Portable Mode" makes OBS make the config in it's own folder, else it's in appdata
+        if (Resolve-Path "$OBS64Path\..\..\..\portable_mode.txt" -ErrorAction Ignore){ # "Portable Mode" makes OBS make the config in it's own folder, else it's in appdata
 
-        $ProfilesDir = (Resolve-Path "$OBS64Path\..\..\..\config\obs-studio\basic\profiles" -ErrorAction Stop)
-    }else{
-        $ProfilesDir = (Resolve-Path "$env:APPDATA\obs-studio\basic\profiles" -ErrorAction Stop)
-    }
-    $Profiles = Get-ChildItem $ProfilesDir
-
-    ForEach($OBSProfile in $Profiles){$ProfilesHash += @{$OBSProfile.Name = $OBSProfile.FullName}}
-
-    $ProfileNames = ($ProfilesHash.Keys -Split [System.Environment]::NewLine) + 'Create a new profile'
-    "Please select a profile:"
-    $OBSProfile = menu  $ProfileNames
-
-    if ($OBSProfile -eq 'Create a new profile'){
-        $NewProfileName = Read-Host "Enter a name for the new profile"
-        $OBSProfile = Join-Path $ProfilesDir $NewProfileName
-        New-Item -ItemType Directory -Path $OBSProfile -ErrorAction Stop
-        $DefaultWidth, $DefaultHeight = ((Get-CimInstance Win32_VideoController).VideoModeDescription.Split(' x ') | Where-Object {$_ -ne ''} | Select-Object -First 2)
-        if (!$DefaultWidth -or !$DefaultHeight){
-            $DefaultWidth = 1920
-            $DefaultHeight = 1080
+            $ProfilesDir = (Resolve-Path "$OBS64Path\..\..\..\config\obs-studio\basic\profiles" -ErrorAction Stop)
+        }else{
+            $ProfilesDir = (Resolve-Path "$env:APPDATA\obs-studio\basic\profiles" -ErrorAction Stop)
         }
-        Set-Content "$OBSProfile\basic.ini" -Value @"
+        $Profiles = Get-ChildItem $ProfilesDir
+
+        ForEach($OBSProfile in $Profiles){$ProfilesHash += @{$OBSProfile.Name = $OBSProfile.FullName}}
+
+        $ProfileNames = ($ProfilesHash.Keys -Split [System.Environment]::NewLine) + 'Create a new profile'
+        "Please select a profile:"
+        $OBSProfile = menu  $ProfileNames
+
+        if ($OBSProfile -eq 'Create a new profile'){
+            $NewProfileName = Read-Host "Enter a name for the new profile"
+            $OBSProfile = Join-Path $ProfilesDir $NewProfileName
+            New-Item -ItemType Directory -Path $OBSProfile -ErrorAction Stop
+            $DefaultWidth, $DefaultHeight = ((Get-CimInstance Win32_VideoController).VideoModeDescription.Split(' x ') | Where-Object {$_ -ne ''} | Select-Object -First 2)
+            if (!$DefaultWidth -or !$DefaultHeight){
+                $DefaultWidth = 1920
+                $DefaultHeight = 1080
+            }
+            Set-Content "$OBSProfile\basic.ini" -Value @"
 [General]
 Name=$NewProfileName
 
@@ -224,12 +225,13 @@ BaseCY=$DefaultHeight
 OutputCX=$DefaultWidth
 OutputCY=$DefaultHeight
 "@
-        Write-Host "Created new profile '$NewProfileName' with default resolution of $DefaultWidth`x$DefaultHeight" -For Green
-    }else{
-        $OBSProfile = $ProfilesHash.$OBSProfile
+            Write-Host "Created new profile '$NewProfileName' with default resolution of $DefaultWidth`x$DefaultHeight" -For Green
+        }else{
+            $OBSProfile = $ProfilesHash.$OBSProfile
+        }
     }
     if ('basic.ini' -notin ((Get-ChildItem $OBSProfile).Name)){
-       return "FATAL: Profile $OBSProfile is incomplete"
+       return "FATAL: Profile $OBSProfile is incomplete (missing basic.ini)"
     }
     Write-Verbose "Tweaking profile $OBSProfile"
     try {
@@ -292,7 +294,6 @@ OutputCY=$DefaultHeight
     if ($True -in [bool]$MiscTweaks){ # If there is anything in $MiscTweaks
         $global = Get-Item (Join-Path ($OBSProfile | Split-Path | Split-Path | Split-Path) -ChildPath 'global.ini') -ErrorAction Stop
         $glob = Get-IniContent -FilePath $global
-        Write-Host $global
 
         if ('OldDarkTheme' -in $MiscTweaks){
             $glob.General.CurrentTheme3 = 'Dark'
