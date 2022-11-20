@@ -10,6 +10,10 @@ function Add-ContextMenu {
             )]
         [Array]$Entries
     )
+    if (!(Test-Admin)){
+        return 'Changing the context menu / default file extensions requires running as Admin, exitting..'
+
+    }
 
     if ('SendTo' -in $Entries){
         New-ItemProperty -Path Registry::HKEY_CLASSES_ROOT\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo -Name "(default)" -PropertyType String -Value "{7BA4C740-9E81-11CF-99D3-00AA004AE837}" -Force

@@ -40,6 +40,12 @@ function Remove-ContextMenu {
         [Array]$Entries
     )
 
+    if (!(Test-Admin)){
+        return 'Changing the context menu / default file extensions requires running as Admin, exitting..'
+
+    }
+
+
     $CurrentPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Ignore'
     $Blocked = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked"
