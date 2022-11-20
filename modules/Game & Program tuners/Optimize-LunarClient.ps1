@@ -1,15 +1,24 @@
 function Optimize-LunarClient {
     <#
     .SYNOPSIS
-    Display Name: Optimize LunarClient
+    Display Name: Optimize Lunar Client
     Platform: Linux; Windows
     Category: Optimizations
+    Depends: Write-Diff; Merge-HashTables
 
     .DESCRIPTION
-    Tunes a selected Lunar Client profile to your liking
+    Tunes a selected Lunar Client profile to your liking, it has some good defaults everyone should have (no numbers in scoreboard, modern keybind handling, no achievements, transparent texture packs section, borderless fullscreen..)
 
     .PARAMETER Settings
     Specify which specific tweak you'd like applying on your profile
+    Performance: Turn off performance-hungry settings
+    NoCosmetics: Disable all emotes, cosmetics, wings, hats..
+    MinimalViewBobbing: Keep item movement but disable walk bobbing
+    No16xSaturationOverlay: Remove the yellow 16x hunger bar overlay
+    HideToggleSprint: Hides the ToggleSprint status from HUD
+    ToggleSneak: Turns on ToggleSneak
+    DisableUHCMods: Disables ArmorHUD, DirectionHUD and Coordinates mods
+    FullBright: literally night vision    
     #>
     [alias('optlc')]
     param(
