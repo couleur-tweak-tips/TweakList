@@ -1,8 +1,8 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 260
-$FuncsCount = 57
+$CommitCount = 270
+$FuncsCount = 65
 function Get-IniContent {
     <#
     .Synopsis
@@ -411,6 +411,185 @@ Function Out-IniFile {
 }
 
 Set-Alias oif Out-IniFile
+Function ConvertFrom-VDF {
+<# 
+.Synopsis 
+    Reads a Valve Data File (VDF) formatted string into a custom object.
+
+.Description 
+    The ConvertFrom-VDF cmdlet converts a VDF-formatted string to a custom object (PSCustomObject) that has a property for each field in the VDF string. VDF is used as a textual data format for Valve software applications, such as Steam.
+
+.Parameter InputObject
+    Specifies the VDF strings to convert to PSObjects. Enter a variable that contains the string, or type a command or expression that gets the string. 
+
+.Example 
+    $vdf = ConvertFrom-VDF -InputObject (Get-Content ".\SharedConfig.vdf")
+
+    Description 
+    ----------- 
+    Gets the content of a VDF file named "SharedConfig.vdf" in the current location and converts it to a PSObject named $vdf
+
+.Inputs 
+    System.String
+
+.Outputs 
+    PSCustomObject
+
+
+#>
+    param
+    (
+        [Parameter(Position=0, Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [String[]]
+        $InputObject
+    )
+
+    $root = New-Object -TypeName PSObject
+    $chain = [ordered]@{}
+    $depth = 0
+    $parent = $root
+    $element = $null
+
+    #Magic PowerShell Switch Enumrates Arrays
+    switch -Regex ($InputObject) {
+        #Case: ValueKey
+        '^\t*"(\S+)"\t\t"(.+)"$' {
+            Add-Member -InputObject $element -MemberType NoteProperty -Name $Matches[1] -Value $Matches[2]
+            continue
+        }
+        #Case: ParentKey
+        '^\t*"(\S+)"$' { 
+            $element = New-Object -TypeName PSObject
+            Add-Member -InputObject $parent -MemberType NoteProperty -Name $Matches[1] -Value $element
+            continue
+        }
+        #Case: Opening ParentKey Scope
+        '^\t*{$' {
+            $parent = $element
+            $chain.Add($depth, $element)
+            $depth++
+            continue
+        }
+        #Case: Closing ParentKey Scope
+        '^\t*}$' {
+            $depth--
+            $parent = $chain.($depth - 1)
+            $element = $parent
+            $chain.Remove($depth)
+            continue
+        }
+        #Case: Comments or unsupported lines
+        Default {
+            Write-Debug "Ignored line: $_"
+            continue
+        }
+    }
+
+    return $root
+}
+Function ConvertTo-VDF
+{
+<# 
+.Synopsis 
+    Converts a custom object into a Valve Data File (VDF) formatted string.
+
+.Description 
+    The ConvertTo-VDF cmdlet converts any object to a string in Valve Data File (VDF) format. The properties are converted to field names, the field values are converted to property values, and the methods are removed.
+
+.Parameter InputObject
+    Specifies PSObject to be converted into VDF strings.  Enter a variable that contains the object. You can also pipe an object to ConvertTo-Json.
+
+.Example 
+    ConvertTo-VDF -InputObject $VDFObject | Out-File ".\SharedConfig.vdf"
+
+    Description 
+    ----------- 
+    Converts the PS object to VDF format and pipes it into "SharedConfig.vdf" in the current directory
+
+.Inputs 
+    PSCustomObject
+
+.Outputs 
+    System.String
+
+
+#>
+    param
+    (
+        [Parameter(Position=0, Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [PSObject]
+        $InputObject,
+
+        [Parameter(Position=1, Mandatory=$false)]
+        [int]
+        $Depth = 0
+    )
+    $output = [string]::Empty
+    
+    foreach ( $property in ($InputObject.psobject.Properties) ) {
+        switch ($property.TypeNameOfValue) {
+            "System.String" { 
+                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`t`t`"" + $property.Value + "`"`n"
+                break
+            }
+            "System.Management.Automation.PSCustomObject" {
+                $element = $property.Value
+                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`n"
+                $output += ("`t" * $Depth) + "{`n"
+                $output += ConvertTo-VDF -InputObject $element -Depth ($Depth + 1)
+                $output += ("`t" * $Depth) + "}`n"
+                break
+            }
+            Default {
+                Write-Error ("Unsupported Property of type {0}" -f $_) -ErrorAction Stop
+                break
+            }
+        }
+    }
+
+    return $output
+}
+Function Get-SteamLibraryFolders()
+{
+<#
+.Synopsis 
+	Retrieves library folder paths from .\SteamApps\libraryfolders.vdf
+.Description
+	Reads .\SteamApps\libraryfolders.vdf to find the paths of all the library folders set up in steam
+.Example 
+	$libraryFolders = Get-LibraryFolders
+	Description 
+	----------- 
+	Retrieves a list of the library folders set up in steam
+#>
+	$steamPath = Get-SteamPath
+	
+	$vdfPath = "$($steamPath)\SteamApps\libraryfolders.vdf"
+	
+	[array]$libraryFolderPaths = @()
+	
+	if (Test-Path $vdfPath)
+	{
+		$libraryFolders = ConvertFrom-VDF (Get-Content $vdfPath -Encoding UTF8) | Select-Object -ExpandProperty libraryfolders
+		
+		$libraryFolderIds = $libraryFolders | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
+		
+		ForEach ($libraryId in $libraryFolderIds)
+		{
+			$libraryFolder = $libraryFolders.($libraryId)
+			
+			$libraryFolderPaths += $libraryFolder.path.Replace('\\','\')
+		}
+	}
+	
+	return $libraryFolderPaths
+}
+
+Function Get-SteamPath {
+	return (Get-Item HKCU:\Software\Valve\Steam\).GetValue("SteamPath").Replace("/","\")
+}
 function Assert-Choice {
     if (-Not(Get-Command choice.exe -ErrorAction Ignore)){
         Write-Host "[!] Unable to find choice.exe (it comes with Windows, did a little bit of unecessary debloating?)" -ForegroundColor Red
@@ -573,12 +752,69 @@ if ($EzEncArgs){
 }
 function Get-FunctionContent {
     [alias('gfc')]
-    param([Parameter()][String]$FunctionName)
-    if ((Get-Command $FunctionName).ResolvedCommand){
-        Write-Verbose "Switching from alias $FunctionName to function $(((Get-Command $FunctionName).ResolvedCommand).Name)"
-        $FunctionName = ((Get-Command $FunctionName).ResolvedCommand).Name
+    [CmdletBinding()]
+    param([Parameter()]
+        [String[]]$Functions,
+        [Switch]$Dependencies,
+        [Switch]$ReturnNames
+    )
+
+    $FunctionsPassed = [System.Collections.ArrayList]@()
+    $Content = [System.Collections.ArrayList]@()
+
+    Get-Command $Functions -ErrorAction Stop | ForEach-Object { # Loop through all functions
+        if ($Resolved = $_.ResolvedCommand){ # Checks if $_.ResolveCommand exists, also assigns it to $Resolved
+            Write-Verbose "Switching from alias $_ to function $($Resolved.Name)" -Verbose
+            $_ = Get-Command $Resolved.Name
+        }
+        if ($_ -NotIn $FunctionsPassed){ # If it hasn't been looped over yet
+
+            $Content += ($Block = $_.ScriptBlock.Ast.Extent.Text)
+                # Assigns function block to $Block and appends to $Content
+            
+            $FunctionsPassed.Add($_) | Out-Null # So it doesn't get checked again
+
+            if ($Dependencies){
+
+                if (!$TL_FUNCTIONS){
+                    if (Get-Module -Name TweakList -ErrorAction Ignore){
+                        $TL_FUNCTIONS = [String[]](Get-Module -Name TweakList).ExportedFunctions.Keys
+                    }else {
+                        throw "TL_FUNCTIONS variable is not defined, which is needed to get available TweakList functions"
+                    }
+                }
+
+                $AST = [System.Management.Automation.Language.Parser]::ParseInput($Block, [ref]$null, [ref]$null)
+                
+                $DepMatches = $AST.FindAll({
+                        param ($node)
+                        $node.GetType().Name -eq 'CommandAst'
+                    }, $true) | #It gets all cmdlets from the Abstract Syntax Tree
+                ForEach-Object {$_.CommandElements[0].Value} | # Returns their name
+                    Where-Object { # Filters out only TweakList functions
+                        $_ -In ($TL_FUNCTIONS | Where-Object {$_ -ne $_.Name})
+
+                    } | Select-Object -Unique
+
+                ForEach($Match in $DepMatches){
+                    $FunctionsPassed.Add((Get-Command -Name $Match -CommandType Function)) | Out-Null
+
+                    $Content += (Get-Command -Name $Match -CommandType Function).ScriptBlock.Ast.Extent.Text
+
+                }
+            }
+        }
     }
-    return (Get-Command $FunctionName).ScriptBlock
+
+    if ($Content){
+        $Content = "#region gfc`n" + $Content + "`n#endregion"
+    }
+
+    if($ReturnNames){
+        return $FunctionsPassed | Select-Object -Unique # | Where-Object {$_ -notin $Functions} 
+    } else {
+        return $Content
+    }
 }
 function Get-HeaderSize {
     param(
@@ -1227,6 +1463,39 @@ function Write-InfoInColor
 }
 
 
+function Invoke-Registry {
+    [alias('ireg')]
+    param(
+        [Parameter(
+            Position = 0,
+            Mandatory=$true,
+            ValueFromPipeline = $true
+            )
+        ][Array]$Path,
+
+        [Parameter(
+            Position = 1,
+            Mandatory=$true
+            )
+        ][HashTable]$HashTable
+        
+    )
+
+    Process {
+        "doing $path"
+        $Path = "REGISTRY::$($Path -replace 'REGISTRY::','')"
+        "now its $path"
+        if (-Not(Test-Path -LiteralPath $Path)){
+
+            New-Item -ItemType Key -Path $Path -Force
+        }
+
+        ForEach($Key in $HashTable.Keys){
+
+            Set-ItemProperty -LiteralPath $Path -Name $Key -Value $HashTable.$Key
+        }
+    }
+}
 function IsCustomISO {
     switch (
         Get-ItemProperty "REGISTRY::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation"
@@ -1556,6 +1825,57 @@ function Test-Admin {
     }else{ # Running on *nix
         return ((id -u) -eq 0)
     }
+}
+function Write-Color {
+    param(
+        [String]$Message
+    )
+    $E = [char]0x1b
+    $Presets = [Ordered]@{
+        '&RESET'   ="$E[0m"
+        '&BOLD'    ="$E[1m"
+        '&ITALIC'  ="$E[3m"
+        '&URL'     ="$E[4m"
+        '&BLINK'   ="$E[5m"
+        '&ALTBLINK'="$E[6m"
+        '&SELECTED'="$E[7m"
+        '@BLACK'   ="$E[30m"
+        '@RED'     ="$E[31m"
+        '@GREEN'   ="$E[32m"
+        '@YELLOW'  ="$E[33m"
+        '@BLUE'    ="$E[34m"
+        '@VIOLET'  ="$E[35m"
+        '@BEIGE'   ="$E[36m"
+        '@WHITE'   ="$E[37m"
+        '@GREY'    ="$E[90m"
+        '@LRED'    ="$E[91m"
+        '@LGREEN'  ="$E[92m"
+        '@LYELLOW' ="$E[93m"
+        '@LBLUE'   ="$E[94m"
+        '@LVIOLET' ="$E[95m"
+        '@LBEIGE'  ="$E[96m"
+        '@LWHITE'  ="$E[97m"
+        '%BLACK'   ="$E[40m"
+        '%RED'     ="$E[41m"
+        '%GREEN'   ="$E[42m"
+        '%YELLOW'  ="$E[43m"
+        '%BLUE'    ="$E[44m"
+        '%VIOLET'  ="$E[45m"
+        '%BEIGE'   ="$E[46m"
+        '%WHITE'   ="$E[47m"
+        '%GREY'    ="$E[100m"
+        '%LRED'    ="$E[101m"
+        '%LGREEN'  ="$E[102m"
+        '%LYELLOW' ="$E[103m"
+        '%LBLUE'   ="$E[104m"
+        '%LVIOLET' ="$E[105m"
+        '%LBEIGE'  ="$E[106m"
+        '%LWHITE'  ="$E[107m"
+    }
+    Foreach($Pattern in $Presets.Keys){
+        $Message = $Message -replace $Pattern, $Presets.$Pattern
+    }
+    return $Message + $Presets.'$RESET'
 }
 function Write-Diff {
 	param(
@@ -4066,14 +4386,21 @@ function Set-PowerPlan {
     if ($Ultimate){
         powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
         powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61
-    }elseif($PowURL){
-        $DotPow = "$env:TMP\Powerplan $(Get-Random).pow"
+    }elseif($URL){
+        if ($URL -Like "http*://cdn.discordapp.com/attachments/*.pow"){
+            $DotPow = "$env:TMP\{0}" -f (Split-Path $URL -Leaf)
+        }else{
+            $DotPow = "$env:TMP\Powerplan $(Get-Random).pow"
+        }
         Invoke-WebRequest -Uri $PowURL -OutFile $DotPow
         powercfg -duplicatescheme $DotPow
         powercfg /s $DotPow
     }
 }
-function Set-Win32PrioritySeparation ([int]$DWord){
+function Set-Win32PrioritySeparation {
+    param(
+        [int]$DWord
+    )
 
     $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
     $current = (Get-ItemProperty $Path).Win32PrioritySeparation
@@ -4339,6 +4666,51 @@ function Invoke-GitHubScript {
         'OldChrisTitusTechToolbox'{Invoke-Expression (Invoke-RestMethod https://raw.githubusercontent.com/ChrisTitusTech/win10script/master/win10debloat.ps1)}
         'Fido'{Invoke-URL https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1}
         'SophiaScript'{Import-Sophia}
+    }
+}
+function New-ContextMenu {
+    param(
+        [Parameter(Mandatory = $true)]
+        [String]$Text,
+        [Parameter(Mandatory = $true)]
+        [Array]$Extensions,
+        [Parameter(Mandatory = $true)]
+        [String]$Command,
+        
+        [String]$Icon
+    ) # Text Extensions Command are all mandatory, though Icon is not and must be an existing .ico path
+
+    if (!(Test-Admin)){
+        return "Admin priviledges required (touching root class registry keys)"
+    }
+
+    ForEach($Extension in $Extensions){
+        
+        $shellpath = "REGISTRY::HKEY_CLASSES_ROOT\SystemFileAssociations\$Extension\shell"
+
+        if (-Not(Test-Path $shellpath)){
+            New-Item -Item Directory $shellpath -ErrorAction Stop | Out-Null
+            $Item = "item0"
+        }else{
+            $Items = ((Get-ChildItem "$shellpath").PSChildName | 
+            Where-Object {$PSItem -Like "Item*"}) -replace 'Item',''
+            if ($items){
+                $Item = "item" + ([int]$Items+1)
+            } else{$Item = "item0"}
+            Write-Host "Item is $item since there items: $items"
+        }
+        if (-Not(Test-Path "$shellpath\$Item")){
+            New-Item -Item Directory "$shellpath\$Item" -ErrorAction Stop | Out-Null
+        }
+        Set-ItemProperty -Path "$shellpath\$Item" -Name "MUIVerb" -Value $Text
+        if ($icon){
+            Set-ItemProperty -Path "$shellpath\$Item" -Name "Icon" -Value "$icon"
+        }
+
+        if (-Not(Test-Path "$shellpath\$Item\command")){
+            New-Item -Item Directory "$shellpath\$Item\command" -ErrorAction Stop | Out-Null
+        }
+        Set-Item -Path "$shellpath\$Item\command" -Value "$command `"%L`""
     }
 }
 <#!TODO:
@@ -4681,4 +5053,46 @@ function Set-MenuShowDelay {
     )
     
     Set-ItemProperty -Path "Registry::HKEY_CURRENT_USER\Control Panel\Desktop" -Name MenuShowDelay -PropertyType String -Value $DelayInMs -Force
+}
+function TweakList {
+    [alias('tl')]
+    [CmdletBinding()]
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [System.Collections.Arraylist]
+        $Arguments
+    )
+    $shortcuts = @{
+        repo = {Start-Process https://github.com/couleur-tweak-tips/TweakList}
+        ui   = {Start-Process https://couleur-tweak-tips.github.io/TweakList-UI}
+    }
+    if ($Arguments){
+        if ($Arguments[0] -in [String[]]$shortcuts.Keys){
+            & $shortcuts.($Arguments[0])
+        }else {
+            Write-Host "Available shortcuts:"
+            $shortcuts
+        }
+        return
+    }
+
+return @"
+Welcome to TweakList! If you're seeing this in your terminal, then you're
+already able to start calling all your functions. You can learn how to use
+TweakList on: https://github.com/couleur-tweak-tips/TweakList/tree/master/docs
+
+If you're curious what a function actually does, use 'gfc' (aka Get-FunctionContent)
+with the name of the function you want to see. Example:
+
+PS X:\> Get-FunctionContent Import-Sophia
+
+All functions have aliases, if you're using TL a lot: learn em all!
+
+You can use the TweakList function (AKA tl) to do the following:
+
+tl repo opens TweakList's repo
+tl ui opens the UI
+
+
+"@
 }
