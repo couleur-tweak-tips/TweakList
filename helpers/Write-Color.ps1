@@ -1,4 +1,5 @@
 function Write-Color {
+    # Ported to PowerShell from an old version of https://github.com/atzuur/colors
     param(
         [String]$Message
     )
