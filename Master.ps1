@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 270
+$CommitCount = 272
 $FuncsCount = 65
 function Get-IniContent {
     <#
@@ -1827,6 +1827,7 @@ function Test-Admin {
     }
 }
 function Write-Color {
+    # Ported to PowerShell from an old version of https://github.com/atzuur/colors
     param(
         [String]$Message
     )
