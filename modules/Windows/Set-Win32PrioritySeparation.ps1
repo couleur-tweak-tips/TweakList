@@ -1,4 +1,7 @@
-function Set-Win32PrioritySeparation ([int]$DWord){
+function Set-Win32PrioritySeparation {
+    param(
+        [int]$DWord
+    )
 
     $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
     $current = (Get-ItemProperty $Path).Win32PrioritySeparation
