@@ -16,7 +16,7 @@
     <a href="https://github.com/couleur-tweak-tips/TweakList">
         <img src="https://img.shields.io/github/size/couleur-tweak-tips/TweakList/Master.ps1?label=Master%20script%20size&logo=PowerShell&logoColor=FFFFFF" alt="Code Size" />
     </a>
-    <a href="https://dsc.gg/ctt">
+    <a href="https://discord.com/invite/aPVMJy78Pa">
         <img src="https://img.shields.io/discord/774315187183288411?color=7389D8&labelColor=6A7EC2&label=Discord&logo=discord&logoColor=white alt="Discord" />
     </a>
     <a href="https://github.com/couleur-tweak-tips/TweakList/blob/master/LICENSE">
