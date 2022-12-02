@@ -2,17 +2,18 @@
 
 ## Setting up VSCode
 
-If you want to be comfortable while making your very own list of tweaks, I strongly recommend you install [VSCode](https://code.visualstudio.com) with the [PowerShell extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode.PowerShell), import the functions one time to get them loaded so you have the function's parameters' autocompletion.
+If you want to be comfortable while making your very own list of tweaks, I strongly recommend you to install [VSCode](https://code.visualstudio.com) with the [PowerShell extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode.PowerShell), import the functions one time to get them loaded so you have the function's parameters' autocompletion.
 
 Alternatively you can use [Notepad++](https://notepad-plus-plus.org/) which have some syntax highlighting.
 
 
 You can alternatively install it with Scoop or Chocolatey:
-```
+```PowerShell
 scoop bucket add extras
 scoop install vscode
 ```
-```ps
+
+```PowerShell
 chocolatey install vscode -y
 ```
 

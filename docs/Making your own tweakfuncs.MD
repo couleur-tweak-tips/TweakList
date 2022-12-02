@@ -65,7 +65,7 @@ Per default, curl in PowerShell is an alias for the cmdlet ``Invoke-WebRequest``
 
 A verbose way to make it cross-platform is to replace it with `$((Get-Command curl -CommandType Application).Source | Select-Object -First 1)`
 
-```
+```bat
 curl.exe -L https://github.com/couleur-tweak-tips/utils/archive/refs/heads/main.zip
 ```
 Same thing for where.exe, which is an alias to Where-Object, just specify it's full cmdlet name.

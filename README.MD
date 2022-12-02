@@ -28,7 +28,7 @@
 
 [logo]: https://raw.githubusercontent.com/PowerShell/PowerShell/master/assets/ps_black_64.svg?sanitize=true
 
-TweakList is a PowerShell module aiming to regroup every impactful tweaks for fine tuning, stripping and optimizing Windows, each tweaks has its own file **and can be put together as a "[TweakScript](https://gist.github.com/couleurm/68d272edc5fb930c31b96b667813e373 "TweakList example")"**
+TweakList is a PowerShell module aiming to regroup every impactful tweaks for fine tuning, stripping and optimizing Windows, each tweak has its own file **and can be put together as a "[TweakScript](https://gist.github.com/couleurm/68d272edc5fb930c31b96b667813e373 "TweakList example")"**
 
 ## Get started with a single command
 Each function is in its [own file](https://github.com/couleur-tweak-tips/TweakList/tree/master/modules), but at each commit a [script](https://github.com/couleur-tweak-tips/TweakList/blob/master/.github/workflows/main.yml) adds up all of them to a single file ([Master.ps1](https://github.com/couleur-tweak-tips/TweakList/blob/master/Master.ps1)) which you can download and import with the following command:
