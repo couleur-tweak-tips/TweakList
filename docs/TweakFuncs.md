@@ -22,7 +22,7 @@ Restarting the explorer is needed for a few of them to refresh.
 ## Get
 This lets you easily install programs and some of my scripts in a very short command that allows a lot of aliases
 
-```ps
+```PowerShell
 Get DisplayDriverUninstaller 7-Zip Smoothie
 # Will do the same thing as:
 g ddu 7z sm
