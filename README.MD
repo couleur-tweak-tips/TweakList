@@ -16,7 +16,7 @@
     <a href="https://github.com/couleur-tweak-tips/TweakList">
         <img src="https://img.shields.io/github/size/couleur-tweak-tips/TweakList/Master.ps1?label=Master%20script%20size&logo=PowerShell&logoColor=FFFFFF" alt="Code Size" />
     </a>
-    <a href="https://discord.com/invite/aPVMJy78Pa">
+    <a href="https://dsc.gg/ctt">
         <img src="https://img.shields.io/discord/774315187183288411?color=7389D8&labelColor=6A7EC2&label=Discord&logo=discord&logoColor=white alt="Discord" />
     </a>
     <a href="https://github.com/couleur-tweak-tips/TweakList/blob/master/LICENSE">
@@ -28,10 +28,10 @@
 
 [logo]: https://raw.githubusercontent.com/PowerShell/PowerShell/master/assets/ps_black_64.svg?sanitize=true
 
-TweakList is a PowerShell module aiming to regroup every impactful tweaks for fine tuning, stripping and optimizing Windows, each tweaks has it's own file **and can be put together as a "[TweakScript](https://gist.github.com/couleurm/68d272edc5fb930c31b96b667813e373 "TweakList example")"**
+TweakList is a PowerShell module aiming to regroup every impactful tweaks for fine tuning, stripping and optimizing Windows, each tweaks has its own file **and can be put together as a "[TweakScript](https://gist.github.com/couleurm/68d272edc5fb930c31b96b667813e373 "TweakList example")"**
 
 ## Get started with a single command
-Each function is in it's [own file](https://github.com/couleur-tweak-tips/TweakList/tree/master/modules), but at each commit a [script](https://github.com/couleur-tweak-tips/TweakList/blob/master/.github/workflows/main.yml) adds up all of them to a single file ([Master.ps1](https://github.com/couleur-tweak-tips/TweakList/blob/master/Master.ps1)) which you can download and import with the following command:
+Each function is in its [own file](https://github.com/couleur-tweak-tips/TweakList/tree/master/modules), but at each commit a [script](https://github.com/couleur-tweak-tips/TweakList/blob/master/.github/workflows/main.yml) adds up all of them to a single file ([Master.ps1](https://github.com/couleur-tweak-tips/TweakList/blob/master/Master.ps1)) which you can download and import with the following command:
 
 ```PowerShell
 iex(irm tl.ctt.cx);
@@ -42,8 +42,8 @@ You can learn more about all the functions available in the [/docs/](https://git
 
 ##### It can do very useful stuff like:
 
-* [Completely automated setup and installation of Scoop (a portable, UAC-less package manager for Windows) and any of it's apps from any bucket](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#get)
-* Set up [OBS](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#optimize-obs), [OptiFine](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#optimize-optifine) and [Voukoder](https://youtu.be/BBp2PnmRHmk) in the snap of a finger
+* [Completely automated setup and installation of Scoop (a portable, UAC-less package manager for Windows) and any of its apps from any bucket](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#get)
+* Set up [OBS](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#optimize-obs), [OptiFine](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#optimize-optifine) and [Voukoder](https://www.youtube.com/watch?v=BBp2PnmRHmk) in the snap of a finger
 * [Remove useless entries from the context menu (aka file/folder right click menu)](https://github.com/couleur-tweak-tips/TweakList/blob/master/modules/Remove-ContextMenu.ps1)
 * [Import functions](https://github.com/couleur-tweak-tips/TweakList/blob/master/modules/Import-Sophia.ps1) from [Sophia Script](https://github.com/farag2/Sophia-Script-for-Windows)
 * Easily run any of [my scripts](https://github.com/couleur-tweak-tips/utils). 
@@ -65,7 +65,7 @@ You can learn more about all the functions available in the [/docs/](https://git
 
 ## How TweakList works in the background:
 
-- Each Tweak Function has it's own designated file, with a function declaration that has the exact same name as the file that hosts it
+- Each Tweak Function has its own designated file, with a function declaration that has the exact same name as the file that hosts it
 - At each commit, GitHub actions will add up the content of every single file into a Master script that holds the latest version of every Tweak Function
 - Then people can open PowerShell and run the Master script, which will let the user be able to run every TweakList function, this can be used in a script (e.g your favorite e-sport player's tweaklist) or simply be typed from the command line
 
