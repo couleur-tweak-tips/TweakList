@@ -2,17 +2,18 @@
 
 ## Setting up VSCode
 
-If you want to be comfortable while making your very own list of tweaks, I strongly recommend you install [VSCode](https://code.visualstudio.com/) with the [PowerShell extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode.PowerShell), import the functions one time to get them loaded so you have the function's parameters' autocompletion.
+If you want to be comfortable while making your very own list of tweaks, I strongly recommend you to install [VSCode](https://code.visualstudio.com) with the [PowerShell extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode.PowerShell), import the functions one time to get them loaded so you have the function's parameters' autocompletion.
 
 Alternatively you can use [Notepad++](https://notepad-plus-plus.org/) which have some syntax highlighting.
 
 
 You can alternatively install it with Scoop or Chocolatey:
-```
+```PowerShell
 scoop bucket add extras
 scoop install vscode
 ```
-```ps
+
+```PowerShell
 chocolatey install vscode -y
 ```
 
@@ -20,7 +21,7 @@ chocolatey install vscode -y
 
 Every tweaklist start with the following line:
 
-```ps
+```PowerShell
 irm ts.ctt.cx | iex
 ```
 > If you're getting errors about a failed TLS handshake, put in ``[System.Net.ServicePointManager]::SecurityProtocol = 'Tls12'`` before (common errors on old Windows build / stripped ISOs)
@@ -33,7 +34,7 @@ The best way to learn how to use them is by looking at other tweaklists and the 
 
 Every parameter needs a `-` before them, example:
 
-```ps
+```PowerShell
 FileExtensions -Show
 ```
 This will run the FileExtensions function with the Show parameter, it'll go in the registry and edit the value for it to show file extensions in Windows.
@@ -42,7 +43,7 @@ This type of parameter is a ``switch``, it is declared at the start of the funct
 
 You can also pass in strings, arrays and integers:
 
-```powershell
+```PowerShell
 Remove-KnownAppxPackages -Exclude @('Calculator','MicrosoftStore')
 ```
 Strings are always surrounded by single or double strings, arrays are declared with @(), integers/floats are declared as is, as shown above you can put strings and integers in arrays.
