@@ -4,9 +4,8 @@
     <img align=center src="https://raw.githubusercontent.com/PowerShell/PowerShell/master/assets/ps_black_64.svg?sanitize=true" alt="PS7 logo" width="75" />  </br>
     <strong>TweakList</strong> </br>
     </br>
-    Make your very own tweaking/debloating script, one tweak per line</br>
-    <i>Tweak interpreter based in PowerShell</i></br>
-    <a href="#overview">Overview</a>
+    Versatile PowerShell module that automate various post-install jobs you waste time on</br>
+    <a href="https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md">Overview</a>
     •
     <a href="https://dsc.gg/ctt">Discord Server</a>
     •
@@ -28,10 +27,11 @@
 
 [logo]: https://raw.githubusercontent.com/PowerShell/PowerShell/master/assets/ps_black_64.svg?sanitize=true
 
-TweakList is a PowerShell module aiming to regroup every impactful tweaks for fine tuning, stripping and optimizing Windows, each tweak has its own file **and can be put together as a "[TweakScript](https://gist.github.com/couleurm/68d272edc5fb930c31b96b667813e373 "TweakList example")"**
+
+TweakList is a PowerShell module aiming to regroup every impactful tweaks for fine tuning, stripping and optimizing Windows, each tweaks has its own file **and can be put together as a "[TweakScript](https://gist.github.com/couleurm/68d272edc5fb930c31b96b667813e373 "TweakList example")"**
 
 ## Get started with a single command
-Each function is in its [own file](https://github.com/couleur-tweak-tips/TweakList/tree/master/modules), but at each commit a [script](https://github.com/couleur-tweak-tips/TweakList/blob/master/.github/workflows/main.yml) adds up all of them to a single file ([Master.ps1](https://github.com/couleur-tweak-tips/TweakList/blob/master/Master.ps1)) which you can download and import with the following command:
+Each function is in it's [own file](https://github.com/couleur-tweak-tips/TweakList/tree/master/modules), but at each commit a [script](https://github.com/couleur-tweak-tips/TweakList/blob/master/.github/workflows/main.yml) adds up all of them to a single file ([Master.ps1](https://github.com/couleur-tweak-tips/TweakList/blob/master/Master.ps1)) which you can download and import with the following command:
 
 ```PowerShell
 iex(irm tl.ctt.cx);
@@ -42,8 +42,8 @@ You can learn more about all the functions available in the [/docs/](https://git
 
 ##### It can do very useful stuff like:
 
-* [Completely automated setup and installation of Scoop (a portable, UAC-less package manager for Windows) and any of its apps from any bucket](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#get)
-* Set up [OBS](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#optimize-obs), [OptiFine](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#optimize-optifine) and [Voukoder](https://www.youtube.com/watch?v=BBp2PnmRHmk) in the snap of a finger
+* [Completely automated setup and installation of Scoop (a portable, UAC-less package manager for Windows) and any of it's apps from any bucket](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#get)
+* Automatically configure [OBS](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#optimize-obs), [OptiFine](https://github.com/couleur-tweak-tips/TweakList/blob/master/docs/TweakFuncs.md#optimize-optifine) and [Voukoder](https://youtu.be/BBp2PnmRHmk)
 * [Remove useless entries from the context menu (aka file/folder right click menu)](https://github.com/couleur-tweak-tips/TweakList/blob/master/modules/Remove-ContextMenu.ps1)
 * [Import functions](https://github.com/couleur-tweak-tips/TweakList/blob/master/modules/Import-Sophia.ps1) from [Sophia Script](https://github.com/farag2/Sophia-Script-for-Windows)
 * Easily run any of [my scripts](https://github.com/couleur-tweak-tips/utils). 
