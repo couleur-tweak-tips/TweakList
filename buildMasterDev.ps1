@@ -3,8 +3,10 @@ param(
     [Switch]$Import
 )
 
-if ($env:COULEUR){
-    Push-Location "D:\GitHub\TweakList"
+if (!$PSScriptRoot){
+    throw "ya need a root for the script to know where to build tl"
+}else {
+    Push-Location $PSScriptRoot
 }
 
 $Members = [System.Collections.ArrayList]@()
