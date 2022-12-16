@@ -14,6 +14,7 @@
 #>
 function Import-Sophia {
 	[alias('ipso')]
+	[CmdletBinding()]
 	param(
 		[switch]
         $Write,
@@ -35,43 +36,45 @@ function Import-Sophia {
         $OverrideLang
 	)
 
-	$SophiaVer = "Sophia Script for " # Gets appended with the correct win/ps version in the very next switch statement
+	function Get-SophiaVersion {
 
-switch ((Get-CimInstance -ClassName Win32_OperatingSystem).BuildNumber){
-
-	17763 {$SophiaVer += "Windows_10_LTSC_2019"}
+		switch ((Get-CimInstance -ClassName Win32_OperatingSystem).BuildNumber){
 	
-	{($_ -ge 19041) -and ($_ -le 19044)}{
-
-		if ($PSVersionTable.PSVersion.Major -eq 5){
-
-			# Check if Windows 10 is an LTSC 2021
-			if ((Get-ItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -Name ProductName) -eq "Windows 10 Enterprise LTSC 2021"){
-
-				$SophiaVer += "Windows_10_LTSC_2021"
-			}else{
-
-				$SophiaVer += "Windows_10"
+			"17763" {
+		
+				"Windows_10_LTSC_2019"
+				break
 			}
-		}else{
-
-			Write-Warning "PowerShell 7 core has not been tested as thoroughly, give Windows PowerShell a try if you're having issues"
-			$SophiaVer += "Windows_10_PowerShell_7"
+			{($_ -ge 19044) -and ($_ -le 19048)}{
+		
+				if ($PSVersionTable.PSVersion.Major -eq 5){
+		
+					# Check if Windows 10 is an LTSC 2021
+					if ((Get-ItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -Name ProductName) -eq "Windows 10 Enterprise LTSC 2021"){
+		
+						"Windows_10_LTSC_2021"
+					}
+					else{
+						"Windows_10"
+					}
+				}
+				else{
+					"Windows_10_PowerShell_7"
+				}
+			}
+			{$_ -ge 22000}
+			{
+				if ($PSVersionTable.PSVersion.Major -eq 5){
+					"Windows_11"
+				}
+				else{
+					"Windows_11_PowerShell_7"
+				}
+			}
 		}
-
 	}
-	22000 {
-
-		if ($PSVersionTable.PSVersion.Major -eq 5){
-
-			$SophiaVer += "Windows_11"
-		}else{
-
-			Write-Warning "PowerShell 7 core has not been tested as thoroughly, give Windows PowerShell a try if you're having issues"
-			$SophiaVer +="Windows_11_PowerShell_7"
-		}
-	}
-}
+	
+	$SophiaVer = "Sophia_Script_for_" + (Get-SophiaVersion)
 
 
 
@@ -112,9 +115,11 @@ switch ((Get-CimInstance -ClassName Win32_OperatingSystem).BuildNumber){
 		$Lang = 'en-US'
 	}
 	Try{
-		$Hashtable = Invoke-RestMethod "https://raw.githubusercontent.com/farag2/Sophia-Script-for-Windows/master/src/$($SophiaVer -Replace ' ','_')/Localizations/$Lang/Sophia.psd1" -ErrorAction Stop
+		$URL = "https://raw.githubusercontent.com/farag2/Sophia-Script-for-Windows/master/src/$SophiaVer/Localizations/$Lang/Sophia.psd1"
+		$Hashtable = Invoke-RestMethod $URL -ErrorAction Stop
 	} Catch {
-		Write-Warning "Failed to get Localizations with lang $Lang"
+		Write-Warning "Failed to get Localizations with lang $Lang`nand URL: $URL"
+		$_
 		return
 	}
 	While ($Hashtable[0] -ne 'C'){
@@ -122,9 +127,9 @@ switch ((Get-CimInstance -ClassName Win32_OperatingSystem).BuildNumber){
 	}
 	$global:Localizations = $global:Localization = Invoke-Expression $HashTable
 
-	Write-Verbose "Getting $SophiaVer"
+	Write-Verbose "Getting $($SophiaVer -replace '_', ' ')"
 
-	$RawURL = "https://raw.githubusercontent.com/farag2/Sophia-Script-for-Windows/master/src/$($SophiaVer -Replace ' ','_')/Module/Sophia.psm1"
+	$RawURL = "https://raw.githubusercontent.com/farag2/Sophia-Script-for-Windows/master/src/$SophiaVer/Module/Sophia.psm1"
 	Write-Verbose $RawURL
 
 	$SophiaFunctions = (Invoke-RestMethod $RawURL -ErrorAction Stop)
@@ -136,7 +141,7 @@ switch ((Get-CimInstance -ClassName Win32_OperatingSystem).BuildNumber){
 	if ($Write){
 		return $SophiaFunctions
 	}else{
-		New-Module -Name "Sophia Script (TL)" -ScriptBlock ([ScriptBlock]::Create($SophiaFunctions)) | Import-Module
+		New-Module -Name "Sophia Script (TL)" -ScriptBlock ([ScriptBlock]::Create($SophiaFunctions)) | Import-Module -Global
 	}
 
 }
