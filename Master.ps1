@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 286
+$CommitCount = 288
 $FuncsCount = 65
 function Get-IniContent {
     <#
@@ -3614,17 +3614,34 @@ Write-Output "Added the registry keys to handle mpv protocol and redirect to wra
 
 }
 function Install-Voukoder {
+    [CmdletBinding()]
     [alias('isvk')]
     param(
         [Switch]$GetTemplates
             # Skip Voukoder installation and just get to the template selector
-    )       
+    )
+
+    function Get-VoukoderProgram ($Name){
+        # Parses the registry manually instead of using PackageManagement's Get-Package
+
+        $Programs = @(
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+            'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+            'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+
+        ) | Where-Object {Test-path $_} |
+
+        Get-ItemProperty |  Where-Object Publisher -eq 'Daniel Stankewitz' |
+            Sort-Object DisplayName |
+                Select-Object -Property @{n='Name';     e='DisplayName'   },
+                                        @{n='Version';  e='DisplayVersion'},
+                                        @{n='UninstallString'; e='UninstallString'}
+        
+        return $Programs | Where-Object Name -Like $Name
+    }
 
     if (!$GetTemplates){
-
-        if ($PSEdition -eq 'Core'){
-            return "Install-Voukoder is only available on Windows PowerShell 5.1 (use of Get-Package)."
-        }       # Get-Package is used for Windows programs, on PowerShell 7 (core) it's for PowerShell modules
     
         $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases/latest)[0]
             # get the latest release manifest from GitHub's API
@@ -3634,7 +3651,7 @@ function Install-Voukoder {
         }
         [Version]$LatestCoreVersion = $tag
 
-        $Core = Get-Package -Name "Voukoder*" -ErrorAction Ignore | # Find all programs starting with Voukoder
+        $Core = Get-VoukoderProgram -Name "Voukoder*" -ErrorAction Ignore | # Find all programs starting with Voukoder
             Where-Object Name -NotLike "*Connector*" # Exclude connectors
 
         if ($Core){
@@ -3708,82 +3725,80 @@ function Install-Voukoder {
             'AfterFX'
             'Resolve'
         )
-        Write-Host "Looking for $($Processes -Join ', ').."
 
-        While(!(Get-Process $Processes -ErrorAction Ignore)){
-            Write-Host "`rScanning for any opened NLEs (video editors), press any key to refresh.." -NoNewline -ForeGroundColor Green
-            Start-Sleep -Seconds 1
+        $Found = { Get-Process $Processes -ErrorAction Ignore }
+
+        if (-not (. $Found)){ # If $Found scriptblock returns nothing
+            Write-Host "[!] Open your video editor" -ForegroundColor Red
+            Write-Host "Voukoder supports: VEGAS 12-20, Premiere, After Effects, DaVinci Resolve (ONLY PAID `"Studio `"VERSION)" -ForeGroundColor Green
+            Write-Host "Looking for processes: $($Processes -join ', ')" -ForegroundColor DarkGray
+            While(-not (. $Found)){
+                Start-Sleep -Seconds 1
+            }
         }
-        ''
-        function NeedsConnector ($PackageName, $Key){
-            # Key is to get the $Connector URL
+        Write-Host @(
+            "`nDetected the following video editor(s):`n`n"
+            $(. $Found | Select-Object MainWindowTitle, Path, FileVersion | Out-String)
+            )
+
+        function Get-Connector ($PackageName, $Key, $NLEDir, $InnoFlag){
+            # Key is to get the right connector URL in $Connector hashtable
             
-            $CurrentConnector = (Get-Package -Name $PackageName -ErrorAction Ignore)
+            function Install-Connector {
+                $msiPath = "$env:TMP\Voukoder Connector-$Key.msi"
+                curl.exe -# -L $Connectors.$Key -o"$msiPath"
+                Write-Verbose "Installing $msiPath at $InnoFlag=$NLEDir" -Verbose
+                msiexec /i "$msiPath" /qb "$InnoFlag=`"$NLEDir`""
+            }
+
+            $CurrentConnector = (Get-VoukoderProgram -Name $PackageName)
             if ($CurrentConnector){
                 [Version]$CurrentConnectorVersion = $CurrentConnector.Version
-                [Version]$LatestConnector = $Connectors.$key | ConnectorVer
+                [Version]$LatestConnector = $Connectors.$Key | ConnectorVer # Parse connector version
                 if ($LatestConnector -gt $CurrentConnectorVersion){
-                    "Upgrading $PackageName from $CurrentConnectorVersion to $LatestConnector"
+
+                    Write-Host "Upgrading $PackageName from $CurrentConnectorVersion to $LatestConnector"
                     Start-Process -FilePath msiexec -ArgumentList "/qb /x {$($CurrentConnector.TagId)}" -Wait -NoNewWindow
-                    return $True
+                    Install-Connector
                 }
+            } else {
+
+                Install-Connector
             }
-            return $False
         }
         $NLEs = Get-Process $Processes -ErrorAction Ignore
         ForEach($NLE in $NLEs){
-            switch (Split-Path $NLE.Path -Leaf){
 
+            switch ($NLE){
 
-                {$_ -in 'vegas180.exe', 'vegas190.exe','vegas200.exe'} {
-                    Write-Verbose "Found VEGAS18+"
+                {(Split-Path $_.Path -Leaf) -in 'vegas180.exe', 'vegas190.exe','vegas200.exe'} {
+                    Write-Verbose "Using newer VEGAS"
 
-                    $KeyName = $_.TrimEnd("0.exe")
-                    if (NeedsConnector -PackageName 'Voukoder connector for VEGAS' -Key $KeyName){
-                        continue
-                    }
-                    $Directory = Split-Path $NLE.Path -Parent
-                    curl.exe -# -L $Connectors.vegas18 -o"$env:TMP\Voukoder-Connector-$($KeyName.ToUpper()).msi"
-                    msiexec /i "$env:TEMP\Voukoder-Connector-VEGAS18.msi" /qb "VEGASDIR=`"$Directory`""
-                    continue
+                    $VegVer = (Split-Path $_.Path -Leaf) -replace 'vegas' -replace '0\.exe'
+
+                    Get-Connector -PackageName "Voukoder connector for VEGAS Pro $VegVer" -Key "vegas$VegVer" -NLEDir (Split-Path $_.Path -Parent) -InnoFlag VEGASDIR
+                    
+                    continue # Needs to loop over the next switch, which would've matched and also thought it needed to install an older Version
                 }
 
 
-
-                {$_ -Like 'vegas*.exe'}{
-                    Write-Verbose "Found old VEGAS"
-                    Write-Host "Old VEGAS connector installation may fail if you already have a connector for newer VEGAS versions"
-                    if (NeedsConnector -PackageName 'Voukoder connector for VEGAS' -Key 'vegas'){
-                        continue
-                    }
-                    $Directory = Split-Path $NLE.Path -Parent
-                    curl.exe -# -L $Connectors.vegas18 -o"$env:TMP\Voukoder-Connector-VEGAS.msi"
-                    msiexec /i "$env:TEMP\Voukoder-Connector-VEGAS.msi" /qb "VEGASDIR=`"$Directory`""
-                    continue
-                }
-
-                'afterfx.exe' {
-                    if (NeedsConnector -PackageName 'Voukoder connector for After Effects' -Key 'aftereffects'){
-                        continue
-                    }
-                    $Directory = Split-Path $NLE.Path -Parent
-                    curl.exe -# -L $Connectors.aftereffects -o"$env:TMP\AE.msi"
-                    msiexec /i "$env:TEMP\Voukoder-Connector-AE.msi" /qb "INSTALLDIR=`"$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore`""
+                {(Split-Path $_.Path -Leaf) -Like 'vegas*.exe'}{
+                    Write-Host "/!\ Old-VEGAS connector installation may fail if you already have a connector for newer VEGAS versions" -ForegroundColor Red
+                    Get-Connector -PackageName "Voukoder connector for VEGAS" -Key vegas -NLEDir (Split-Path $_.Path -Parent) -InnoFlag VEGASDIR
                 }
 
 
-
-                'Adobe Premiere Pro.exe'{
-                    if (NeedsConnector -PackageName 'Voukoder connector for Premiere Pro' -Key 'premiere'){
-                        continue
-                    }
-                    $Directory = Split-Path $NLE.Path -Parent
-                    curl.exe -# -L $Connectors.premiere -o"$env:TMP\Voukoder-Connector-Premiere.msi"
-                    msiexec /i "$env:TMP\Voukoder-Connector-Premiere.msi" /qb "TGTDir=`"$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore`""
+                {(Split-Path $_.Path -Leaf) -eq 'afterfx.exe'} {
+                    Get-Connector -PackageName 'Voukoder Connector for Adobe After Effects' -Key aftereffects -NLEDir "$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore" -InnoFlag INSTALLDIR
                 }
 
 
-                'Resolve'{
+                {(Split-Path $_.Path -Leaf) -eq 'Adobe Premiere Pro.exe'}{
+                    Get-Connector -PackageName 'Voukoder connector for Premiere' -Key premiere -NLEDir "$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore" -InnoFlag TGDir
+                }
+
+
+                {(Split-Path $_.Path -Leaf) -eq 'Resolve.exe'}{
                     Write-Warning "Voukoder's connector for Resolve is ONLY FOR IT'S PAID `"Studio`" VERSION"
                     pause
                     
@@ -3826,8 +3841,10 @@ function Install-Voukoder {
         # https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2
         # To hashtable with key "HEVC NVENC + Upscale" and val the URL
 
-    filter File2Display {[IO.Path]::GetFileNameWithoutExtension((((($_ | Split-Path -Leaf) -replace '_',' ' -replace " Upscale", " + Upscale")) -replace '  ',' '))}
-                         # get file ext    Put spaces instead of _       Format Upscale prettily  Remove extension
+    filter File2Display {
+        [IO.Path]::GetFileNameWithoutExtension($_) -replace '_',' ' -replace " Upscale", " + Upscale" -replace '  ',' '
+    }
+
     $VegasTemplates = @(
 
         'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904873517106/HEVC_NVENC_Upscale.sft2'
@@ -3931,7 +3948,8 @@ function Install-Voukoder {
             $NLETerm = "your video editor"
         }
     }
-    Write-Output "Installation script finished, follow instructions (if any) restart $NLETerm to refresh your render templates."
+    Write-Host "Installation script finished, follow instructions (if any)"
+    Write-Host "Then restart $NLETerm to make sure Voukoder render templates have loaded." -ForegroundColor Red
 
 }
 function Invoke-SmoothiePost {
