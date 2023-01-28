@@ -1,8 +1,8 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 288
-$FuncsCount = 65
+$CommitCount = 293
+$FuncsCount = 67
 function Get-IniContent {
     <#
     .Synopsis
@@ -551,6 +551,18 @@ Function ConvertTo-VDF
 
     return $output
 }
+function Get-SteamGameInstallDir (
+    [Parameter(Mandatory = $true)][string]$Game, 
+    [array]$LibraryFolders = (Get-SteamLibraryFolders)) {
+
+    # Get the installation directory of a Steam game.
+    foreach ($LibraryFolder in $LibraryFolders) {
+        $GameInstallDir = "$LibraryFolder\steamapps\common\$Game"
+        if (Test-Path "$($GameInstallDir.ToLower())") {
+            return "$GameInstallDir"
+        }
+    }
+}
 Function Get-SteamLibraryFolders()
 {
 <#
@@ -587,8 +599,25 @@ Function Get-SteamLibraryFolders()
 	return $libraryFolderPaths
 }
 
-Function Get-SteamPath {
-	return (Get-Item HKCU:\Software\Valve\Steam\).GetValue("SteamPath").Replace("/","\")
+function Get-SteamPath {
+    # Get the Steam installation directory.
+
+    $MUICache = "Registry::HKCR\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
+    $Protocol = "Registry::HKCR\steam\Shell\Open\Command"
+    $Steam = Get-ItemPropertyValue "Registry::HKCU\Software\Valve\Steam" -Name "SteamPath" -ErrorAction SilentlyContinue
+    
+    # MUICache
+    if (!$Steam) {
+        $Steam = Split-Path (((Get-Item "$MUICache").Property | Where-Object { $PSItem -Like "*Steam*" } |
+                Where-Object { (Get-ItemPropertyValue "$MUICache" -Name $PSItem) -eq "Steam" }).TrimEnd(".FriendlyAppName"))
+    }
+
+    # Steam Browser Protocol
+    if (!$Steam) {
+        $Steam = Split-Path (((Get-ItemPropertyValue "$Protocol" -Name "(Default)" -ErrorAction SilentlyContinue) -Split "--", 2, "SimpleMatch")[0]).Trim('"')
+    }
+
+    return $Steam.ToLower()
 }
 function Assert-Choice {
     if (-Not(Get-Command choice.exe -ErrorAction Ignore)){
@@ -3538,6 +3567,7 @@ I strongly recommend you open settings to tune it to your PC, there's lots of co
             'Scoop'{Install-Scoop }
             'FFmpeg'{Install-FFmpeg }
 
+            {$_ -in 'zl','ZetaLoader'}{Install-ZetaLoader}
             {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
             {$_ -in 'wt','windowsterminal','windows-terminal'}{Get-ScoopApp extras/windows-terminal}
             {$_ -in 'np++','Notepad++','notepadplusplus'}{Get-ScoopApp extras/notepadplusplus}
@@ -3951,6 +3981,17 @@ function Install-Voukoder {
     Write-Host "Installation script finished, follow instructions (if any)"
     Write-Host "Then restart $NLETerm to make sure Voukoder render templates have loaded." -ForegroundColor Red
 
+}
+function Install-ZetaLoader {
+    $GameInstallDir = Get-SteamGameInstallDir "Halo Infinite"
+    $ZetaLoader = "$((Invoke-RestMethod "https://api.github.com/repos/Aetopia/ZetaLoader/releases/latest").assets[0].browser_download_url)"
+    if (!$GameInstallDir) {
+        Write-Error "Halo Infinite hasn't been installed via Steam."
+        exit 1
+    }
+    Write-Output "Installing ZetaLoader..."
+    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\DumpTool.exe"
+    Write-Output "ZetaLoader has been installed."
 }
 function Invoke-SmoothiePost {
     param(
