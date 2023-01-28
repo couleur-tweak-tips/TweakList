@@ -61,6 +61,7 @@ I strongly recommend you open settings to tune it to your PC, there's lots of co
             'Scoop'{Install-Scoop }
             'FFmpeg'{Install-FFmpeg }
 
+            {$_ -in 'zl','ZetaLoader'}{Install-ZetaLoader}
             {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
             {$_ -in 'wt','windowsterminal','windows-terminal'}{Get-ScoopApp extras/windows-terminal}
             {$_ -in 'np++','Notepad++','notepadplusplus'}{Get-ScoopApp extras/notepadplusplus}
