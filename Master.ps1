@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 295
+$CommitCount = 297
 $FuncsCount = 67
 function Get-IniContent {
     <#
@@ -3118,7 +3118,7 @@ pause
         ForEach($OBSProfile in $Profiles){$ProfilesHash += @{$OBSProfile.Name = $OBSProfile.FullName}}
 
         $ProfileNames = ($ProfilesHash.Keys -Split [System.Environment]::NewLine) + 'Create a new profile'
-        "Please select a profile:"
+        "Please select a profile (use arrow keys to navigate, ENTER to select)"
         $OBSProfile = menu  $ProfileNames
 
         if ($OBSProfile -eq 'Create a new profile'){
@@ -3140,7 +3140,7 @@ BaseCY=$DefaultHeight
 OutputCX=$DefaultWidth
 OutputCY=$DefaultHeight
 "@
-            Write-Host "Created new profile '$NewProfileName' with default resolution of $DefaultWidth`x$DefaultHeight" -For Green
+            Write-Host "Created new profile '$NewProfileName' with default resolution of $DefaultWidth`x$DefaultHeight" -ForegroundColor DarkGray
         }else{
             $OBSProfile = $ProfilesHash.$OBSProfile
         }
@@ -3222,6 +3222,7 @@ OutputCY=$DefaultHeight
 
         $glob | Out-IniFile -FilePath $global -Force
     }
+    Write-Host "Finished patching OBS, yay! Please switch profiles or reload OBS to see changes" -ForegroundColor Green
 }
 function Optimize-OptiFine {
     [alias('optof')]
