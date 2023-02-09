@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 297
+$CommitCount = 299
 $FuncsCount = 67
 function Get-IniContent {
     <#
@@ -3549,8 +3549,7 @@ function Get {
                 Invoke-RestMethod 'https://github.com/couleur-tweak-tips/utils/raw/main/Miscellaneous/CTT%20Upscaler.cmd' |
                 Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'CTT Upscaler.cmd') -Encoding ASCII -Force
                 Write-Host @"
-CTT Upscaler has been installed,
-I strongly recommend you open settings to tune it to your PC, there's lots of cool stuff to do there!
+CTT Upscaler has been installed! Find it in the options when right clicking a video file -> Send To -> CTT Upscaler.cmd
 "@ -ForegroundColor Green
 
             }
