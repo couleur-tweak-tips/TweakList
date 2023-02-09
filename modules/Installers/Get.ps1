@@ -42,8 +42,7 @@ function Get {
                 Invoke-RestMethod 'https://github.com/couleur-tweak-tips/utils/raw/main/Miscellaneous/CTT%20Upscaler.cmd' |
                 Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'CTT Upscaler.cmd') -Encoding ASCII -Force
                 Write-Host @"
-CTT Upscaler has been installed,
-I strongly recommend you open settings to tune it to your PC, there's lots of cool stuff to do there!
+CTT Upscaler has been installed! Find it in the options when right clicking a video file -> Send To -> CTT Upscaler.cmd
 "@ -ForegroundColor Green
 
             }
