@@ -204,7 +204,7 @@ pause
         ForEach($OBSProfile in $Profiles){$ProfilesHash += @{$OBSProfile.Name = $OBSProfile.FullName}}
 
         $ProfileNames = ($ProfilesHash.Keys -Split [System.Environment]::NewLine) + 'Create a new profile'
-        "Please select a profile:"
+        "Please select a profile (use arrow keys to navigate, ENTER to select)"
         $OBSProfile = menu  $ProfileNames
 
         if ($OBSProfile -eq 'Create a new profile'){
@@ -226,7 +226,7 @@ BaseCY=$DefaultHeight
 OutputCX=$DefaultWidth
 OutputCY=$DefaultHeight
 "@
-            Write-Host "Created new profile '$NewProfileName' with default resolution of $DefaultWidth`x$DefaultHeight" -For Green
+            Write-Host "Created new profile '$NewProfileName' with default resolution of $DefaultWidth`x$DefaultHeight" -ForegroundColor DarkGray
         }else{
             $OBSProfile = $ProfilesHash.$OBSProfile
         }
@@ -308,4 +308,5 @@ OutputCY=$DefaultHeight
 
         $glob | Out-IniFile -FilePath $global -Force
     }
+    Write-Host "Finished patching OBS, yay! Please switch profiles or reload OBS to see changes" -ForegroundColor Green
 }
