@@ -6,6 +6,6 @@ function Install-ZetaLoader {
         exit 1
     }
     Write-Output "Installing ZetaLoader..."
-    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\wininet.dll"
+    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\dinput8.dll"
     Write-Output "ZetaLoader has been installed."
 }
