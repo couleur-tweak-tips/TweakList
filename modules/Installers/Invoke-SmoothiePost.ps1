@@ -48,7 +48,7 @@ args = "$DIR\Smoothie\src\main.py"
         LnkPath = "$Scoop\shims\rc.lnk"
         TargetPath = "$DIR\Smoothie\settings\recipe.yaml"
     }
-    New-Shortcut @Parameters -Overwrite
+    New-Shortcut @Parameters
 
 
     $Parameters = @{
@@ -56,7 +56,7 @@ args = "$DIR\Smoothie\src\main.py"
         LnkPath = "$SA\Smoothie Recipe.lnk"
         TargetPath = "$DIR\Smoothie\settings\recipe.yaml"
     }
-    New-Shortcut @Parameters -Overwrite
+    New-Shortcut @Parameters
 
     $Parameters = @{
         Overwrite = $True
@@ -65,7 +65,7 @@ args = "$DIR\Smoothie\src\main.py"
         Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui"
         Icon = "$DIR\Smoothie\src\sm.ico"
     }
-    New-Shortcut @Parameters -Overwrite
+    New-Shortcut @Parameters
     
     $Parameters = @{
         Overwrite = $True
@@ -75,6 +75,6 @@ args = "$DIR\Smoothie\src\main.py"
         Icon = "$DIR\Smoothie\src\sm.ico"
 
     }
-    New-Shortcut @Parameters -Overwrite
+    New-Shortcut @Parameters
 
 }
