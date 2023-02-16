@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 299
+$CommitCount = 303
 $FuncsCount = 67
 function Get-IniContent {
     <#
@@ -3990,7 +3990,7 @@ function Install-ZetaLoader {
         exit 1
     }
     Write-Output "Installing ZetaLoader..."
-    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\DumpTool.exe"
+    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\wininet.dll"
     Write-Output "ZetaLoader has been installed."
 }
 function Invoke-SmoothiePost {
@@ -4017,8 +4017,7 @@ function Invoke-SmoothiePost {
 
     Set-Content "$DIR\Smoothie\settings\recipe.ini" -Value $rc
 
-    if (Get-Command wt.exe -Ea Ignore){$term = Get-Path wt.exe}
-    else{$term = Get-Path conhost.exe}
+    $term = Get-Path conhost.exe
 
     Get Scoop
 
@@ -4044,7 +4043,7 @@ args = "$DIR\Smoothie\src\main.py"
         LnkPath = "$Scoop\shims\rc.lnk"
         TargetPath = "$DIR\Smoothie\settings\recipe.yaml"
     }
-    New-Shortcut @Parameters
+    New-Shortcut @Parameters -Overwrite
 
 
     $Parameters = @{
@@ -4052,7 +4051,7 @@ args = "$DIR\Smoothie\src\main.py"
         LnkPath = "$SA\Smoothie Recipe.lnk"
         TargetPath = "$DIR\Smoothie\settings\recipe.yaml"
     }
-    New-Shortcut @Parameters
+    New-Shortcut @Parameters -Overwrite
 
     $Parameters = @{
         Overwrite = $True
@@ -4061,7 +4060,7 @@ args = "$DIR\Smoothie\src\main.py"
         Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui"
         Icon = "$DIR\Smoothie\src\sm.ico"
     }
-    New-Shortcut @Parameters
+    New-Shortcut @Parameters -Overwrite
     
     $Parameters = @{
         Overwrite = $True
@@ -4071,7 +4070,7 @@ args = "$DIR\Smoothie\src\main.py"
         Icon = "$DIR\Smoothie\src\sm.ico"
 
     }
-    New-Shortcut @Parameters
+    New-Shortcut @Parameters -Overwrite
 
 }
 function Launch{
