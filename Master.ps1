@@ -1,7 +1,7 @@
 # This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
 
 using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 303
+$CommitCount = 306
 $FuncsCount = 67
 function Get-IniContent {
     <#
@@ -3990,7 +3990,7 @@ function Install-ZetaLoader {
         exit 1
     }
     Write-Output "Installing ZetaLoader..."
-    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\wininet.dll"
+    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\dinput8.dll"
     Write-Output "ZetaLoader has been installed."
 }
 function Invoke-SmoothiePost {
