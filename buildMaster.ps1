@@ -1,37 +1,58 @@
-[Array]$Functions = @()
-$FuncsCount = 0
-Get-ChildItem helpers,modules -Recurse -Include *.ps1 | ForEach-Object {
-
-    Write-Output "- $($PSItem.FullName -replace '/home/runner/work/TweakList/TweakList/modules','')" # Cleans the output of the github actions
-    $Functions += Get-Content $PSItem
-    $FuncsCount++
-
+[CmdletBinding()]
+param(
+    [Switch]$Write, # Returns it instead of importing it
+    [String]$Directory = $PSScriptRoot
+)
+if (!$Directory) {
+    Write-Warning "No directory was passed, defaulting to $($PWD.Path)"
+    pause
+}
+else {
+    Push-Location $Directory
 }
 
-$API = (Invoke-WebRequest -Useb  "https://api.github.com/repos/couleur-tweak-tips/TweakList/commits?per_page=1").RawContent # Get TweakList repo commit info from GitHub's API
-Try{
-    #((($api -split "`n") | Where-Object {$_ -Like "Link:*"}) -Split "&page=")[2] -replace '>; rel="last"',''
-    Set-Variable -Name CommitCount -Value ([int]((($API -split "&page=")[2] -split '>; rel="last"')[0]) + 1) -ErrorAction Stop # Parses the API response to get the number of commits
-} Catch {
-    Write-Warning "Failed to parse commit count"
-    exit 1
-}
 
-Set-Content -Path ./Master.ps1 -Value @"
-# This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
+$FunctionCount = 0
 
-using namespace System.Management.Automation # Needed by Invoke-NGENposh
-`$CommitCount = $CommitCount
-`$FuncsCount = $FuncsCount
-"@ -Force
+$Master = [System.Text.StringBuilder]::new(@"
+using namespace System.Management.Automation # Required by Invoke-NGENpsosh
+Remove-Module TweakList -ErrorAction Ignore
+New-Module TweakList ([ScriptBlock]::Create({
 
-Add-Content -Path ./Master.ps1 -Value $Functions -Force
+"@)
 
-$AutoBuildSize = (Get-Item ./Master.ps1).Length / 1MB
+Get-ChildItem ./modules, ./helpers -Recurse -File | ForEach-Object {
+    switch ($_) {
+        { $_.Extension -eq '.ps1' } {
+            Write-Verbose "Dot-sourcing $_"
+            . $_.FullName
+            # Wait-Debugger
+            try {
+                Get-Command $_.BaseName -CommandType Function -ErrorAction Stop | Out-Null
+            }
+            catch {
+                Write-Host "$_ has mismatched basename/function declared" -ForegroundColor Red
+                break
+            }
+            $Master.Append([System.Environment]::NewLine + (Get-Content $_ -Raw)) | Out-Null
+            $FunctionCount++
+        }
+    } }
 
-Write-Output @"
-Commit count: $CommitCount
-FuncsCount: $FuncsCount
-Autobuild size: $([Math]::Round($AutoBuildSize, 2))
-Autobuild lines: $((Get-Content ./Master.ps1).Count)
+$Master += @"
+
+Export-ModuleMember * -Alias *
+})) | Import-Module -DisableNameChecking -Global
 "@
+
+$Master = $Master -join [System.Environment]::NewLine
+
+if (!$Write) {
+    Write-Host "Imported $($FunctionCount.Count) functions"
+    Invoke-Expression $Master
+}
+else {
+    return $Master
+}
+
+Pop-Location
