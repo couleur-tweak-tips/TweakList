@@ -1184,18 +1184,20 @@ function Set-Verbosity {
     }
 }
 function Test-Admin {
-
-    if (!$IsLinux -and !$IsMacOS){
-
-        $identity  = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-        $principal = New-Object System.Security.Principal.WindowsPrincipal( $identity )
-        return $principal.IsInRole( [System.Security.Principal.WindowsBuiltInRole]::Administrator )
+    [CmdletBinding()]
+    param ()
     
-    }else{ # Running on *nix
-        return ((id -u) -eq 0)
+    if ($IsLinux -or $IsMacOS) {
+        # If sudo-ing or logged on as root, returns user ID 0
+        $idCmd = (Get-Command -Name id).Source
+        [int64] $idResult = & $idCmd -u
+        $idResult -eq 0
+    }
+    else {
+        $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
+        (New-Object -TypeName Security.Principal.WindowsPrincipal -ArgumentList $currentUser).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
     }
 }
-
 function Write-Color {
     # Ported to PowerShell from an old version of https://github.com/atzuur/colors
     param(
@@ -2310,7 +2312,7 @@ Function ConvertFrom-VDF {
     param
     (
         [Parameter(Position=0, Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
+        [AllowEmptyString()]
         [String[]]
         $InputObject
     )
@@ -3913,18 +3915,6 @@ function Install-Voukoder {
 
 }
 
-function Install-ZetaLoader {
-    $GameInstallDir = Get-SteamGameInstallDir "Halo Infinite"
-    $ZetaLoader = "$((Invoke-RestMethod "https://api.github.com/repos/Aetopia/ZetaLoader/releases/latest").assets[0].browser_download_url)"
-    if (!$GameInstallDir) {
-        Write-Error "Halo Infinite hasn't been installed via Steam."
-        exit 1
-    }
-    Write-Output "Installing ZetaLoader..."
-    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\dinput8.dll"
-    Write-Output "ZetaLoader has been installed."
-}
-
 function Invoke-SmoothiePost {
     param(
         [String]
@@ -4151,6 +4141,87 @@ function Launch{
 	}
 	return $Paths
 }
+# Source: https://github.com/Aetopia/Install-NVCPL
+function Install-NVCPL {
+    if (!(Test-Admin)) {
+        Write-Host "Install-NVCPL: This function needs Administrator priviledges" -ForegroundColor DarkRed
+        return
+    }
+
+    choice.exe /C 12 /N /M "Install NVIDIA Control Panel as:`n1. Win32 App`n2. UWP App`n>"
+  
+    $NVCPL = "$ENV:TEMP\NVCPL.zip"
+    $InstallationDirectory = "$ENV:PROGRAMFILES\NVIDIA Corporation\Control Panel Client"
+    $ShortcutFile = "$ENV:PROGRAMDATA\Microsoft\Windows\Start Menu\Programs\NVIDIA Control Panel.lnk"
+    if ($LASTEXITCODE -eq 2) { $NVCPL = "$NVCPL.appx" }
+
+    if ($null -eq (Get-CimInstance Win32_VideoController |
+        Where-Object { $_.Name -like "NVIDIA*" })) {
+            Write-Host "No NVIDIA GPU found." -ForegroundColor DarkRed
+            return
+        }
+
+        
+    # Disable Telemetry.
+    New-ItemProperty -Path "HKLM:\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client" -Name "OptInOrOutPreference" -Value 0 -PropertyType DWORD -Force -ErrorAction SilentlyContinue | Out-Null
+    New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\Global\Startup" -Name "SendTelemetryData" -Value 0 -PropertyType DWORD -Force -ErrorAction SilentlyContinue | Out-Null
+
+    
+    # Using rg-adguard to fetch the latest version of the NVIDIA Control Panel.
+    $Body = @{
+        type = 'url'
+        url  = "https://apps.microsoft.com/store/detail/nvidia-control-panel/9NF8H0H7WMLT"
+        ring = 'RP'
+        lang = 'en-US' 
+    }
+    Write-Output "Getting the latest version of the NVIDIA Control Panel from the Microsoft Store..."
+    $Link = ((Invoke-RestMethod -Method Post -Uri "https://store.rg-adguard.net/api/GetFiles" -ContentType "application/x-www-form-urlencoded" -Body $Body) -Split "`n" | 
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -like ("*http://tlu.dl.delivery.mp.microsoft.com*") } |
+        ForEach-Object { ((($_ -split "<td>", 2, "SimpleMatch")[1] -Split "rel=", 2, "SimpleMatch")[0] -Split "<a href=", 2, "SimpleMatch")[1].Trim().Trim('"') })[-1]
+    Invoke-RestMethod "$Link" -OutFile "$NVCPL"
+  
+    if ($LASTEXITCODE -eq 2) {
+        Write-Output "Installing the NVIDIA Control Panel as an UWP app..."
+        Add-AppxPackage "$NVCPL" -ForceApplicationShutdown -ForceUpdateFromAnyVersion
+    }
+    else {
+  
+        Write-Output "Installing the NVIDIA Control Panel as a Win32 app..."
+  
+        # Run the NVIDIA Control Panel as an Administrator.
+        New-Item "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" -ErrorAction SilentlyContinue | Out-Null
+        New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" -Name "$InstallationDirectory\nvcplui.exe" -Value "~ RUNASADMIN" -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
+  
+        # Disable the NVIDIA Root Container Service. The service runs when the NVIDIA Control Panel is launched.
+        Stop-Process -Name "NVDisplay.Container" -Force -ErrorAction SilentlyContinue
+        Set-Service "NVDisplay.ContainerLocalSystem" -StartupType Disabled -ErrorAction SilentlyContinue
+        Stop-Service "NVDisplay.ContainerLocalSystem" -Force -ErrorAction SilentlyContinue
+        foreach ($File in ($InstallationDirectory, $ShortcutFile)) { Remove-Item "$File" -Recurse -Force -ErrorAction SilentlyContinue }
+        Expand-Archive "$NVCPL" "$InstallationDirectory" -Force
+  
+        # This DLL is needed inorder to suppress the annoying pop-up that says the UWP Control Panel isn't installed.
+        Invoke-RestMethod "$((Invoke-RestMethod "https://api.github.com/repos/Aetopia/Install-NVCPL/releases/latest").assets.browser_download_url)" -OutFile "$InstallationDirectory\nvcpluir.dll"
+        $WSShell = New-Object -ComObject "WScript.Shell"
+        $Shortcut = $WSShell.CreateShortcut("$ShortcutFile")
+        $Shortcut.TargetPath = "$InstallationDirectory\nvcplui.exe"
+        $Shortcut.IconLocation = "$InstallationDirectory\nvcplui.exe, 0"
+        $Shortcut.Save()
+    }
+    Write-Output "NVIDIA Control Panel Installed!"
+}
+function Install-ZetaLoader {
+    $GameInstallDir = Get-SteamGameInstallDir "Halo Infinite"
+    $ZetaLoader = "$((Invoke-RestMethod "https://api.github.com/repos/Aetopia/ZetaLoader/releases/latest").assets[0].browser_download_url)"
+    if (!$GameInstallDir) {
+        Write-Error "Halo Infinite hasn't been installed via Steam."
+        exit 1
+    }
+    Write-Output "Installing ZetaLoader..."
+    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\dinput8.dll"
+    Write-Output "ZetaLoader has been installed."
+}
+
 function CB-CleanTaskbar {
 	if (-Not(Get-Module -Name "Sophia Script (TL)" -Ea 0)){
 		Import-Sophia
