@@ -2,6 +2,2548 @@ using namespace System.Management.Automation # Required by Invoke-NGENpsosh
 Remove-Module TweakList -ErrorAction Ignore
 New-Module TweakList ([ScriptBlock]::Create({
 
+function Assert-Choice {
+    if (-Not(Get-Command choice.exe -ErrorAction Ignore)){
+        Write-Host "[!] Unable to find choice.exe (it comes with Windows, did a little bit of unecessary debloating?)" -ForegroundColor Red
+        PauseNul
+        exit 1
+    }
+}
+function Assert-Path {
+    param(
+        $Path
+    )
+    if (-Not(Test-Path -Path $Path)) {
+        New-Item -Path $Path -Force | Out-Null
+    }
+}
+function FindInText{
+    <#
+    Recreated a simple grep for finding shit in TweakList,
+    I mostly use this to check if a function/word has ever been mentionned in all my code
+    #>
+    param(
+        [String]$String,
+        $Path = (Get-Location),
+        [Array]$Exclude,
+        [Switch]$Recurse
+    )
+
+    $Exclude += @(
+    '*.exe','*.bin','*.dll'
+    '*.png','*.jpg'
+    '*.mkv','*.mp4','*.webm'
+    '*.zip','*.tar','*.gz','*.rar','*.7z','*.so'
+    '*.pyc','*.pyd'
+    )
+
+    $Parameters = @{
+        Path = $Path
+        Recurse = $Recurse
+        Exclude = $Exclude
+    }
+    $script:FoundOnce = $False
+    $script:Match = $null
+    Get-ChildItem @Parameters -File | ForEach-Object {
+        $Match = $null
+        Write-Verbose ("Checking " + $PSItem.Name)
+        $Match = Get-Content $PSItem.FullName | Where-Object {$_ -Like "*$String*"}
+        if ($Match){
+            $script:FoundOnce = $True
+            Write-Host "- Found in $($_.Name) ($($_.FullName))" -ForegroundColor Green
+            $Match
+        }
+    }
+
+    if (!$FoundOnce){
+        Write-Host "Not found" -ForegroundColor red
+    }
+}
+function Get-7zPath {
+
+    if (Get-Command 7z.exe -Ea Ignore){return (Get-Command 7z.exe).Source}
+
+    $DefaultPath = "$env:ProgramFiles\7-Zip\7z.exe"
+    if (Test-Path $DefaultPath) {return $DefaultPath}
+
+    Try {
+        $InstallLocation = (Get-Package 7-Zip* -ErrorAction Stop).Metadata['InstallLocation'] # Compatible with 7-Zip installed normally / with winget
+        if (Test-Path $InstallLocation -ErrorAction Stop){
+            return "$InstallLocation`7z.exe"
+        }
+    }Catch{} # If there's an error it's probably not installed anyways
+
+    if (Get-Boolean "7-Zip could not be found, would you like to download it using Scoop?"){
+        Install-Scoop
+        scoop install 7zip
+        if (Get-Command 7z -Ea Ignore){
+            return (Get-Command 7z.exe).Source
+        }else{
+            Write-Error "7-Zip could not be installed"
+            return 
+        }
+
+    }else{return}
+
+    # leaving this here if anyone knows a smart way to implement this ))
+    # $7Zip = (Get-ChildItem -Path "$env:HOMEDRIVE\*7z.exe" -Recurse -Force -ErrorAction Ignore).FullName | Select-Object -First 1
+
+}
+
+function Get-Boolean {
+    param(
+        $Message
+    )
+    $null = $Response
+    $Response = Read-Host $Message
+    While ($Response -NotIn 'yes','y','n','no'){
+        Write-Host "Answer must be 'yes','y','n' or 'no'" -ForegroundColor Red
+        $Response = Read-Host $Message
+    }
+    if ($Response -in 'yes','y'){return $true}
+    elseif($Response -in 'n','no'){return $false}
+    else{Write-Error "Invalid response";pause;exit}
+}
+
+function Get-EncodingArgs{
+    [alias('genca')]
+    param(
+        [String]$Resolution = '3840x2160',
+        [Switch]$Silent,
+        [Switch]$EzEncArgs
+    )
+
+Install-FFmpeg
+
+$DriverVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}_Display.Driver" -ErrorAction Ignore).DisplayVersion
+    if ($DriverVersion){ # Only triggers if it parsed a NVIDIA driver version, else it can probably be an NVIDIA GPU
+        if ($DriverVersion -lt 477.41){ # Oldest NVIDIA version capable
+        Write-Warning "Outdated NVIDIA Drivers detected ($DriverVersion), you won't be able to encode using NVENC util you update them."
+    }
+}
+
+$EncCommands = [ordered]@{
+    'HEVC NVENC' = 'hevc_nvenc -rc vbr  -preset p7 -b:v 400M -cq 19'
+    'H264 NVENC' = 'h264_nvenc -rc vbr  -preset p7 -b:v 400M -cq 16'
+    'HEVC AMF' = 'hevc_amf -quality quality -qp_i 16 -qp_p 18 -qp_b 20'
+    'H264 AMF' = 'h264_amf -quality quality -qp_i 12 -qp_p 12 -qp_b 12'
+    'HEVC QSV' = 'hevc_qsv -preset veryslow -global_quality:v 18'
+    'H264 QSV' = 'h264_qsv -preset veryslow -global_quality:v 15'
+    'H264 CPU' = 'libx264 -preset slow -crf 16 -x265-params aq-mode=3'
+    'HEVC CPU' = 'libx265 -preset medium -crf 18 -x265-params aq-mode=3:no-sao=1:frame-threads=1'
+}
+
+$EncCommands.Keys | ForEach-Object -Begin {
+    $script:shouldStop = $false
+} -Process {
+    if ($shouldStop -eq $true) { return }
+    Invoke-Expression "ffmpeg.exe -loglevel fatal -f lavfi -i nullsrc=$Resolution -t 0.1 -c:v $($EncCommands.$_) -f null NUL"
+    if ($LASTEXITCODE -eq 0){
+        $script:valid_args = $EncCommands.$_
+        $script:valid_ezenc = $_
+
+        if ($Silent){
+            Write-Host ("Found compatible encoding settings using $PSItem`: {0}" -f ($EncCommands.$_)) -ForegroundColor Green
+        }
+        $shouldStop = $true # Crappy way to stop the loop since most people that'll execute this will technically be parsing the raw URL as a scriptblock
+    }
+}
+
+if (-Not($script:valid_args)){
+    Write-Host "No compatible encoding settings found (should not happen, is FFmpeg installed?)" -ForegroundColor DarkRed
+    Get-Command FFmpeg -Ea Ignore
+    pause
+    return
+}
+
+if ($EzEncArgs){
+    return $script:valid_ezenc
+}else{
+    return $valid_args
+}
+
+}
+function Get-FunctionContent {
+    [alias('gfc')]
+    [CmdletBinding()]
+    param([Parameter()]
+        [String[]]$Functions,
+        [Switch]$Dependencies,
+        [Switch]$ReturnNames
+    )
+
+    $FunctionsPassed = [System.Collections.ArrayList]@()
+    $Content = [System.Collections.ArrayList]@()
+
+    Get-Command $Functions -ErrorAction Stop | ForEach-Object { # Loop through all functions
+        if ($Resolved = $_.ResolvedCommand){ # Checks if $_.ResolveCommand exists, also assigns it to $Resolved
+            Write-Verbose "Switching from alias $_ to function $($Resolved.Name)" -Verbose
+            $_ = Get-Command $Resolved.Name
+        }
+        if ($_ -NotIn $FunctionsPassed){ # If it hasn't been looped over yet
+
+            $Content += ($Block = $_.ScriptBlock.Ast.Extent.Text)
+                # Assigns function block to $Block and appends to $Content
+            
+            $FunctionsPassed.Add($_) | Out-Null # So it doesn't get checked again
+
+            if ($Dependencies){
+
+                if (!$TL_FUNCTIONS){
+                    if (Get-Module -Name TweakList -ErrorAction Ignore){
+                        $TL_FUNCTIONS = [String[]](Get-Module -Name TweakList).ExportedFunctions.Keys
+                    }else {
+                        throw "TL_FUNCTIONS variable is not defined, which is needed to get available TweakList functions"
+                    }
+                }
+
+                $AST = [System.Management.Automation.Language.Parser]::ParseInput($Block, [ref]$null, [ref]$null)
+                
+                $DepMatches = $AST.FindAll({
+                        param ($node)
+                        $node.GetType().Name -eq 'CommandAst'
+                    }, $true) | #It gets all cmdlets from the Abstract Syntax Tree
+                ForEach-Object {$_.CommandElements[0].Value} | # Returns their name
+                    Where-Object { # Filters out only TweakList functions
+                        $_ -In ($TL_FUNCTIONS | Where-Object {$_ -ne $_.Name})
+
+                    } | Select-Object -Unique
+
+                ForEach($Match in $DepMatches){
+                    $FunctionsPassed.Add((Get-Command -Name $Match -CommandType Function)) | Out-Null
+
+                    $Content += (Get-Command -Name $Match -CommandType Function).ScriptBlock.Ast.Extent.Text
+
+                }
+            }
+        }
+    }
+
+    if ($Content){
+        $Content = "#region gfc`n" + $Content + "`n#endregion"
+    }
+
+    if($ReturnNames){
+        return $FunctionsPassed | Select-Object -Unique # | Where-Object {$_ -notin $Functions} 
+    } else {
+        return $Content
+    }
+}
+
+function Get-HeaderSize {
+    param(
+        $URL,
+        $FileName = "file"
+    )
+    Try {
+        $Size = (Invoke-WebRequest -Useb $URL -Method Head -ErrorAction Stop).Headers.'Content-Length'
+    }Catch{
+        Write-Host "Failed to parse $FileName size (Invalid URL?):" -ForegroundColor DarkRed
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        return
+
+    }
+    return [Math]::Round((($Size | Select-Object -First 1) / 1MB), 2)
+    
+}
+function Get-Path {
+    [alias('gpa')]
+    param($File)
+
+    if (-Not(Get-Command $File -ErrorAction Ignore)){return $null}
+
+    $BaseName, $Extension = $File.Split('.')
+
+    if (Get-Command "$BaseName.shim" -ErrorAction Ignore){
+        return (Get-Content (Get-Command "$BaseName.shim").Source | Select-Object -First 1).Trim('path = ').replace('"','')
+    }elseif($Extension){
+        return (Get-Command "$BaseName.$Extension").Source
+    }else{
+        return (Get-Command $BaseName).Source
+    }
+}
+
+function Get-ScoopApp {
+    [CmdletBinding()] param (
+
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [System.Collections.Arraylist]
+        $Apps # Not necessarily plural
+    )
+
+    Install-Scoop
+
+    $Scoop = (Get-Item (Get-Command scoop).Source).Directory | Split-Path
+    $ToInstall = $Apps | Where-Object {$PSItem -NotIn (Get-ChildItem "$Scoop\apps")}
+    $Available = (Get-ChildItem "$Scoop\buckets\*\bucket\*").BaseName
+    $Buckets = (Get-ChildItem "$Scoop\buckets" -Directory).Name
+    $Installed = (Get-ChildItem "$Scoop\apps" -Directory).Name
+    $script:FailedToInstall = @()
+
+    function Get-Git {
+        if ('git' -NotIn $Installed){
+            scoop install git
+            if ($LASTEXITCODE -ne 0){
+                Write-Host "Failed to install Git." -ForegroundColor Red
+                return
+            }
+        }
+        $ToInstall = $ToInstall | Where-Object {$_ -ne 'git'}
+    }
+
+    $Repos = @{
+
+        main            = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
+        extras          = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
+        utils           = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
+        nirsoft         = @{org = 'kodybrown'     ;repo = 'scoop-nirsoft';branch = 'master'}
+        games           = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
+        'nerd-fonts'    = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
+        versions        = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
+        java            = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
+    }
+    $RepoNames = $Repos.Keys -Split('\r?\n')
+
+    Foreach($App in $ToInstall){
+
+        if ($App.Split('/').Count -eq 2){
+
+            $Bucket, $App = $App.Split('/')
+
+            if ($Bucket -NotIn $RepoNames){
+                Write-Host "Bucket $Bucket is not known, add it yourself by typing 'scoop.cmd bucket add bucketname https://bucket.repo/url'"
+                continue
+            }elseif (($Bucket -NotIn $Buckets) -And ($Bucket -In $RepoNames)){
+                Get-Git
+                scoop bucket add $Repos.$Bucket.repo https://github.com/$($Repos.$Bucket.org)/$($Repos.$Bucket.repo)
+            }
+        }
+
+        $Available = (Get-ChildItem "$Scoop\buckets\*\bucket\*").BaseName
+
+        if ($App -NotIn $Available){
+            Remove-Variable -Name Found -ErrorAction Ignore
+            ForEach($Bucket in $RepoNames){
+                if ($Found){continue}
+
+                Write-Host "`rCould not find $App, looking for it in the $Bucket bucket.." -NoNewline
+
+                $Response = Invoke-RestMethod "https://api.github.com/repos/$($Repos.$Bucket.org)/$($Repos.$Bucket.repo)/git/trees//$($Repos.$Bucket.branch)?recursive=1"
+                $Manifests = $Response.tree.path | Where-Object {$_ -Like "bucket/*.json"}
+                $Manifests = ($Manifests).Replace('bucket/','').Replace('.json','')
+
+                if ($App -in $Manifests){
+                    $script:Found = $True
+                    ''
+                    Get-Git
+                    
+                    scoop bucket add $Repos.$Bucket.repo https://github.com/$($Repos.$Bucket.org)/$($Repos.$Bucket.repo)
+                }else{''} # Fixes the -NoNewLine
+            }
+            
+        }
+        scoop install $App
+        if ($LASTEXITCODE -ne 0){
+            $script:FailedToInstall += $App
+            Write-Verbose "$App exitted with code $LASTEXITCODE"        
+        }
+    }
+
+}
+function Get-ShortcutTarget {
+    [alias('gst')]
+
+    param([String]$ShortcutPath)
+
+    Try {
+        $null = Get-Item $ShortcutPath -ErrorAction Stop
+    } Catch {
+        throw
+    }
+    
+    return (New-Object -ComObject WScript.Shell).CreateShortcut($ShortcutPath).TargetPath
+}
+function Install-FFmpeg {
+
+    $IsFFmpegScoop = (Get-Command ffmpeg -Ea Ignore).Source -Like "*\shims\*"
+
+    if(Get-Command ffmpeg -Ea Ignore){
+
+        $IsFFmpeg5 = (ffmpeg -hide_banner -h filter=libplacebo) -ne "Unknown filter 'libplacebo'."
+
+        if (-Not($IsFFmpeg5)){
+
+            if ($IsFFmpegScoop){
+                Get Scoop
+                scoop update ffmpeg
+            }else{
+                Write-Warning @"
+An old FFmpeg installation was detected @ ($((Get-Command FFmpeg).Source)),
+
+You could encounter errors such as:
+- Encoding with NVENC failing (in simple terms not being able to render with your GPU)
+- Scripts using new filters (e.g libplacebo)
+
+If you want to update FFmpeg yourself, you can remove it and use the following command to install ffmpeg and add it to the path:
+iex(irm tl.ctt.cx);Get FFmpeg
+
+If you're using it because you prefer old NVIDIA drivers (why) here be dragons!
+"@
+pause
+                
+            }
+            
+        }
+                
+    }else{
+        Get Scoop
+        $Scoop = (Get-Command Scoop.ps1).Source | Split-Path | Split-Path
+
+        if (-Not(Test-Path "$Scoop\buckets\main")){
+            if (-Not(Test-Path "$Scoop\apps\git\current\bin\git.exe")){
+                scoop install git
+            }
+            scoop bucket add main
+        }
+
+        $Local = ((scoop cat ffmpeg) | ConvertFrom-Json).version
+        $Latest = (Invoke-RestMethod https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/ffmpeg.json).version
+
+        if ($Local -ne $Latest){
+            "FFmpeg version installed using scoop is outdated, updating Scoop.."
+            if (-not(Test-Path "$Scoop\apps\git")){
+                scoop install git
+            }
+            scoop update
+        }
+
+        scoop install ffmpeg
+        if ($LASTEXITCODE -ne 0){
+            Write-Warning "Failed to install FFmpeg"
+            pause
+        }
+    }
+}
+
+function Install-Scoop {
+    param(
+        [String]$InstallDir
+    )
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+
+    if (-Not(Get-Command scoop -Ea Ignore)){
+        
+        $RunningAsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]'Administrator')
+
+        if($InstallDir){
+            $env:SCOOP = $InstallDir	
+            [Environment]::SetEnvironmentVariable('SCOOP', $env:SCOOP, 'User')
+        }
+
+        If (-Not($RunningAsAdmin)){
+            Invoke-Expression (Invoke-RestMethod -Uri http://get.scoop.sh)
+        }else{
+            Invoke-Expression "& {$(Invoke-RestMethod -Uri https://get.scoop.sh)} -RunAsAdmin"
+        }
+    }
+
+    Try {
+        scoop -ErrorAction Stop | Out-Null
+    } Catch {
+        Write-Host "Failed to install Scoop" -ForegroundColor DarkRed
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        return
+
+    }
+}
+<#
+	.LINK
+	Frankensteined from Inestic's WindowsFeatures Sophia Script function
+	https://github.com/Inestic
+	https://github.com/farag2/Sophia-Script-for-Windows/blob/06a315c643d5939eae75bf6e24c3f5c6baaf929e/src/Sophia_Script_for_Windows_10/Module/Sophia.psm1#L4946
+
+	.SYNOPSIS
+	User gets a nice checkbox-styled menu in where they can select 
+	
+	.EXAMPLE
+
+	Screenshot: https://i.imgur.com/zrCtR3Y.png
+
+	$ToInstall = Invoke-CheckBox -Items "7-Zip", "PowerShell", "Discord"
+
+	Or you can have each item have a description by passing an array of hashtables:
+
+	$ToInstall = Invoke-CheckBox -Items @(
+
+		@{
+			DisplayName = "7-Zip"
+			# Description = "Cool Unarchiver"
+		},
+		@{
+			DisplayName = "Windows Sandbox"
+			Description = "Windows' Virtual machine"
+		},
+		@{
+			DisplayName = "Firefox"
+			Description = "A great browser"
+		},
+		@{
+			DisplayName = "PowerShell 777"
+			Description = "PowerShell on every system!"
+		}
+	)
+#>
+function Invoke-Checkbox{
+param(
+	$Title = "Select an option",
+	$ButtonName = "Confirm",
+	$Items = @("Fill this", "With passing an array", "to the -Item param!")
+)
+
+if (!$Items.Description){
+	$NewItems = @()
+	ForEach($Item in $Items){
+		$NewItems += @{DisplayName = $Item}
+	}
+	$Items = $NewItems
+} 
+
+Add-Type -AssemblyName PresentationCore, PresentationFramework
+
+# Initialize an array list to store the selected Windows features
+$SelectedFeatures = New-Object -TypeName System.Collections.ArrayList($null)
+$ToReturn = New-Object -TypeName System.Collections.ArrayList($null)
+
+
+#region XAML Markup
+# The section defines the design of the upcoming dialog box
+[xml]$XAML = '
+<Window
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	Name="Window"
+	MinHeight="450" MinWidth="400"
+	SizeToContent="WidthAndHeight" WindowStartupLocation="CenterScreen"
+	TextOptions.TextFormattingMode="Display" SnapsToDevicePixels="True"
+	FontFamily="Arial" FontSize="16" ShowInTaskbar="True"
+	Background="#F1F1F1" Foreground="#262626">
+
+	<Window.TaskbarItemInfo>
+		<TaskbarItemInfo/>
+	</Window.TaskbarItemInfo>
+	
+	<Window.Resources>
+		<Style TargetType="StackPanel">
+			<Setter Property="Orientation" Value="Horizontal"/>
+			<Setter Property="VerticalAlignment" Value="Top"/>
+		</Style>
+		<Style TargetType="CheckBox">
+			<Setter Property="Margin" Value="10, 10, 5, 10"/>
+			<Setter Property="IsChecked" Value="True"/>
+		</Style>
+		<Style TargetType="TextBlock">
+			<Setter Property="Margin" Value="5, 10, 10, 10"/>
+		</Style>
+		<Style TargetType="Button">
+			<Setter Property="Margin" Value="25"/>
+			<Setter Property="Padding" Value="15"/>
+		</Style>
+		<Style TargetType="Border">
+			<Setter Property="Grid.Row" Value="1"/>
+			<Setter Property="CornerRadius" Value="0"/>
+			<Setter Property="BorderThickness" Value="0, 1, 0, 1"/>
+			<Setter Property="BorderBrush" Value="#000000"/>
+		</Style>
+		<Style TargetType="ScrollViewer">
+			<Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
+			<Setter Property="BorderBrush" Value="#000000"/>
+			<Setter Property="BorderThickness" Value="0, 1, 0, 1"/>
+		</Style>
+	</Window.Resources>
+	<Grid>
+		<Grid.RowDefinitions>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="*"/>
+			<RowDefinition Height="Auto"/>
+		</Grid.RowDefinitions>
+		<ScrollViewer Name="Scroll" Grid.Row="0"
+			HorizontalScrollBarVisibility="Disabled"
+			VerticalScrollBarVisibility="Auto">
+			<StackPanel Name="PanelContainer" Orientation="Vertical"/>
+		</ScrollViewer>
+		<Button Name="Button" Grid.Row="2"/>
+	</Grid>
+</Window>
+'
+#endregion XAML Markup
+
+$Form = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
+$XAML.SelectNodes("//*[@Name]") | ForEach-Object {
+	Set-Variable -Name ($_.Name) -Value $Form.FindName($_.Name)
+}
+
+#region Functions
+function Get-CheckboxClicked
+{
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(
+			Mandatory = $true,
+			ValueFromPipeline = $true
+		)]
+		[ValidateNotNull()]
+		$CheckBox
+	)
+
+	$Feature = $Items | Where-Object -FilterScript {$_.DisplayName -eq $CheckBox.Parent.Children[1].Text}
+
+	if ($CheckBox.IsChecked)
+	{
+		[void]$SelectedFeatures.Add($Feature)
+	}
+	else
+	{
+		[void]$SelectedFeatures.Remove($Feature)
+	}
+	if ($SelectedFeatures.Count -gt 0)
+	{
+		$Button.Content = $ButtonName
+		$Button.IsEnabled = $true
+	}
+	else
+	{
+		$Button.Content = "Cancel"
+		$Button.IsEnabled = $true
+	}
+}
+
+function DisableButton
+{
+	[void]$Window.Close()
+
+	#$SelectedFeatures | ForEach-Object -Process {Write-Verbose $_.DisplayName -Verbose}
+	$SelectedFeatures.DisplayName
+	$ToReturn.Add($SelectedFeatures.DisplayName)
+}
+
+function Add-FeatureControl
+{
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(
+			Mandatory = $true,
+			ValueFromPipeline = $true
+		)]
+		[ValidateNotNull()]
+		$Feature
+	)
+
+	process
+	{
+		$CheckBox = New-Object -TypeName System.Windows.Controls.CheckBox
+		$CheckBox.Add_Click({Get-CheckboxClicked -CheckBox $_.Source})
+		if ($Feature.Description){
+			$CheckBox.ToolTip = $Feature.Description
+		}
+
+		$TextBlock = New-Object -TypeName System.Windows.Controls.TextBlock
+		#$TextBlock.On_Click({Get-CheckboxClicked -CheckBox $_.Source})
+		$TextBlock.Text = $Feature.DisplayName
+		if ($Feature.Description){
+			$TextBlock.ToolTip = $Feature.Description
+		}
+
+		$StackPanel = New-Object -TypeName System.Windows.Controls.StackPanel
+		[void]$StackPanel.Children.Add($CheckBox)
+		[void]$StackPanel.Children.Add($TextBlock)
+		[void]$PanelContainer.Children.Add($StackPanel)
+
+		$CheckBox.IsChecked = $false
+
+		# If feature checked add to the array list
+		[void]$SelectedFeatures.Add($Feature)
+		$SelectedFeatures.Remove($Feature)
+	}
+}
+#endregion Functions
+
+# Getting list of all optional features according to the conditions
+
+
+# Add-Type -AssemblyName System.Windows.Forms
+
+
+
+# if (-not ("WinAPI.ForegroundWindow" -as [type]))
+# {
+# 	Add-Type @SetForegroundWindow
+# }
+
+# Get-Process | Where-Object -FilterScript {$_.Id -eq $PID} | ForEach-Object -Process {
+# 	# Show window, if minimized
+# 	[WinAPI.ForegroundWindow]::ShowWindowAsync($_.MainWindowHandle, 10)
+
+# 	#Start-Sleep -Seconds 1
+
+# 	# Force move the console window to the foreground
+# 	[WinAPI.ForegroundWindow]::SetForegroundWindow($_.MainWindowHandle)
+
+# 	#Start-Sleep -Seconds 1
+
+# 	# Emulate the Backspace key sending
+# 	[System.Windows.Forms.SendKeys]::SendWait("{BACKSPACE 1}")
+# }
+# #endregion Sendkey function
+
+$Window.Add_Loaded({$Items | Add-FeatureControl})
+$Button.Content = $ButtonName
+$Button.Add_Click({& DisableButton})
+$Window.Title = $Title
+
+# ty chrissy <3 https://blog.netnerds.net/2016/01/adding-toolbar-icons-to-your-powershell-wpf-guis/
+$base64 = "iVBORw0KGgoAAAANSUhEUgAAACoAAAAqCAMAAADyHTlpAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAPUExURQAAAP///+vr6+fn5wAAAD8IT84AAAAFdFJOU/////8A+7YOUwAAAAlwSFlzAAALEwAACxMBAJqcGAAAANBJREFUSEut08ESgjAMRVFQ/v+bDbxLm9Q0lRnvQtrkDBt1O4a2FoNWHIBajJW/sQ+xOnNnlkMsrXZkkwRolHHaTXiUYfS5SOgXKfuQci0T5bLoIeWYt/O0FnTfu62pyW5X7/S26D/yFca19AvBXMaVbrnc3n6p80QGq9NUOqtnIRshhi7/ffHeK0a94TfQLQPX+HO5LVef0cxy8SX/gokU/bIcQvxjB5t1qYd0aYWuz4XF6FHam/AsLKDTGWZpuWNqWZ358zdmrOLNAlkM6Dg+78AGkhvs7wgAAAAASUVORK5CYII="
+ 
+ 
+# Create a streaming image by streaming the base64 string to a bitmap streamsource
+$bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
+$bitmap.BeginInit()
+$bitmap.StreamSource = [System.IO.MemoryStream][System.Convert]::FromBase64String($base64)
+$bitmap.EndInit()
+$bitmap.Freeze()
+
+# This is the icon in the upper left hand corner of the app
+# $Form.Icon = $bitmap
+ 
+# This is the toolbar icon and description
+$Form.TaskbarItemInfo.Overlay = $bitmap
+$Form.TaskbarItemInfo.Description = $window.Title
+
+# # Force move the WPF form to the foreground
+# $Window.Add_Loaded({$Window.Activate()})
+# $Form.ShowDialog() | Out-Null
+# return $ToReturn
+
+# [System.Windows.Forms.Integration.ElementHost]::EnableModelessKeyboardInterop($Form)
+
+Add-Type -AssemblyName PresentationFramework, System.Drawing, System.Windows.Forms, WindowsFormsIntegration
+$window.Add_Closing({[System.Windows.Forms.Application]::Exit()})
+
+$Form.Show()
+
+# This makes it pop up
+$Form.Activate() | Out-Null
+ 
+# Create an application context for it to all run within. 
+# This helps with responsiveness and threading.
+$appContext = New-Object System.Windows.Forms.ApplicationContext
+[void][System.Windows.Forms.Application]::Run($appContext) 
+return $ToReturn
+}
+#using namespace System.Management.Automation # this can't be a function but whatever, it doesn't slow down anything
+# Author:	Collin Chaffin
+# License: MIT (https://github.com/CollinChaffin/psNGENposh/blob/master/LICENSE)
+function Invoke-NGENposh {
+<#
+	.SYNOPSIS
+		This Powershell function performs various SYNCHRONOUS ngen functions
+	
+	.DESCRIPTION
+		This Powershell function performs various SYNCHRONOUS ngen functions
+	
+		Since the purpose of this module is to for interactive use,
+		I intentionally did not include any "Queue" options.
+	
+	.PARAMETER All
+		Regenerate cache for all system assemblies
+	
+	.PARAMETER Force
+		Invoke ngen on currently loaded assembles (ensure up to date even if cached)
+	
+	.EXAMPLE
+		To invoke ngen on currently loaded assembles, skipping those already generated:
+
+		PS C:\> Invoke-NGENposh
+	
+	.EXAMPLE	
+		To invoke ngen on currently loaded assembles (ensure up to date even if cached):
+
+		PS C:\> Invoke-NGENposh -Force
+	
+	.EXAMPLE	
+		To invoke ngen to regenerate cache for all system assemblies (*SEE WARNING BELOW**):
+
+		PS C:\> Invoke-NGENposh -All
+	
+	.NOTES
+		 **WARNING: The '-All' switch since the execution is SYNCHRONOUS will
+					take considerable time, and literally regenerate all the
+					global assembly cache.  There should theoretically be no
+					downside to this, but bear in mind other than time (and cpu)
+					that since all the generated cache files are new, any
+					system backups will consider those files as new and may
+					likely cause your next incremental backup to be much larger
+#>
+	param
+	(
+		[switch]$All,
+		[switch]$Force,
+		[switch]$Confirm
+	)
+
+	if (!$Confirm){
+		Write-Host "Press enter to continue and start using NGENPosh, or press CTRL+C to cancel"
+		pause
+	}
+    
+# INTERNAL HELPER
+function Write-InfoInColor
+{
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory = $true)]
+		[ValidateNotNullOrEmpty()]
+		[String]$Message,
+		[Parameter(Mandatory = $false)]
+		[ValidateNotNullOrEmpty()]
+		[System.ConsoleColor[]]$Background = $Host.UI.RawUI.BackgroundColor,
+		[Parameter(Mandatory = $false)]
+		[ValidateNotNullOrEmpty()]
+		[System.ConsoleColor[]]$Foreground = $Host.UI.RawUI.ForegroundColor,
+		[Switch]$NoNewline
+	)
+	
+	[HostInformationMessage]$outMessage = @{
+		Message			     = $Message
+		ForegroundColor	     = $Foreground
+		BackgroundColor	     = $Background
+		NoNewline		     = $NoNewline
+	}
+	Write-Information $outMessage -InformationAction Continue
+}
+	
+	Write-InfoInColor "`n===================================================================================" -Foreground 'DarkCyan'
+	Write-InfoInColor "                             BEGINNING TO NGEN                                     " -Foreground 'Cyan'
+	Write-InfoInColor "===================================================================================`n" -Foreground 'DarkCyan'
+	
+	Set-Alias ngenpsh (Join-Path ([System.Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()) ngen.exe) -Force
+	
+	if ($All)
+	{
+		Write-InfoInColor "EXECUTING GLOBAL NGEN`n`n" -Foreground 'Cyan'
+		ngenpsh update /nologo /force
+	}
+	else
+	{
+		Write-InfoInColor "EXECUTING TARGETED NGEN`n`n" -Foreground 'Cyan'
+		
+		[AppDomain]::CurrentDomain.GetAssemblies() |
+		ForEach-Object {
+			if ($_.Location)
+			{
+				$Name = (Split-Path $_.location -leaf)
+				if ((!($Force)) -and [System.Runtime.InteropServices.RuntimeEnvironment]::FromGlobalAccessCache($_))
+				{
+					Write-InfoInColor "[SKIPPED]" -Foreground 'Yellow' -NoNewLine
+					Write-InfoInColor " :: " -Foreground 'White' -NoNewline
+					Write-InfoInColor "[ $Name ]" -Foreground 'Cyan'
+					
+				}
+				else
+				{
+					
+					ngenpsh install $_.location /nologo | ForEach-Object {
+						if ($?)
+						{
+							Write-InfoInColor "[SUCCESS]" -Foreground 'Green' -NoNewLine
+							Write-InfoInColor " :: " -Foreground 'White' -NoNewline
+							Write-InfoInColor "[ $Name ]" -Foreground 'Cyan'
+						}
+						else
+						{
+							Write-InfoInColor "[FAILURE]" -Foreground 'Red' -NoNewLine
+							Write-InfoInColor " :: " -Foreground 'White' -NoNewline
+							Write-InfoInColor "[ $Name ]" -Foreground 'Cyan'
+						}
+					}
+				}
+			}
+		}
+	}
+	Write-InfoInColor "`n===================================================================================" -Foreground 'DarkCyan'
+	Write-InfoInColor "                               COMPLETED NGEN                                      " -Foreground 'Cyan'
+	Write-InfoInColor "===================================================================================`n" -Foreground 'DarkCyan'
+}
+
+
+
+function Invoke-Registry {
+    [alias('ireg')]
+    param(
+        [Parameter(
+            Position = 0,
+            Mandatory=$true,
+            ValueFromPipeline = $true
+            )
+        ][Array]$Path,
+
+        [Parameter(
+            Position = 1,
+            Mandatory=$true
+            )
+        ][HashTable]$HashTable
+        
+    )
+
+    Process {
+        "doing $path"
+        $Path = "REGISTRY::$($Path -replace 'REGISTRY::','')"
+        "now its $path"
+        if (-Not(Test-Path -LiteralPath $Path)){
+
+            New-Item -ItemType Key -Path $Path -Force
+        }
+
+        ForEach($Key in $HashTable.Keys){
+
+            Set-ItemProperty -LiteralPath $Path -Name $Key -Value $HashTable.$Key
+        }
+    }
+}
+
+function IsCustomISO {
+    switch (
+        Get-ItemProperty "REGISTRY::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation"
+    ){
+        {$_.SupportURL -Like "https://atlasos.net*"}{return 'AtlasOS'}
+        {$_.Manufacturer -eq "Revision"}{return 'Revision'}
+        {$_.Manufacturer -eq "ggOS"}{return 'ggOS'}
+    }
+    return $False
+}
+
+# https://github.com/chrisseroka/ps-menu
+function Menu {
+    param ([array]$menuItems, [switch]$ReturnIndex=$false, [switch]$Multiselect)
+
+function DrawMenu {
+    param ($menuItems, $menuPosition, $Multiselect, $selection)
+    $l = $menuItems.length
+    for ($i = 0; $i -le $l;$i++) {
+		if ($menuItems[$i] -ne $null){
+			$item = $menuItems[$i]
+			if ($Multiselect)
+			{
+				if ($selection -contains $i){
+					$item = '[x] ' + $item
+				}
+				else {
+					$item = '[ ] ' + $item
+				}
+			}
+			if ($i -eq $menuPosition) {
+				Write-Host "> $($item)" -ForegroundColor Green
+			} else {
+				Write-Host "  $($item)"
+			}
+		}
+    }
+}
+
+function Toggle-Selection {
+	param ($pos, [array]$selection)
+	if ($selection -contains $pos){ 
+		$result = $selection | where {$_ -ne $pos}
+	}
+	else {
+		$selection += $pos
+		$result = $selection
+	}
+	$result
+}
+
+    $vkeycode = 0
+    $pos = 0
+    $selection = @()
+    if ($menuItems.Length -gt 0)
+	{
+		try {
+			[console]::CursorVisible=$false #prevents cursor flickering
+			DrawMenu $menuItems $pos $Multiselect $selection
+			While ($vkeycode -ne 13 -and $vkeycode -ne 27) {
+				$press = $host.ui.rawui.readkey("NoEcho,IncludeKeyDown")
+				$vkeycode = $press.virtualkeycode
+				If ($vkeycode -eq 38 -or $press.Character -eq 'k') {$pos--}
+				If ($vkeycode -eq 40 -or $press.Character -eq 'j') {$pos++}
+				If ($vkeycode -eq 36) { $pos = 0 }
+				If ($vkeycode -eq 35) { $pos = $menuItems.length - 1 }
+				If ($press.Character -eq ' ') { $selection = Toggle-Selection $pos $selection }
+				if ($pos -lt 0) {$pos = 0}
+				If ($vkeycode -eq 27) {$pos = $null }
+				if ($pos -ge $menuItems.length) {$pos = $menuItems.length -1}
+				if ($vkeycode -ne 27)
+				{
+					$startPos = [System.Console]::CursorTop - $menuItems.Length
+					[System.Console]::SetCursorPosition(0, $startPos)
+					DrawMenu $menuItems $pos $Multiselect $selection
+				}
+			}
+		}
+		finally {
+			[System.Console]::SetCursorPosition(0, $startPos + $menuItems.Length)
+			[console]::CursorVisible = $true
+		}
+	}
+	else {
+		$pos = $null
+	}
+
+    if ($ReturnIndex -eq $false -and $pos -ne $null)
+	{
+		if ($Multiselect){
+			return $menuItems[$selection]
+		}
+		else {
+			return $menuItems[$pos]
+		}
+	}
+	else 
+	{
+		if ($Multiselect){
+			return $selection
+		}
+		else {
+			return $pos
+		}
+	}
+}
+
+
+<#
+$Original = @{
+    lets = 'go'
+    Sub = @{
+      Foo =  'bar'
+      big = 'ya'
+    }
+    finish = 'fish'
+}
+$Patch = @{
+    lets = 'arrive'
+    Sub = @{
+      Foo =  'baz'
+    }
+    finish ='cum'
+}
+#>
+function Merge-Hashtables {
+    param(
+        $Original,
+        $Patch
+    )
+    $Merged = @{} # Final Merged settings
+
+    if (!$Original){$Original = @{}}
+
+    if ($Original.GetType().Name -in 'PSCustomObject','PSObject'){
+        $Temp = [ordered]@{}
+        $Original.PSObject.Properties | ForEach-Object { $Temp[$_.Name] = $_.Value }
+        $Original = $Temp
+        Remove-Variable Temp #fck temp vars
+    }
+
+    foreach ($Key in [object[]]$Original.Keys) {
+
+        if ($Original.$Key -is [HashTable]){
+            $Merged.$Key += [HashTable](Merge-Hashtables $Original.$Key $Patch.$Key)
+            continue
+        }
+
+        if ($Patch.$Key -and !$Merged.$Key){ # If the setting exists in the patch
+            $Merged.Remove($Key)
+            if ($Original.$Key -ne $Patch.$Key){
+                Write-Verbose "Changing $Key from $($Original.$Key) to $($Patch.$Key)"
+            }
+            $Merged += @{$Key = $Patch.$Key} # Then add it to the final settings
+        }else{ # Else put in the unchanged normal setting
+            $Merged += @{$Key = $Original.$Key}
+        }
+    }
+
+    ForEach ($Key in [object[]]$Patch.Keys) {
+        if ($Patch.$Key -is [HashTable] -and ($Key -NotIn $Original.Keys)){
+            $Merged.$Key += [HashTable](Merge-Hashtables $Original.$Key $Patch.$Key)
+            continue
+        }
+        if ($Key -NotIn $Original.Keys){
+            $Merged.$Key += $Patch.$Key
+        }
+    }
+
+    return $Merged
+}
+
+<# Here's some example hashtables you can mess with:
+
+$Original = [Ordered]@{ # Original settings
+    potato = $true
+    avocado = $false
+}
+
+$Patch = @{ # Fixes
+    avocado = $true
+}
+
+
+function Merge-Hashtables {
+    param(
+        [Switch]$ShowDiff,
+        $Original,
+        $Patch
+    )
+
+    if (!$Original){$Original = @{}}
+
+    if ($Original.GetType().Name -in 'PSCustomObject','PSObject'){
+        $Temp = [ordered]@{}
+        $Original.PSObject.Properties | ForEach-Object { $Temp[$_.Name] = $_.Value }
+        $Original = $Temp
+        Remove-Variable Temp #fck temp vars
+    }
+
+    $Merged = @{} # Final Merged settings
+
+    foreach($Key in $Original.Keys){ # Loops through all OG settings
+        $Merging = $True
+
+        if ($Patch.$Key){ # If the setting exists in the new settings
+            $Merged += @{$Key = $Patch.$Key} # Then add it to the final settings
+        }else{ # Else put in the normal settings
+            $Merged += @{$Key = $Original.$Key}
+        }
+    }
+    foreach($key in $Patch.Keys){ # If Patch has hashtables that Original does not
+        if (!$Merged.$key){
+            $Merged += @{$key = $Patch.$key}
+        }
+    }
+
+    if (!$Merging){$Merged = $Patch} # If no settings were merged (empty $Original), completely overwrite
+    return $Merged
+}
+
+#>
+function New-Shortcut {
+    param(
+        [Switch]$Admin,
+        [Switch]$Overwrite,
+        [String]$LnkPath,
+        [String]$TargetPath,
+        [String]$Arguments,
+        [String]$Icon
+    )
+
+    if ($Overwrite){
+        if (Test-Path $LnkPath){
+            Remove-Item $LnkPath
+        }
+    }
+
+    $WScriptShell = New-Object -ComObject WScript.Shell
+    $Shortcut = $WScriptShell.CreateShortcut($LnkPath)
+    $Shortcut.TargetPath = $TargetPath
+    if ($Arguments){
+        $Shortcut.Arguments = $Arguments
+    }
+    if ($Icon){
+        $Shortcut.IconLocation = $Icon
+    }
+
+    $Shortcut.Save()
+    if ((Get-Item $LnkPath).FullName -cne $LnkPath){
+        Rename-Item $LnkPath -NewName (Get-Item $LnkPath).Name # Shortcut names are always underscore
+    }
+
+    if ($Admin){
+    
+        $bytes = [System.IO.File]::ReadAllBytes($LnkPath)
+        $bytes[0x15] = $bytes[0x15] -bor 0x20 #set byte 21 (0x15) bit 6 (0x20) ON
+        [System.IO.File]::WriteAllBytes($LnkPath, $bytes)
+    }
+}
+function PauseNul {
+    $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null
+}
+<# This function messes with the message that appears before the commands you type
+
+# Turns:
+PS D:\Scoop>
+# into
+TL D:\Scoop>
+
+To indicate TweakList has been imported
+
+You can prevent this from happening by setting the environment variable TL_NOPROMPT to 1
+#>
+$global:CSI = [char] 27 + '['
+if (!$env:TL_NOPROMPT -and !$TL_NOPROMPT){
+    function global:prompt {
+            "$CSI`97;7mTL$CSI`m $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) ";
+    }
+}
+
+function Set-Choice { # Converts passed string to an array of chars
+    param(
+        [char[]]$Letters = "YN"
+    )
+    While ($Key -NotIn $Letters){
+        [char]$Key = $host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]'NoEcho, IncludeKeyDown').Character
+        if (($Key -NotIn $Letters) -and !$IsLinux){
+                [Console]::Beep(500,300)
+        }
+    }
+    return $Key
+}
+function Set-Title {
+    param(
+        $Title
+    )
+    $Host.UI.RawUI.WindowTitle = "TweakList - $Title"
+}
+
+function Set-Verbosity {
+    [alias('Verbose','Verb')]
+    param (
+
+		[Parameter(Mandatory = $true,ParameterSetName = "Enabled")]
+        [switch]$Enabled,
+
+		[Parameter(Mandatory = $true,ParameterSetName = "Disabled")]
+		[switch]$Disabled
+	)
+    
+    switch ($PSCmdlet.ParameterSetName){
+        "Enabled" {
+            $script:Verbose = $True
+            $script:VerbosePreference = 'Continue'
+        }
+        "Disabled" {
+            $script:Verbose = $True
+            $script:VerbosePreference = 'SilentlyContinue'
+        }
+    }
+}
+function Test-Admin {
+
+    if (!$IsLinux -and !$IsMacOS){
+
+        $identity  = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object System.Security.Principal.WindowsPrincipal( $identity )
+        return $principal.IsInRole( [System.Security.Principal.WindowsBuiltInRole]::Administrator )
+    
+    }else{ # Running on *nix
+        return ((id -u) -eq 0)
+    }
+}
+
+function Write-Color {
+    # Ported to PowerShell from an old version of https://github.com/atzuur/colors
+    param(
+        [String]$Message
+    )
+    $E = [char]0x1b
+    $Presets = [Ordered]@{
+        '&RESET'   ="$E[0m"
+        '&BOLD'    ="$E[1m"
+        '&ITALIC'  ="$E[3m"
+        '&URL'     ="$E[4m"
+        '&BLINK'   ="$E[5m"
+        '&ALTBLINK'="$E[6m"
+        '&SELECTED'="$E[7m"
+        '@BLACK'   ="$E[30m"
+        '@RED'     ="$E[31m"
+        '@GREEN'   ="$E[32m"
+        '@YELLOW'  ="$E[33m"
+        '@BLUE'    ="$E[34m"
+        '@VIOLET'  ="$E[35m"
+        '@BEIGE'   ="$E[36m"
+        '@WHITE'   ="$E[37m"
+        '@GREY'    ="$E[90m"
+        '@LRED'    ="$E[91m"
+        '@LGREEN'  ="$E[92m"
+        '@LYELLOW' ="$E[93m"
+        '@LBLUE'   ="$E[94m"
+        '@LVIOLET' ="$E[95m"
+        '@LBEIGE'  ="$E[96m"
+        '@LWHITE'  ="$E[97m"
+        '%BLACK'   ="$E[40m"
+        '%RED'     ="$E[41m"
+        '%GREEN'   ="$E[42m"
+        '%YELLOW'  ="$E[43m"
+        '%BLUE'    ="$E[44m"
+        '%VIOLET'  ="$E[45m"
+        '%BEIGE'   ="$E[46m"
+        '%WHITE'   ="$E[47m"
+        '%GREY'    ="$E[100m"
+        '%LRED'    ="$E[101m"
+        '%LGREEN'  ="$E[102m"
+        '%LYELLOW' ="$E[103m"
+        '%LBLUE'   ="$E[104m"
+        '%LVIOLET' ="$E[105m"
+        '%LBEIGE'  ="$E[106m"
+        '%LWHITE'  ="$E[107m"
+    }
+    Foreach($Pattern in $Presets.Keys){
+        $Message = $Message -replace $Pattern, $Presets.$Pattern
+    }
+    return $Message + $Presets.'$RESET'
+}
+
+function Write-Diff {
+	param(
+	[String]$Message,
+	[Boolean]$Positivity,
+	[String]$Term
+	)
+	$E = [char]0x1b # Ansi ESC character
+
+	if ($Positivity){
+		$Sign = '+'
+		$Accent = "$E[92m"
+		if (!$Term){
+		$Term = "Enabled"
+		}
+	}
+	elseif(!$Positivity){
+		$Sign = '-'
+		if (!$Term){
+			$Term = "Removed"
+		}
+		$Accent = "$E[91m"
+	}
+
+	$Gray = "$E[90m"
+	$Reset = "$E[0m"
+
+	Write-Host "  $Gray[$Accent$Sign$Gray]$Reset $Term $Accent$Message"
+ 
+}
+
+
+function Write-Menu {
+    <#
+        By QuietusPlus on GitHub: https://github.com/QuietusPlus/Write-Menu
+
+        .SYNOPSIS
+            Outputs a command-line menu which can be navigated using the keyboard.
+
+        .DESCRIPTION
+            Outputs a command-line menu which can be navigated using the keyboard.
+
+            * Automatically creates multiple pages if the entries cannot fit on-screen.
+            * Supports nested menus using a combination of hashtables and arrays.
+            * No entry / page limitations (apart from device performance).
+            * Sort entries using the -Sort parameter.
+            * -MultiSelect: Use space to check a selected entry, all checked entries will be invoked / returned upon confirmation.
+            * Jump to the top / bottom of the page using the "Home" and "End" keys.
+            * "Scrolling" list effect by automatically switching pages when reaching the top/bottom.
+            * Nested menu indicator next to entries.
+            * Remembers parent menus: Opening three levels of nested menus means you have to press "Esc" three times.
+
+            Controls             Description
+            --------             -----------
+            Up                   Previous entry
+            Down                 Next entry
+            Left / PageUp        Previous page
+            Right / PageDown     Next page
+            Home                 Jump to top
+            End                  Jump to bottom
+            Space                Check selection (-MultiSelect only)
+            Enter                Confirm selection
+            Esc / Backspace      Exit / Previous menu
+
+        .EXAMPLE
+            PS C:\>$menuReturn = Write-Menu -Title 'Menu Title' -Entries @('Menu Option 1', 'Menu Option 2', 'Menu Option 3', 'Menu Option 4')
+
+            Output:
+
+              Menu Title
+
+               Menu Option 1
+               Menu Option 2
+               Menu Option 3
+               Menu Option 4
+
+        .EXAMPLE
+            PS C:\>$menuReturn = Write-Menu -Title 'AppxPackages' -Entries (Get-AppxPackage).Name -Sort
+
+            This example uses Write-Menu to sort and list app packages (Windows Store/Modern Apps) that are installed for the current profile.
+
+        .EXAMPLE
+            PS C:\>$menuReturn = Write-Menu -Title 'Advanced Menu' -Sort -Entries @{
+                'Command Entry' = '(Get-AppxPackage).Name'
+                'Invoke Entry' = '@(Get-AppxPackage).Name'
+                'Hashtable Entry' = @{
+                    'Array Entry' = "@('Menu Option 1', 'Menu Option 2', 'Menu Option 3', 'Menu Option 4')"
+                }
+            }
+
+            This example includes all possible entry types:
+
+            Command Entry     Invoke without opening as nested menu (does not contain any prefixes)
+            Invoke Entry      Invoke and open as nested menu (contains the "@" prefix)
+            Hashtable Entry   Opened as a nested menu
+            Array Entry       Opened as a nested menu
+
+        .NOTES
+            Write-Menu by QuietusPlus (inspired by "Simple Textbased Powershell Menu" [Michael Albert])
+
+        .LINK
+            https://quietusplus.github.io/Write-Menu
+
+        .LINK
+            https://github.com/QuietusPlus/Write-Menu
+    #>
+
+    [CmdletBinding()]
+
+    <#
+        Parameters
+    #>
+
+    param(
+        # Array or hashtable containing the menu entries
+        [Parameter(Mandatory=$true, ValueFromPipeline = $true)]
+        [ValidateNotNullOrEmpty()]
+        [Alias('InputObject')]
+        $Entries,
+
+        # Title shown at the top of the menu.
+        [Parameter(ValueFromPipelineByPropertyName = $true)]
+        [Alias('Name')]
+        [string]
+        $Title,
+
+        # Sort entries before they are displayed.
+        [Parameter()]
+        [switch]
+        $Sort,
+
+        # Select multiple menu entries using space, each selected entry will then get invoked (this will disable nested menu's).
+        [Parameter()]
+        [switch]
+        $MultiSelect
+    )
+
+    <#
+        Configuration
+    #>
+
+    # Entry prefix, suffix and padding
+    $script:cfgPrefix = ' '
+    $script:cfgPadding = 2
+    $script:cfgSuffix = ' '
+    $script:cfgNested = ' >'
+
+    # Minimum page width
+    $script:cfgWidth = 30
+
+    # Hide cursor
+    [System.Console]::CursorVisible = $false
+
+    # Save initial colours
+    $script:colorForeground = [System.Console]::ForegroundColor
+    $script:colorBackground = [System.Console]::BackgroundColor
+
+    <#
+        Checks
+    #>
+
+    # Check if entries has been passed
+    if ($Entries -like $null) {
+        Write-Error "Missing -Entries parameter!"
+        return
+    }
+
+    # Check if host is console
+    if ($host.Name -ne 'ConsoleHost') {
+        Write-Error "[$($host.Name)] Cannot run inside current host, please use a console window instead!"
+        return
+    }
+
+    <#
+        Set-Color
+    #>
+
+    function Set-Color ([switch]$Inverted) {
+        switch ($Inverted) {
+            $true {
+                [System.Console]::ForegroundColor = $colorBackground
+                [System.Console]::BackgroundColor = $colorForeground
+            }
+            Default {
+                [System.Console]::ForegroundColor = $colorForeground
+                [System.Console]::BackgroundColor = $colorBackground
+            }
+        }
+    }
+
+    <#
+        Get-Menu
+    #>
+
+    function Get-Menu ($script:inputEntries) {
+        # Clear console
+        Clear-Host
+
+        # Check if -Title has been provided, if so set window title, otherwise set default.
+        if ($Title -notlike $null) {
+            #$host.UI.RawUI.WindowTitle = $Title # DISABLED FOR TWEAKLIST
+            $script:menuTitle = "$Title"
+        } else {
+            $script:menuTitle = 'Menu'
+        }
+
+        # Set menu height
+        $script:pageSize = ($host.UI.RawUI.WindowSize.Height - 5)
+
+        # Convert entries to object
+        $script:menuEntries = @()
+        switch ($inputEntries.GetType().Name) {
+            'String' {
+                # Set total entries
+                $script:menuEntryTotal = 1
+                # Create object
+                $script:menuEntries = New-Object PSObject -Property @{
+                    Command = ''
+                    Name = $inputEntries
+                    Selected = $false
+                    onConfirm = 'Name'
+                }; break
+            }
+            'Object[]' {
+                # Get total entries
+                $script:menuEntryTotal = $inputEntries.Length
+                # Loop through array
+                foreach ($i in 0..$($menuEntryTotal - 1)) {
+                    # Create object
+                    $script:menuEntries += New-Object PSObject -Property @{
+                        Command = ''
+                        Name = $($inputEntries)[$i]
+                        Selected = $false
+                        onConfirm = 'Name'
+                    }; $i++
+                }; break
+            }
+            'Hashtable' {
+                # Get total entries
+                $script:menuEntryTotal = $inputEntries.Count
+                # Loop through hashtable
+                foreach ($i in 0..($menuEntryTotal - 1)) {
+                    # Check if hashtable contains a single entry, copy values directly if true
+                    if ($menuEntryTotal -eq 1) {
+                        $tempName = $($inputEntries.Keys)
+                        $tempCommand = $($inputEntries.Values)
+                    } else {
+                        $tempName = $($inputEntries.Keys)[$i]
+                        $tempCommand = $($inputEntries.Values)[$i]
+                    }
+
+                    # Check if command contains nested menu
+                    if ($tempCommand.GetType().Name -eq 'Hashtable') {
+                        $tempAction = 'Hashtable'
+                    } elseif ($tempCommand.Substring(0,1) -eq '@') {
+                        $tempAction = 'Invoke'
+                    } else {
+                        $tempAction = 'Command'
+                    }
+
+                    # Create object
+                    $script:menuEntries += New-Object PSObject -Property @{
+                        Name = $tempName
+                        Command = $tempCommand
+                        Selected = $false
+                        onConfirm = $tempAction
+                    }; $i++
+                }; break
+            }
+            Default {
+                Write-Error "Type `"$($inputEntries.GetType().Name)`" not supported, please use an array or hashtable."
+                exit
+            }
+        }
+
+        # Sort entries
+        if ($Sort -eq $true) {
+            $script:menuEntries = $menuEntries | Sort-Object -Property Name
+        }
+
+        # Get longest entry
+        $script:entryWidth = ($menuEntries.Name | Measure-Object -Maximum -Property Length).Maximum
+        # Widen if -MultiSelect is enabled
+        if ($MultiSelect) { $script:entryWidth += 4 }
+        # Set minimum entry width
+        if ($entryWidth -lt $cfgWidth) { $script:entryWidth = $cfgWidth }
+        # Set page width
+        $script:pageWidth = $cfgPrefix.Length + $cfgPadding + $entryWidth + $cfgPadding + $cfgSuffix.Length
+
+        # Set current + total pages
+        $script:pageCurrent = 0
+        $script:pageTotal = [math]::Ceiling((($menuEntryTotal - $pageSize) / $pageSize))
+
+        # Insert new line
+        [System.Console]::WriteLine("")
+
+        # Save title line location + write title
+        $script:lineTitle = [System.Console]::CursorTop
+        [System.Console]::WriteLine("  $menuTitle" + "`n")
+
+        # Save first entry line location
+        $script:lineTop = [System.Console]::CursorTop
+    }
+
+    <#
+        Get-Page
+    #>
+
+    function Get-Page {
+        # Update header if multiple pages
+        if ($pageTotal -ne 0) { Update-Header }
+
+        # Clear entries
+        for ($i = 0; $i -le $pageSize; $i++) {
+            # Overwrite each entry with whitespace
+            [System.Console]::WriteLine("".PadRight($pageWidth) + ' ')
+        }
+
+        # Move cursor to first entry
+        [System.Console]::CursorTop = $lineTop
+
+        # Get index of first entry
+        $script:pageEntryFirst = ($pageSize * $pageCurrent)
+
+        # Get amount of entries for last page + fully populated page
+        if ($pageCurrent -eq $pageTotal) {
+            $script:pageEntryTotal = ($menuEntryTotal - ($pageSize * $pageTotal))
+        } else {
+            $script:pageEntryTotal = $pageSize
+        }
+
+        # Set position within console
+        $script:lineSelected = 0
+
+        # Write all page entries
+        for ($i = 0; $i -le ($pageEntryTotal - 1); $i++) {
+            Write-Entry $i
+        }
+    }
+
+    <#
+        Write-Entry
+    #>
+
+    function Write-Entry ([int16]$Index, [switch]$Update) {
+        # Check if entry should be highlighted
+        switch ($Update) {
+            $true { $lineHighlight = $false; break }
+            Default { $lineHighlight = ($Index -eq $lineSelected) }
+        }
+
+        # Page entry name
+        $pageEntry = $menuEntries[($pageEntryFirst + $Index)].Name
+
+        # Prefix checkbox if -MultiSelect is enabled
+        if ($MultiSelect) {
+            switch ($menuEntries[($pageEntryFirst + $Index)].Selected) {
+                $true { $pageEntry = "[X] $pageEntry"; break }
+                Default { $pageEntry = "[ ] $pageEntry" }
+            }
+        }
+
+        # Full width highlight + Nested menu indicator
+        switch ($menuEntries[($pageEntryFirst + $Index)].onConfirm -in 'Hashtable', 'Invoke') {
+            $true { $pageEntry = "$pageEntry".PadRight($entryWidth) + "$cfgNested"; break }
+            Default { $pageEntry = "$pageEntry".PadRight($entryWidth + $cfgNested.Length) }
+        }
+
+        # Write new line and add whitespace without inverted colours
+        [System.Console]::Write("`r" + $cfgPrefix)
+        # Invert colours if selected
+        if ($lineHighlight) { Set-Color -Inverted }
+        # Write page entry
+        [System.Console]::Write("".PadLeft($cfgPadding) + $pageEntry + "".PadRight($cfgPadding))
+        # Restore colours if selected
+        if ($lineHighlight) { Set-Color }
+        # Entry suffix
+        [System.Console]::Write($cfgSuffix + "`n")
+    }
+
+    <#
+        Update-Entry
+    #>
+
+    function Update-Entry ([int16]$Index) {
+        # Reset current entry
+        [System.Console]::CursorTop = ($lineTop + $lineSelected)
+        Write-Entry $lineSelected -Update
+
+        # Write updated entry
+        $script:lineSelected = $Index
+        [System.Console]::CursorTop = ($lineTop + $Index)
+        Write-Entry $lineSelected
+
+        # Move cursor to first entry on page
+        [System.Console]::CursorTop = $lineTop
+    }
+
+    <#
+        Update-Header
+    #>
+
+    function Update-Header {
+        # Set corrected page numbers
+        $pCurrent = ($pageCurrent + 1)
+        $pTotal = ($pageTotal + 1)
+
+        # Calculate offset
+        $pOffset = ($pTotal.ToString()).Length
+
+        # Build string, use offset and padding to right align current page number
+        $script:pageNumber = "{0,-$pOffset}{1,0}" -f "$("$pCurrent".PadLeft($pOffset))","/$pTotal"
+
+        # Move cursor to title
+        [System.Console]::CursorTop = $lineTitle
+        # Move cursor to the right
+        [System.Console]::CursorLeft = ($pageWidth - ($pOffset * 2) - 1)
+        # Write page indicator
+        [System.Console]::WriteLine("$pageNumber")
+    }
+
+    <#
+        Initialisation
+    #>
+
+    # Get menu
+    Get-Menu $Entries
+
+    # Get page
+    Get-Page
+
+    # Declare hashtable for nested entries
+    $menuNested = [ordered]@{}
+
+    <#
+        User Input
+    #>
+
+    # Loop through user input until valid key has been pressed
+    do { $inputLoop = $true
+
+        # Move cursor to first entry and beginning of line
+        [System.Console]::CursorTop = $lineTop
+        [System.Console]::Write("`r")
+
+        # Get pressed key
+        $menuInput = [System.Console]::ReadKey($false)
+
+        # Define selected entry
+        $entrySelected = $menuEntries[($pageEntryFirst + $lineSelected)]
+
+        # Check if key has function attached to it
+        switch ($menuInput.Key) {
+            # Exit / Return
+            { $_ -in 'Escape', 'Backspace' } {
+                # Return to parent if current menu is nested
+                if ($menuNested.Count -ne 0) {
+                    $pageCurrent = 0
+                    $Title = $($menuNested.GetEnumerator())[$menuNested.Count - 1].Name
+                    Get-Menu $($menuNested.GetEnumerator())[$menuNested.Count - 1].Value
+                    Get-Page
+                    $menuNested.RemoveAt($menuNested.Count - 1) | Out-Null
+                # Otherwise exit and return $null
+                } else {
+                    Clear-Host
+                    $inputLoop = $false
+                    [System.Console]::CursorVisible = $true
+                    return $null
+                }; break
+            }
+
+            # Next entry
+            'DownArrow' {
+                if ($lineSelected -lt ($pageEntryTotal - 1)) { # Check if entry isn't last on page
+                    Update-Entry ($lineSelected + 1)
+                } elseif ($pageCurrent -ne $pageTotal) { # Switch if not on last page
+                    $pageCurrent++
+                    Get-Page
+                }; break
+            }
+
+            # Previous entry
+            'UpArrow' {
+                if ($lineSelected -gt 0) { # Check if entry isn't first on page
+                    Update-Entry ($lineSelected - 1)
+                } elseif ($pageCurrent -ne 0) { # Switch if not on first page
+                    $pageCurrent--
+                    Get-Page
+                    Update-Entry ($pageEntryTotal - 1)
+                }; break
+            }
+
+            # Select top entry
+            'Home' {
+                if ($lineSelected -ne 0) { # Check if top entry isn't already selected
+                    Update-Entry 0
+                } elseif ($pageCurrent -ne 0) { # Switch if not on first page
+                    $pageCurrent--
+                    Get-Page
+                    Update-Entry ($pageEntryTotal - 1)
+                }; break
+            }
+
+            # Select bottom entry
+            'End' {
+                if ($lineSelected -ne ($pageEntryTotal - 1)) { # Check if bottom entry isn't already selected
+                    Update-Entry ($pageEntryTotal - 1)
+                } elseif ($pageCurrent -ne $pageTotal) { # Switch if not on last page
+                    $pageCurrent++
+                    Get-Page
+                }; break
+            }
+
+            # Next page
+            { $_ -in 'RightArrow','PageDown' } {
+                if ($pageCurrent -lt $pageTotal) { # Check if already on last page
+                    $pageCurrent++
+                    Get-Page
+                }; break
+            }
+
+            # Previous page
+            { $_ -in 'LeftArrow','PageUp' } { # Check if already on first page
+                if ($pageCurrent -gt 0) {
+                    $pageCurrent--
+                    Get-Page
+                }; break
+            }
+
+            # Select/check entry if -MultiSelect is enabled
+            'Spacebar' {
+                if ($MultiSelect) {
+                    switch ($entrySelected.Selected) {
+                        $true { $entrySelected.Selected = $false }
+                        $false { $entrySelected.Selected = $true }
+                    }
+                    Update-Entry ($lineSelected)
+                }; break
+            }
+
+            # Select all if -MultiSelect has been enabled
+            'Insert' {
+                if ($MultiSelect) {
+                    $menuEntries | ForEach-Object {
+                        $_.Selected = $true
+                    }
+                    Get-Page
+                }; break
+            }
+
+            # Select none if -MultiSelect has been enabled
+            'Delete' {
+                if ($MultiSelect) {
+                    $menuEntries | ForEach-Object {
+                        $_.Selected = $false
+                    }
+                    Get-Page
+                }; break
+            }
+
+            # Confirm selection
+            'Enter' {
+                # Check if -MultiSelect has been enabled
+                if ($MultiSelect) {
+                    Clear-Host
+                    # Process checked/selected entries
+                    $menuEntries | ForEach-Object {
+                        # Entry contains command, invoke it
+                        if (($_.Selected) -and ($_.Command -notlike $null) -and ($entrySelected.Command.GetType().Name -ne 'Hashtable')) {
+                            Invoke-Expression -Command $_.Command
+                        # Return name, entry does not contain command
+                        } elseif ($_.Selected) {
+                            return $_.Name
+                        }
+                    }
+                    # Exit and re-enable cursor
+                    $inputLoop = $false
+                    [System.Console]::CursorVisible = $true
+                    break
+                }
+
+                # Use onConfirm to process entry
+                switch ($entrySelected.onConfirm) {
+                    # Return hashtable as nested menu
+                    'Hashtable' {
+                        $menuNested.$Title = $inputEntries
+                        $Title = $entrySelected.Name
+                        Get-Menu $entrySelected.Command
+                        Get-Page
+                        break
+                    }
+
+                    # Invoke attached command and return as nested menu
+                    'Invoke' {
+                        $menuNested.$Title = $inputEntries
+                        $Title = $entrySelected.Name
+                        Get-Menu $(Invoke-Expression -Command $entrySelected.Command.Substring(1))
+                        Get-Page
+                        break
+                    }
+
+                    # Invoke attached command and exit
+                    'Command' {
+                        Clear-Host
+                        Invoke-Expression -Command $entrySelected.Command
+                        $inputLoop = $false
+                        [System.Console]::CursorVisible = $true
+                        break
+                    }
+
+                    # Return name and exit
+                    'Name' {
+                        Clear-Host
+                        return $entrySelected.Name
+                        $inputLoop = $false
+                        [System.Console]::CursorVisible = $true
+                    }
+                }
+            }
+        }
+    } while ($inputLoop)
+}
+
+function Get-IniContent {
+    <#
+    .Synopsis
+        Gets the content of an INI file
+
+    .Description
+        Gets the content of an INI file and returns it as a hashtable
+
+    .Notes
+        Author		: Oliver Lipkau <oliver@lipkau.net>
+		Source		: https://github.com/lipkau/PsIni
+                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
+        Version		: 1.0.0 - 2010/03/12 - OL - Initial release
+                      1.0.1 - 2014/12/11 - OL - Typo (Thx SLDR)
+                                              Typo (Thx Dave Stiff)
+                      1.0.2 - 2015/06/06 - OL - Improvment to switch (Thx Tallandtree)
+                      1.0.3 - 2015/06/18 - OL - Migrate to semantic versioning (GitHub issue#4)
+                      1.0.4 - 2015/06/18 - OL - Remove check for .ini extension (GitHub Issue#6)
+                      1.1.0 - 2015/07/14 - CB - Improve round-tripping and be a bit more liberal (GitHub Pull #7)
+                                           OL - Small Improvments and cleanup
+                      1.1.1 - 2015/07/14 - CB - changed .outputs section to be OrderedDictionary
+                      1.1.2 - 2016/08/18 - SS - Add some more verbose outputs as the ini is parsed,
+                      				            allow non-existent paths for new ini handling,
+                      				            test for variable existence using local scope,
+                      				            added additional debug output.
+
+        #Requires -Version 2.0
+
+    .Inputs
+        System.String
+
+    .Outputs
+        System.Collections.Specialized.OrderedDictionary
+
+    .Example
+        $FileContent = Get-IniContent "C:\myinifile.ini"
+        -----------
+        Description
+        Saves the content of the c:\myinifile.ini in a hashtable called $FileContent
+
+    .Example
+        $inifilepath | $FileContent = Get-IniContent
+        -----------
+        Description
+        Gets the content of the ini file passed through the pipe into a hashtable called $FileContent
+
+    .Example
+        C:\PS>$FileContent = Get-IniContent "c:\settings.ini"
+        C:\PS>$FileContent["Section"]["Key"]
+        -----------
+        Description
+        Returns the key "Key" of the section "Section" from the C:\settings.ini file
+
+    .Link
+        Out-IniFile
+    #>
+
+    [CmdletBinding()]
+    [OutputType(
+        [System.Collections.Specialized.OrderedDictionary]
+    )]
+    Param(
+        # Specifies the path to the input file.
+        [ValidateNotNullOrEmpty()]
+        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
+        [String]
+        $FilePath,
+
+        # Specify what characters should be describe a comment.
+        # Lines starting with the characters provided will be rendered as comments.
+        # Default: ";"
+        [Char[]]
+        $CommentChar = @(";"),
+
+        # Remove lines determined to be comments from the resulting dictionary.
+        [Switch]
+        $IgnoreComments
+    )
+
+    Begin {
+        Write-Debug "PsBoundParameters:"
+        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
+        if ($PSBoundParameters['Debug']) {
+            $DebugPreference = 'Continue'
+        }
+        Write-Debug "DebugPreference: $DebugPreference"
+
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
+
+        $commentRegex = "^\s*([$($CommentChar -join '')].*)$"
+        $sectionRegex = "^\s*\[(.+)\]\s*$"
+        $keyRegex     = "^\s*(.+?)\s*=\s*(['`"]?)(.*)\2\s*$"
+
+        Write-Debug ("commentRegex is {0}." -f $commentRegex)
+    }
+
+    Process {
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Processing file: $Filepath"
+
+        $ini = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
+        #$ini = @{}
+
+        if (!(Test-Path $Filepath)) {
+            Write-Verbose ("Warning: `"{0}`" was not found." -f $Filepath)
+            Write-Output $ini
+        }
+
+        $commentCount = 0
+        switch -regex -file $FilePath {
+            $sectionRegex {
+                # Section
+                $section = $matches[1]
+                Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding section : $section"
+                $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
+                $CommentCount = 0
+                continue
+            }
+            $commentRegex {
+                # Comment
+                if (!$IgnoreComments) {
+                    if (!(test-path "variable:local:section")) {
+                        $section = $script:NoSection
+                        $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
+                    }
+                    $value = $matches[1]
+                    $CommentCount++
+                    Write-Debug ("Incremented CommentCount is now {0}." -f $CommentCount)
+                    $name = "Comment" + $CommentCount
+                    Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding $name with value: $value"
+                    $ini[$section][$name] = $value
+                }
+                else {
+                    Write-Debug ("Ignoring comment {0}." -f $matches[1])
+                }
+
+                continue
+            }
+            $keyRegex {
+                # Key
+                if (!(test-path "variable:local:section")) {
+                    $section = $script:NoSection
+                    $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
+                }
+                $name, $value = $matches[1, 3]
+                Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding key $name with value: $value"
+                if (-not $ini[$section][$name]) {
+                    $ini[$section][$name] = $value
+                }
+                else {
+                    if ($ini[$section][$name] -is [string]) {
+                        $ini[$section][$name] = [System.Collections.ArrayList]::new()
+                        $ini[$section][$name].Add($ini[$section][$name]) | Out-Null
+                        $ini[$section][$name].Add($value) | Out-Null
+                    }
+                    else {
+                        $ini[$section][$name].Add($value) | Out-Null
+                    }
+                }
+                continue
+            }
+        }
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Finished Processing file: $FilePath"
+        Write-Output $ini
+    }
+
+    End {
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function ended"
+    }
+}
+
+Set-Alias gic Get-IniContent
+
+Function Out-IniFile {
+    <#
+    .Synopsis
+        Write hash content to INI file
+
+    .Description
+        Write hash content to INI file
+
+    .Notes
+        Author      : Oliver Lipkau <oliver@lipkau.net>
+        Blog        : http://oliver.lipkau.net/blog/
+        Source      : https://github.com/lipkau/PsIni
+                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
+
+        #Requires -Version 2.0
+
+    .Inputs
+        System.String
+        System.Collections.IDictionary
+
+    .Outputs
+        System.IO.FileSystemInfo
+
+    .Example
+        Out-IniFile $IniVar "C:\myinifile.ini"
+        -----------
+        Description
+        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini
+
+    .Example
+        $IniVar | Out-IniFile "C:\myinifile.ini" -Force
+        -----------
+        Description
+        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini and overwrites the file if it is already present
+
+    .Example
+        $file = Out-IniFile $IniVar "C:\myinifile.ini" -PassThru
+        -----------
+        Description
+        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini and saves the file into $file
+
+    .Example
+        $Category1 = @{“Key1”=”Value1”;”Key2”=”Value2”}
+        $Category2 = @{“Key1”=”Value1”;”Key2”=”Value2”}
+        $NewINIContent = @{“Category1”=$Category1;”Category2”=$Category2}
+        Out-IniFile -InputObject $NewINIContent -FilePath "C:\MyNewFile.ini"
+        -----------
+        Description
+        Creating a custom Hashtable and saving it to C:\MyNewFile.ini
+    .Link
+        Get-IniContent
+    #>
+
+    [CmdletBinding()]
+    [OutputType(
+        [System.IO.FileSystemInfo]
+    )]
+    Param(
+        # Adds the output to the end of an existing file, instead of replacing the file contents.
+        [switch]
+        $Append,
+
+        # Specifies the file encoding. The default is UTF8.
+        #
+        # Valid values are:
+        # -- ASCII:  Uses the encoding for the ASCII (7-bit) character set.
+        # -- BigEndianUnicode:  Encodes in UTF-16 format using the big-endian byte order.
+        # -- Byte:   Encodes a set of characters into a sequence of bytes.
+        # -- String:  Uses the encoding type for a string.
+        # -- Unicode:  Encodes in UTF-16 format using the little-endian byte order.
+        # -- UTF7:   Encodes in UTF-7 format.
+        # -- UTF8:  Encodes in UTF-8 format.
+        [ValidateSet("Unicode", "UTF7", "UTF8", "ASCII", "BigEndianUnicode", "Byte", "String")]
+        [Parameter()]
+        [String]
+        $Encoding = "UTF8",
+
+        # Specifies the path to the output file.
+        [ValidateNotNullOrEmpty()]
+        [ValidateScript( {Test-Path $_ -IsValid} )]
+        [Parameter( Position = 0, Mandatory = $true )]
+        [String]
+        $FilePath,
+
+        # Allows the cmdlet to overwrite an existing read-only file. Even using the Force parameter, the cmdlet cannot override security restrictions.
+        [Switch]
+        $Force,
+
+        # Specifies the Hashtable to be written to the file. Enter a variable that contains the objects or type a command or expression that gets the objects.
+        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
+        [System.Collections.IDictionary]
+        $InputObject,
+
+        # Passes an object representing the location to the pipeline. By default, this cmdlet does not generate any output.
+        [Switch]
+        $Passthru,
+
+        # Adds spaces around the equal sign when writing the key = value
+        [Switch]
+        $Loose,
+
+        # Writes the file as "pretty" as possible
+        #
+        # Adds an extra linebreak between Sections
+        [Switch]
+        $Pretty
+    )
+
+    Begin {
+        Write-Debug "PsBoundParameters:"
+        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
+        if ($PSBoundParameters['Debug']) {
+            $DebugPreference = 'Continue'
+        }
+        Write-Debug "DebugPreference: $DebugPreference"
+
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
+
+        function Out-Keys {
+            param(
+                [ValidateNotNullOrEmpty()]
+                [Parameter( Mandatory, ValueFromPipeline )]
+                [System.Collections.IDictionary]
+                $InputObject,
+
+                [ValidateSet("Unicode", "UTF7", "UTF8", "ASCII", "BigEndianUnicode", "Byte", "String")]
+                [Parameter( Mandatory )]
+                [string]
+                $Encoding = "UTF8",
+
+                [ValidateNotNullOrEmpty()]
+                [ValidateScript( {Test-Path $_ -IsValid})]
+                [Parameter( Mandatory, ValueFromPipelineByPropertyName )]
+                [Alias("Path")]
+                [string]
+                $FilePath,
+
+                [Parameter( Mandatory )]
+                $Delimiter,
+
+                [Parameter( Mandatory )]
+                $MyInvocation
+            )
+
+            Process {
+                if (!($InputObject.get_keys())) {
+                    Write-Warning ("No data found in '{0}'." -f $FilePath)
+                }
+                Foreach ($key in $InputObject.get_keys()) {
+                    if ($key -match "^Comment\d+") {
+                        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing comment: $key"
+                        "$($InputObject[$key])" | Out-File -Encoding $Encoding -FilePath $FilePath -Append
+                    }
+                    else {
+                        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing key: $key"
+                        $InputObject[$key] |
+                            ForEach-Object { "$key$delimiter$_" } |
+                            Out-File -Encoding $Encoding -FilePath $FilePath -Append
+                    }
+                }
+            }
+        }
+
+        $delimiter = '='
+        if ($Loose) {
+            $delimiter = ' = '
+        }
+
+        # Splatting Parameters
+        $parameters = @{
+            Encoding = $Encoding;
+            FilePath = $FilePath
+        }
+
+    }
+
+    Process {
+        $extraLF = ""
+
+        if ($Append) {
+            Write-Debug ("Appending to '{0}'." -f $FilePath)
+            $outfile = Get-Item $FilePath
+        }
+        else {
+            Write-Debug ("Creating new file '{0}'." -f $FilePath)
+            $outFile = New-Item -ItemType file -Path $Filepath -Force:$Force
+        }
+
+        if (!(Test-Path $outFile.FullName)) {Throw "Could not create File"}
+
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing to file: $Filepath"
+        foreach ($i in $InputObject.get_keys()) {
+            if (!($InputObject[$i].GetType().GetInterface('IDictionary'))) {
+                #Key value pair
+                Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing key: $i"
+                "$i$delimiter$($InputObject[$i])" | Out-File -Append @parameters
+
+            }
+            elseif ($i -eq $script:NoSection) {
+                #Key value pair of NoSection
+                Out-Keys $InputObject[$i] `
+                    @parameters `
+                    -Delimiter $delimiter `
+                    -MyInvocation $MyInvocation
+            }
+            else {
+                #Sections
+                Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing Section: [$i]"
+
+                # Only write section, if it is not a dummy ($script:NoSection)
+                if ($i -ne $script:NoSection) { "$extraLF[$i]"  | Out-File -Append @parameters }
+                if ($Pretty) {
+                    $extraLF = "`r`n"
+                }
+
+                if ( $InputObject[$i].Count) {
+                    Out-Keys $InputObject[$i] `
+                        @parameters `
+                        -Delimiter $delimiter `
+                        -MyInvocation $MyInvocation
+                }
+
+            }
+        }
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Finished Writing to file: $FilePath"
+    }
+
+    End {
+        if ($PassThru) {
+            Write-Debug ("Returning file due to PassThru argument.")
+            Write-Output (Get-Item $outFile)
+        }
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function ended"
+    }
+}
+
+Set-Alias oif Out-IniFile
+
+Function ConvertFrom-VDF {
+<# 
+.Synopsis 
+    Reads a Valve Data File (VDF) formatted string into a custom object.
+
+.Description 
+    The ConvertFrom-VDF cmdlet converts a VDF-formatted string to a custom object (PSCustomObject) that has a property for each field in the VDF string. VDF is used as a textual data format for Valve software applications, such as Steam.
+
+.Parameter InputObject
+    Specifies the VDF strings to convert to PSObjects. Enter a variable that contains the string, or type a command or expression that gets the string. 
+
+.Example 
+    $vdf = ConvertFrom-VDF -InputObject (Get-Content ".\SharedConfig.vdf")
+
+    Description 
+    ----------- 
+    Gets the content of a VDF file named "SharedConfig.vdf" in the current location and converts it to a PSObject named $vdf
+
+.Inputs 
+    System.String
+
+.Outputs 
+    PSCustomObject
+
+
+#>
+    param
+    (
+        [Parameter(Position=0, Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [String[]]
+        $InputObject
+    )
+
+    $root = New-Object -TypeName PSObject
+    $chain = [ordered]@{}
+    $depth = 0
+    $parent = $root
+    $element = $null
+
+    #Magic PowerShell Switch Enumrates Arrays
+    switch -Regex ($InputObject) {
+        #Case: ValueKey
+        '^\t*"(\S+)"\t\t"(.+)"$' {
+            Add-Member -InputObject $element -MemberType NoteProperty -Name $Matches[1] -Value $Matches[2]
+            continue
+        }
+        #Case: ParentKey
+        '^\t*"(\S+)"$' { 
+            $element = New-Object -TypeName PSObject
+            Add-Member -InputObject $parent -MemberType NoteProperty -Name $Matches[1] -Value $element
+            continue
+        }
+        #Case: Opening ParentKey Scope
+        '^\t*{$' {
+            $parent = $element
+            $chain.Add($depth, $element)
+            $depth++
+            continue
+        }
+        #Case: Closing ParentKey Scope
+        '^\t*}$' {
+            $depth--
+            $parent = $chain.($depth - 1)
+            $element = $parent
+            $chain.Remove($depth)
+            continue
+        }
+        #Case: Comments or unsupported lines
+        Default {
+            Write-Debug "Ignored line: $_"
+            continue
+        }
+    }
+
+    return $root
+}
+
+Function ConvertTo-VDF
+{
+<# 
+.Synopsis 
+    Converts a custom object into a Valve Data File (VDF) formatted string.
+
+.Description 
+    The ConvertTo-VDF cmdlet converts any object to a string in Valve Data File (VDF) format. The properties are converted to field names, the field values are converted to property values, and the methods are removed.
+
+.Parameter InputObject
+    Specifies PSObject to be converted into VDF strings.  Enter a variable that contains the object. You can also pipe an object to ConvertTo-Json.
+
+.Example 
+    ConvertTo-VDF -InputObject $VDFObject | Out-File ".\SharedConfig.vdf"
+
+    Description 
+    ----------- 
+    Converts the PS object to VDF format and pipes it into "SharedConfig.vdf" in the current directory
+
+.Inputs 
+    PSCustomObject
+
+.Outputs 
+    System.String
+
+
+#>
+    param
+    (
+        [Parameter(Position=0, Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [PSObject]
+        $InputObject,
+
+        [Parameter(Position=1, Mandatory=$false)]
+        [int]
+        $Depth = 0
+    )
+    $output = [string]::Empty
+    
+    foreach ( $property in ($InputObject.psobject.Properties) ) {
+        switch ($property.TypeNameOfValue) {
+            "System.String" { 
+                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`t`t`"" + $property.Value + "`"`n"
+                break
+            }
+            "System.Management.Automation.PSCustomObject" {
+                $element = $property.Value
+                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`n"
+                $output += ("`t" * $Depth) + "{`n"
+                $output += ConvertTo-VDF -InputObject $element -Depth ($Depth + 1)
+                $output += ("`t" * $Depth) + "}`n"
+                break
+            }
+            Default {
+                Write-Error ("Unsupported Property of type {0}" -f $_) -ErrorAction Stop
+                break
+            }
+        }
+    }
+
+    return $output
+}
+
+function Get-SteamGameInstallDir (
+    [Parameter(Mandatory = $true)][string]$Game, 
+    [array]$LibraryFolders = (Get-SteamLibraryFolders)) {
+
+    # Get the installation directory of a Steam game.
+    foreach ($LibraryFolder in $LibraryFolders) {
+        $GameInstallDir = "$LibraryFolder\steamapps\common\$Game"
+        if (Test-Path "$($GameInstallDir.ToLower())") {
+            return "$GameInstallDir"
+        }
+    }
+}
+Function Get-SteamLibraryFolders()
+{
+<#
+.Synopsis 
+	Retrieves library folder paths from .\SteamApps\libraryfolders.vdf
+.Description
+	Reads .\SteamApps\libraryfolders.vdf to find the paths of all the library folders set up in steam
+.Example 
+	$libraryFolders = Get-LibraryFolders
+	Description 
+	----------- 
+	Retrieves a list of the library folders set up in steam
+#>
+	$steamPath = Get-SteamPath
+	
+	$vdfPath = "$($steamPath)\SteamApps\libraryfolders.vdf"
+	
+	[array]$libraryFolderPaths = @()
+	
+	if (Test-Path $vdfPath)
+	{
+		$libraryFolders = ConvertFrom-VDF (Get-Content $vdfPath -Encoding UTF8) | Select-Object -ExpandProperty libraryfolders
+		
+		$libraryFolderIds = $libraryFolders | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
+		
+		ForEach ($libraryId in $libraryFolderIds)
+		{
+			$libraryFolder = $libraryFolders.($libraryId)
+			
+			$libraryFolderPaths += $libraryFolder.path.Replace('\\','\')
+		}
+	}
+	
+	return $libraryFolderPaths
+}
+
+
+function Get-SteamPath {
+    # Get the Steam installation directory.
+
+    $MUICache = "Registry::HKCR\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
+    $Protocol = "Registry::HKCR\steam\Shell\Open\Command"
+    $Steam = Get-ItemPropertyValue "Registry::HKCU\Software\Valve\Steam" -Name "SteamPath" -ErrorAction SilentlyContinue
+    
+    # MUICache
+    if (!$Steam) {
+        $Steam = Split-Path (((Get-Item "$MUICache").Property | Where-Object { $PSItem -Like "*Steam*" } |
+                Where-Object { (Get-ItemPropertyValue "$MUICache" -Name $PSItem) -eq "Steam" }).TrimEnd(".FriendlyAppName"))
+    }
+
+    # Steam Browser Protocol
+    if (!$Steam) {
+        $Steam = Split-Path (((Get-ItemPropertyValue "$Protocol" -Name "(Default)" -ErrorAction SilentlyContinue) -Split "--", 2, "SimpleMatch")[0]).Trim('"')
+    }
+
+    return $Steam.ToLower()
+}
 function Add-ContextMenu {
     #! TODO https://www.tenforums.com/tutorials/69524-add-remove-drives-send-context-menu-windows-10-a.html
     param(
@@ -2647,2548 +5189,6 @@ $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.options
 $Hash.maxFPS = 260
 Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force
 
-}
-function Assert-Choice {
-    if (-Not(Get-Command choice.exe -ErrorAction Ignore)){
-        Write-Host "[!] Unable to find choice.exe (it comes with Windows, did a little bit of unecessary debloating?)" -ForegroundColor Red
-        PauseNul
-        exit 1
-    }
-}
-function Assert-Path {
-    param(
-        $Path
-    )
-    if (-Not(Test-Path -Path $Path)) {
-        New-Item -Path $Path -Force | Out-Null
-    }
-}
-function FindInText{
-    <#
-    Recreated a simple grep for finding shit in TweakList,
-    I mostly use this to check if a function/word has ever been mentionned in all my code
-    #>
-    param(
-        [String]$String,
-        $Path = (Get-Location),
-        [Array]$Exclude,
-        [Switch]$Recurse
-    )
-
-    $Exclude += @(
-    '*.exe','*.bin','*.dll'
-    '*.png','*.jpg'
-    '*.mkv','*.mp4','*.webm'
-    '*.zip','*.tar','*.gz','*.rar','*.7z','*.so'
-    '*.pyc','*.pyd'
-    )
-
-    $Parameters = @{
-        Path = $Path
-        Recurse = $Recurse
-        Exclude = $Exclude
-    }
-    $script:FoundOnce = $False
-    $script:Match = $null
-    Get-ChildItem @Parameters -File | ForEach-Object {
-        $Match = $null
-        Write-Verbose ("Checking " + $PSItem.Name)
-        $Match = Get-Content $PSItem.FullName | Where-Object {$_ -Like "*$String*"}
-        if ($Match){
-            $script:FoundOnce = $True
-            Write-Host "- Found in $($_.Name) ($($_.FullName))" -ForegroundColor Green
-            $Match
-        }
-    }
-
-    if (!$FoundOnce){
-        Write-Host "Not found" -ForegroundColor red
-    }
-}
-function Get-7zPath {
-
-    if (Get-Command 7z.exe -Ea Ignore){return (Get-Command 7z.exe).Source}
-
-    $DefaultPath = "$env:ProgramFiles\7-Zip\7z.exe"
-    if (Test-Path $DefaultPath) {return $DefaultPath}
-
-    Try {
-        $InstallLocation = (Get-Package 7-Zip* -ErrorAction Stop).Metadata['InstallLocation'] # Compatible with 7-Zip installed normally / with winget
-        if (Test-Path $InstallLocation -ErrorAction Stop){
-            return "$InstallLocation`7z.exe"
-        }
-    }Catch{} # If there's an error it's probably not installed anyways
-
-    if (Get-Boolean "7-Zip could not be found, would you like to download it using Scoop?"){
-        Install-Scoop
-        scoop install 7zip
-        if (Get-Command 7z -Ea Ignore){
-            return (Get-Command 7z.exe).Source
-        }else{
-            Write-Error "7-Zip could not be installed"
-            return 
-        }
-
-    }else{return}
-
-    # leaving this here if anyone knows a smart way to implement this ))
-    # $7Zip = (Get-ChildItem -Path "$env:HOMEDRIVE\*7z.exe" -Recurse -Force -ErrorAction Ignore).FullName | Select-Object -First 1
-
-}
-
-function Get-Boolean {
-    param(
-        $Message
-    )
-    $null = $Response
-    $Response = Read-Host $Message
-    While ($Response -NotIn 'yes','y','n','no'){
-        Write-Host "Answer must be 'yes','y','n' or 'no'" -ForegroundColor Red
-        $Response = Read-Host $Message
-    }
-    if ($Response -in 'yes','y'){return $true}
-    elseif($Response -in 'n','no'){return $false}
-    else{Write-Error "Invalid response";pause;exit}
-}
-
-function Get-EncodingArgs{
-    [alias('genca')]
-    param(
-        [String]$Resolution = '3840x2160',
-        [Switch]$Silent,
-        [Switch]$EzEncArgs
-    )
-
-Install-FFmpeg
-
-$DriverVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}_Display.Driver" -ErrorAction Ignore).DisplayVersion
-    if ($DriverVersion){ # Only triggers if it parsed a NVIDIA driver version, else it can probably be an NVIDIA GPU
-        if ($DriverVersion -lt 477.41){ # Oldest NVIDIA version capable
-        Write-Warning "Outdated NVIDIA Drivers detected ($DriverVersion), you won't be able to encode using NVENC util you update them."
-    }
-}
-
-$EncCommands = [ordered]@{
-    'HEVC NVENC' = 'hevc_nvenc -rc vbr  -preset p7 -b:v 400M -cq 19'
-    'H264 NVENC' = 'h264_nvenc -rc vbr  -preset p7 -b:v 400M -cq 16'
-    'HEVC AMF' = 'hevc_amf -quality quality -qp_i 16 -qp_p 18 -qp_b 20'
-    'H264 AMF' = 'h264_amf -quality quality -qp_i 12 -qp_p 12 -qp_b 12'
-    'HEVC QSV' = 'hevc_qsv -preset veryslow -global_quality:v 18'
-    'H264 QSV' = 'h264_qsv -preset veryslow -global_quality:v 15'
-    'H264 CPU' = 'libx264 -preset slow -crf 16 -x265-params aq-mode=3'
-    'HEVC CPU' = 'libx265 -preset medium -crf 18 -x265-params aq-mode=3:no-sao=1:frame-threads=1'
-}
-
-$EncCommands.Keys | ForEach-Object -Begin {
-    $script:shouldStop = $false
-} -Process {
-    if ($shouldStop -eq $true) { return }
-    Invoke-Expression "ffmpeg.exe -loglevel fatal -f lavfi -i nullsrc=$Resolution -t 0.1 -c:v $($EncCommands.$_) -f null NUL"
-    if ($LASTEXITCODE -eq 0){
-        $script:valid_args = $EncCommands.$_
-        $script:valid_ezenc = $_
-
-        if ($Silent){
-            Write-Host ("Found compatible encoding settings using $PSItem`: {0}" -f ($EncCommands.$_)) -ForegroundColor Green
-        }
-        $shouldStop = $true # Crappy way to stop the loop since most people that'll execute this will technically be parsing the raw URL as a scriptblock
-    }
-}
-
-if (-Not($script:valid_args)){
-    Write-Host "No compatible encoding settings found (should not happen, is FFmpeg installed?)" -ForegroundColor DarkRed
-    Get-Command FFmpeg -Ea Ignore
-    pause
-    return
-}
-
-if ($EzEncArgs){
-    return $script:valid_ezenc
-}else{
-    return $valid_args
-}
-
-}
-function Get-FunctionContent {
-    [alias('gfc')]
-    [CmdletBinding()]
-    param([Parameter()]
-        [String[]]$Functions,
-        [Switch]$Dependencies,
-        [Switch]$ReturnNames
-    )
-
-    $FunctionsPassed = [System.Collections.ArrayList]@()
-    $Content = [System.Collections.ArrayList]@()
-
-    Get-Command $Functions -ErrorAction Stop | ForEach-Object { # Loop through all functions
-        if ($Resolved = $_.ResolvedCommand){ # Checks if $_.ResolveCommand exists, also assigns it to $Resolved
-            Write-Verbose "Switching from alias $_ to function $($Resolved.Name)" -Verbose
-            $_ = Get-Command $Resolved.Name
-        }
-        if ($_ -NotIn $FunctionsPassed){ # If it hasn't been looped over yet
-
-            $Content += ($Block = $_.ScriptBlock.Ast.Extent.Text)
-                # Assigns function block to $Block and appends to $Content
-            
-            $FunctionsPassed.Add($_) | Out-Null # So it doesn't get checked again
-
-            if ($Dependencies){
-
-                if (!$TL_FUNCTIONS){
-                    if (Get-Module -Name TweakList -ErrorAction Ignore){
-                        $TL_FUNCTIONS = [String[]](Get-Module -Name TweakList).ExportedFunctions.Keys
-                    }else {
-                        throw "TL_FUNCTIONS variable is not defined, which is needed to get available TweakList functions"
-                    }
-                }
-
-                $AST = [System.Management.Automation.Language.Parser]::ParseInput($Block, [ref]$null, [ref]$null)
-                
-                $DepMatches = $AST.FindAll({
-                        param ($node)
-                        $node.GetType().Name -eq 'CommandAst'
-                    }, $true) | #It gets all cmdlets from the Abstract Syntax Tree
-                ForEach-Object {$_.CommandElements[0].Value} | # Returns their name
-                    Where-Object { # Filters out only TweakList functions
-                        $_ -In ($TL_FUNCTIONS | Where-Object {$_ -ne $_.Name})
-
-                    } | Select-Object -Unique
-
-                ForEach($Match in $DepMatches){
-                    $FunctionsPassed.Add((Get-Command -Name $Match -CommandType Function)) | Out-Null
-
-                    $Content += (Get-Command -Name $Match -CommandType Function).ScriptBlock.Ast.Extent.Text
-
-                }
-            }
-        }
-    }
-
-    if ($Content){
-        $Content = "#region gfc`n" + $Content + "`n#endregion"
-    }
-
-    if($ReturnNames){
-        return $FunctionsPassed | Select-Object -Unique # | Where-Object {$_ -notin $Functions} 
-    } else {
-        return $Content
-    }
-}
-
-function Get-HeaderSize {
-    param(
-        $URL,
-        $FileName = "file"
-    )
-    Try {
-        $Size = (Invoke-WebRequest -Useb $URL -Method Head -ErrorAction Stop).Headers.'Content-Length'
-    }Catch{
-        Write-Host "Failed to parse $FileName size (Invalid URL?):" -ForegroundColor DarkRed
-        Write-Host $_.Exception.Message -ForegroundColor Red
-        return
-
-    }
-    return [Math]::Round((($Size | Select-Object -First 1) / 1MB), 2)
-    
-}
-function Get-Path {
-    [alias('gpa')]
-    param($File)
-
-    if (-Not(Get-Command $File -ErrorAction Ignore)){return $null}
-
-    $BaseName, $Extension = $File.Split('.')
-
-    if (Get-Command "$BaseName.shim" -ErrorAction Ignore){
-        return (Get-Content (Get-Command "$BaseName.shim").Source | Select-Object -First 1).Trim('path = ').replace('"','')
-    }elseif($Extension){
-        return (Get-Command "$BaseName.$Extension").Source
-    }else{
-        return (Get-Command $BaseName).Source
-    }
-}
-
-function Get-ScoopApp {
-    [CmdletBinding()] param (
-
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [System.Collections.Arraylist]
-        $Apps # Not necessarily plural
-    )
-
-    Install-Scoop
-
-    $Scoop = (Get-Item (Get-Command scoop).Source).Directory | Split-Path
-    $ToInstall = $Apps | Where-Object {$PSItem -NotIn (Get-ChildItem "$Scoop\apps")}
-    $Available = (Get-ChildItem "$Scoop\buckets\*\bucket\*").BaseName
-    $Buckets = (Get-ChildItem "$Scoop\buckets" -Directory).Name
-    $Installed = (Get-ChildItem "$Scoop\apps" -Directory).Name
-    $script:FailedToInstall = @()
-
-    function Get-Git {
-        if ('git' -NotIn $Installed){
-            scoop install git
-            if ($LASTEXITCODE -ne 0){
-                Write-Host "Failed to install Git." -ForegroundColor Red
-                return
-            }
-        }
-        $ToInstall = $ToInstall | Where-Object {$_ -ne 'git'}
-    }
-
-    $Repos = @{
-
-        main            = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
-        extras          = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
-        utils           = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
-        nirsoft         = @{org = 'kodybrown'     ;repo = 'scoop-nirsoft';branch = 'master'}
-        games           = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
-        'nerd-fonts'    = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
-        versions        = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
-        java            = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
-    }
-    $RepoNames = $Repos.Keys -Split('\r?\n')
-
-    Foreach($App in $ToInstall){
-
-        if ($App.Split('/').Count -eq 2){
-
-            $Bucket, $App = $App.Split('/')
-
-            if ($Bucket -NotIn $RepoNames){
-                Write-Host "Bucket $Bucket is not known, add it yourself by typing 'scoop.cmd bucket add bucketname https://bucket.repo/url'"
-                continue
-            }elseif (($Bucket -NotIn $Buckets) -And ($Bucket -In $RepoNames)){
-                Get-Git
-                scoop bucket add $Repos.$Bucket.repo https://github.com/$($Repos.$Bucket.org)/$($Repos.$Bucket.repo)
-            }
-        }
-
-        $Available = (Get-ChildItem "$Scoop\buckets\*\bucket\*").BaseName
-
-        if ($App -NotIn $Available){
-            Remove-Variable -Name Found -ErrorAction Ignore
-            ForEach($Bucket in $RepoNames){
-                if ($Found){continue}
-
-                Write-Host "`rCould not find $App, looking for it in the $Bucket bucket.." -NoNewline
-
-                $Response = Invoke-RestMethod "https://api.github.com/repos/$($Repos.$Bucket.org)/$($Repos.$Bucket.repo)/git/trees//$($Repos.$Bucket.branch)?recursive=1"
-                $Manifests = $Response.tree.path | Where-Object {$_ -Like "bucket/*.json"}
-                $Manifests = ($Manifests).Replace('bucket/','').Replace('.json','')
-
-                if ($App -in $Manifests){
-                    $script:Found = $True
-                    ''
-                    Get-Git
-                    
-                    scoop bucket add $Repos.$Bucket.repo https://github.com/$($Repos.$Bucket.org)/$($Repos.$Bucket.repo)
-                }else{''} # Fixes the -NoNewLine
-            }
-            
-        }
-        scoop install $App
-        if ($LASTEXITCODE -ne 0){
-            $script:FailedToInstall += $App
-            Write-Verbose "$App exitted with code $LASTEXITCODE"        
-        }
-    }
-
-}
-function Get-ShortcutTarget {
-    [alias('gst')]
-
-    param([String]$ShortcutPath)
-
-    Try {
-        $null = Get-Item $ShortcutPath -ErrorAction Stop
-    } Catch {
-        throw
-    }
-    
-    return (New-Object -ComObject WScript.Shell).CreateShortcut($ShortcutPath).TargetPath
-}
-function Install-FFmpeg {
-
-    $IsFFmpegScoop = (Get-Command ffmpeg -Ea Ignore).Source -Like "*\shims\*"
-
-    if(Get-Command ffmpeg -Ea Ignore){
-
-        $IsFFmpeg5 = (ffmpeg -hide_banner -h filter=libplacebo) -ne "Unknown filter 'libplacebo'."
-
-        if (-Not($IsFFmpeg5)){
-
-            if ($IsFFmpegScoop){
-                Get Scoop
-                scoop update ffmpeg
-            }else{
-                Write-Warning @"
-An old FFmpeg installation was detected @ ($((Get-Command FFmpeg).Source)),
-
-You could encounter errors such as:
-- Encoding with NVENC failing (in simple terms not being able to render with your GPU)
-- Scripts using new filters (e.g libplacebo)
-
-If you want to update FFmpeg yourself, you can remove it and use the following command to install ffmpeg and add it to the path:
-iex(irm tl.ctt.cx);Get FFmpeg
-
-If you're using it because you prefer old NVIDIA drivers (why) here be dragons!
-"@
-pause
-                
-            }
-            
-        }
-                
-    }else{
-        Get Scoop
-        $Scoop = (Get-Command Scoop.ps1).Source | Split-Path | Split-Path
-
-        if (-Not(Test-Path "$Scoop\buckets\main")){
-            if (-Not(Test-Path "$Scoop\apps\git\current\bin\git.exe")){
-                scoop install git
-            }
-            scoop bucket add main
-        }
-
-        $Local = ((scoop cat ffmpeg) | ConvertFrom-Json).version
-        $Latest = (Invoke-RestMethod https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/ffmpeg.json).version
-
-        if ($Local -ne $Latest){
-            "FFmpeg version installed using scoop is outdated, updating Scoop.."
-            if (-not(Test-Path "$Scoop\apps\git")){
-                scoop install git
-            }
-            scoop update
-        }
-
-        scoop install ffmpeg
-        if ($LASTEXITCODE -ne 0){
-            Write-Warning "Failed to install FFmpeg"
-            pause
-        }
-    }
-}
-
-function Install-Scoop {
-    param(
-        [String]$InstallDir
-    )
-    Set-ExecutionPolicy Bypass -Scope Process -Force
-
-    if (-Not(Get-Command scoop -Ea Ignore)){
-        
-        $RunningAsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]'Administrator')
-
-        if($InstallDir){
-            $env:SCOOP = $InstallDir	
-            [Environment]::SetEnvironmentVariable('SCOOP', $env:SCOOP, 'User')
-        }
-
-        If (-Not($RunningAsAdmin)){
-            Invoke-Expression (Invoke-RestMethod -Uri http://get.scoop.sh)
-        }else{
-            Invoke-Expression "& {$(Invoke-RestMethod -Uri https://get.scoop.sh)} -RunAsAdmin"
-        }
-    }
-
-    Try {
-        scoop -ErrorAction Stop | Out-Null
-    } Catch {
-        Write-Host "Failed to install Scoop" -ForegroundColor DarkRed
-        Write-Host $_.Exception.Message -ForegroundColor Red
-        return
-
-    }
-}
-<#
-	.LINK
-	Frankensteined from Inestic's WindowsFeatures Sophia Script function
-	https://github.com/Inestic
-	https://github.com/farag2/Sophia-Script-for-Windows/blob/06a315c643d5939eae75bf6e24c3f5c6baaf929e/src/Sophia_Script_for_Windows_10/Module/Sophia.psm1#L4946
-
-	.SYNOPSIS
-	User gets a nice checkbox-styled menu in where they can select 
-	
-	.EXAMPLE
-
-	Screenshot: https://i.imgur.com/zrCtR3Y.png
-
-	$ToInstall = Invoke-CheckBox -Items "7-Zip", "PowerShell", "Discord"
-
-	Or you can have each item have a description by passing an array of hashtables:
-
-	$ToInstall = Invoke-CheckBox -Items @(
-
-		@{
-			DisplayName = "7-Zip"
-			# Description = "Cool Unarchiver"
-		},
-		@{
-			DisplayName = "Windows Sandbox"
-			Description = "Windows' Virtual machine"
-		},
-		@{
-			DisplayName = "Firefox"
-			Description = "A great browser"
-		},
-		@{
-			DisplayName = "PowerShell 777"
-			Description = "PowerShell on every system!"
-		}
-	)
-#>
-function Invoke-Checkbox{
-param(
-	$Title = "Select an option",
-	$ButtonName = "Confirm",
-	$Items = @("Fill this", "With passing an array", "to the -Item param!")
-)
-
-if (!$Items.Description){
-	$NewItems = @()
-	ForEach($Item in $Items){
-		$NewItems += @{DisplayName = $Item}
-	}
-	$Items = $NewItems
-} 
-
-Add-Type -AssemblyName PresentationCore, PresentationFramework
-
-# Initialize an array list to store the selected Windows features
-$SelectedFeatures = New-Object -TypeName System.Collections.ArrayList($null)
-$ToReturn = New-Object -TypeName System.Collections.ArrayList($null)
-
-
-#region XAML Markup
-# The section defines the design of the upcoming dialog box
-[xml]$XAML = '
-<Window
-	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-	Name="Window"
-	MinHeight="450" MinWidth="400"
-	SizeToContent="WidthAndHeight" WindowStartupLocation="CenterScreen"
-	TextOptions.TextFormattingMode="Display" SnapsToDevicePixels="True"
-	FontFamily="Arial" FontSize="16" ShowInTaskbar="True"
-	Background="#F1F1F1" Foreground="#262626">
-
-	<Window.TaskbarItemInfo>
-		<TaskbarItemInfo/>
-	</Window.TaskbarItemInfo>
-	
-	<Window.Resources>
-		<Style TargetType="StackPanel">
-			<Setter Property="Orientation" Value="Horizontal"/>
-			<Setter Property="VerticalAlignment" Value="Top"/>
-		</Style>
-		<Style TargetType="CheckBox">
-			<Setter Property="Margin" Value="10, 10, 5, 10"/>
-			<Setter Property="IsChecked" Value="True"/>
-		</Style>
-		<Style TargetType="TextBlock">
-			<Setter Property="Margin" Value="5, 10, 10, 10"/>
-		</Style>
-		<Style TargetType="Button">
-			<Setter Property="Margin" Value="25"/>
-			<Setter Property="Padding" Value="15"/>
-		</Style>
-		<Style TargetType="Border">
-			<Setter Property="Grid.Row" Value="1"/>
-			<Setter Property="CornerRadius" Value="0"/>
-			<Setter Property="BorderThickness" Value="0, 1, 0, 1"/>
-			<Setter Property="BorderBrush" Value="#000000"/>
-		</Style>
-		<Style TargetType="ScrollViewer">
-			<Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
-			<Setter Property="BorderBrush" Value="#000000"/>
-			<Setter Property="BorderThickness" Value="0, 1, 0, 1"/>
-		</Style>
-	</Window.Resources>
-	<Grid>
-		<Grid.RowDefinitions>
-			<RowDefinition Height="Auto"/>
-			<RowDefinition Height="*"/>
-			<RowDefinition Height="Auto"/>
-		</Grid.RowDefinitions>
-		<ScrollViewer Name="Scroll" Grid.Row="0"
-			HorizontalScrollBarVisibility="Disabled"
-			VerticalScrollBarVisibility="Auto">
-			<StackPanel Name="PanelContainer" Orientation="Vertical"/>
-		</ScrollViewer>
-		<Button Name="Button" Grid.Row="2"/>
-	</Grid>
-</Window>
-'
-#endregion XAML Markup
-
-$Form = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
-$XAML.SelectNodes("//*[@Name]") | ForEach-Object {
-	Set-Variable -Name ($_.Name) -Value $Form.FindName($_.Name)
-}
-
-#region Functions
-function Get-CheckboxClicked
-{
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(
-			Mandatory = $true,
-			ValueFromPipeline = $true
-		)]
-		[ValidateNotNull()]
-		$CheckBox
-	)
-
-	$Feature = $Items | Where-Object -FilterScript {$_.DisplayName -eq $CheckBox.Parent.Children[1].Text}
-
-	if ($CheckBox.IsChecked)
-	{
-		[void]$SelectedFeatures.Add($Feature)
-	}
-	else
-	{
-		[void]$SelectedFeatures.Remove($Feature)
-	}
-	if ($SelectedFeatures.Count -gt 0)
-	{
-		$Button.Content = $ButtonName
-		$Button.IsEnabled = $true
-	}
-	else
-	{
-		$Button.Content = "Cancel"
-		$Button.IsEnabled = $true
-	}
-}
-
-function DisableButton
-{
-	[void]$Window.Close()
-
-	#$SelectedFeatures | ForEach-Object -Process {Write-Verbose $_.DisplayName -Verbose}
-	$SelectedFeatures.DisplayName
-	$ToReturn.Add($SelectedFeatures.DisplayName)
-}
-
-function Add-FeatureControl
-{
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(
-			Mandatory = $true,
-			ValueFromPipeline = $true
-		)]
-		[ValidateNotNull()]
-		$Feature
-	)
-
-	process
-	{
-		$CheckBox = New-Object -TypeName System.Windows.Controls.CheckBox
-		$CheckBox.Add_Click({Get-CheckboxClicked -CheckBox $_.Source})
-		if ($Feature.Description){
-			$CheckBox.ToolTip = $Feature.Description
-		}
-
-		$TextBlock = New-Object -TypeName System.Windows.Controls.TextBlock
-		#$TextBlock.On_Click({Get-CheckboxClicked -CheckBox $_.Source})
-		$TextBlock.Text = $Feature.DisplayName
-		if ($Feature.Description){
-			$TextBlock.ToolTip = $Feature.Description
-		}
-
-		$StackPanel = New-Object -TypeName System.Windows.Controls.StackPanel
-		[void]$StackPanel.Children.Add($CheckBox)
-		[void]$StackPanel.Children.Add($TextBlock)
-		[void]$PanelContainer.Children.Add($StackPanel)
-
-		$CheckBox.IsChecked = $false
-
-		# If feature checked add to the array list
-		[void]$SelectedFeatures.Add($Feature)
-		$SelectedFeatures.Remove($Feature)
-	}
-}
-#endregion Functions
-
-# Getting list of all optional features according to the conditions
-
-
-# Add-Type -AssemblyName System.Windows.Forms
-
-
-
-# if (-not ("WinAPI.ForegroundWindow" -as [type]))
-# {
-# 	Add-Type @SetForegroundWindow
-# }
-
-# Get-Process | Where-Object -FilterScript {$_.Id -eq $PID} | ForEach-Object -Process {
-# 	# Show window, if minimized
-# 	[WinAPI.ForegroundWindow]::ShowWindowAsync($_.MainWindowHandle, 10)
-
-# 	#Start-Sleep -Seconds 1
-
-# 	# Force move the console window to the foreground
-# 	[WinAPI.ForegroundWindow]::SetForegroundWindow($_.MainWindowHandle)
-
-# 	#Start-Sleep -Seconds 1
-
-# 	# Emulate the Backspace key sending
-# 	[System.Windows.Forms.SendKeys]::SendWait("{BACKSPACE 1}")
-# }
-# #endregion Sendkey function
-
-$Window.Add_Loaded({$Items | Add-FeatureControl})
-$Button.Content = $ButtonName
-$Button.Add_Click({& DisableButton})
-$Window.Title = $Title
-
-# ty chrissy <3 https://blog.netnerds.net/2016/01/adding-toolbar-icons-to-your-powershell-wpf-guis/
-$base64 = "iVBORw0KGgoAAAANSUhEUgAAACoAAAAqCAMAAADyHTlpAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAPUExURQAAAP///+vr6+fn5wAAAD8IT84AAAAFdFJOU/////8A+7YOUwAAAAlwSFlzAAALEwAACxMBAJqcGAAAANBJREFUSEut08ESgjAMRVFQ/v+bDbxLm9Q0lRnvQtrkDBt1O4a2FoNWHIBajJW/sQ+xOnNnlkMsrXZkkwRolHHaTXiUYfS5SOgXKfuQci0T5bLoIeWYt/O0FnTfu62pyW5X7/S26D/yFca19AvBXMaVbrnc3n6p80QGq9NUOqtnIRshhi7/ffHeK0a94TfQLQPX+HO5LVef0cxy8SX/gokU/bIcQvxjB5t1qYd0aYWuz4XF6FHam/AsLKDTGWZpuWNqWZ358zdmrOLNAlkM6Dg+78AGkhvs7wgAAAAASUVORK5CYII="
- 
- 
-# Create a streaming image by streaming the base64 string to a bitmap streamsource
-$bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
-$bitmap.BeginInit()
-$bitmap.StreamSource = [System.IO.MemoryStream][System.Convert]::FromBase64String($base64)
-$bitmap.EndInit()
-$bitmap.Freeze()
-
-# This is the icon in the upper left hand corner of the app
-# $Form.Icon = $bitmap
- 
-# This is the toolbar icon and description
-$Form.TaskbarItemInfo.Overlay = $bitmap
-$Form.TaskbarItemInfo.Description = $window.Title
-
-# # Force move the WPF form to the foreground
-# $Window.Add_Loaded({$Window.Activate()})
-# $Form.ShowDialog() | Out-Null
-# return $ToReturn
-
-# [System.Windows.Forms.Integration.ElementHost]::EnableModelessKeyboardInterop($Form)
-
-Add-Type -AssemblyName PresentationFramework, System.Drawing, System.Windows.Forms, WindowsFormsIntegration
-$window.Add_Closing({[System.Windows.Forms.Application]::Exit()})
-
-$Form.Show()
-
-# This makes it pop up
-$Form.Activate() | Out-Null
- 
-# Create an application context for it to all run within. 
-# This helps with responsiveness and threading.
-$appContext = New-Object System.Windows.Forms.ApplicationContext
-[void][System.Windows.Forms.Application]::Run($appContext) 
-return $ToReturn
-}
-#using namespace System.Management.Automation # this can't be a function but whatever, it doesn't slow down anything
-# Author:	Collin Chaffin
-# License: MIT (https://github.com/CollinChaffin/psNGENposh/blob/master/LICENSE)
-function Invoke-NGENposh {
-<#
-	.SYNOPSIS
-		This Powershell function performs various SYNCHRONOUS ngen functions
-	
-	.DESCRIPTION
-		This Powershell function performs various SYNCHRONOUS ngen functions
-	
-		Since the purpose of this module is to for interactive use,
-		I intentionally did not include any "Queue" options.
-	
-	.PARAMETER All
-		Regenerate cache for all system assemblies
-	
-	.PARAMETER Force
-		Invoke ngen on currently loaded assembles (ensure up to date even if cached)
-	
-	.EXAMPLE
-		To invoke ngen on currently loaded assembles, skipping those already generated:
-
-		PS C:\> Invoke-NGENposh
-	
-	.EXAMPLE	
-		To invoke ngen on currently loaded assembles (ensure up to date even if cached):
-
-		PS C:\> Invoke-NGENposh -Force
-	
-	.EXAMPLE	
-		To invoke ngen to regenerate cache for all system assemblies (*SEE WARNING BELOW**):
-
-		PS C:\> Invoke-NGENposh -All
-	
-	.NOTES
-		 **WARNING: The '-All' switch since the execution is SYNCHRONOUS will
-					take considerable time, and literally regenerate all the
-					global assembly cache.  There should theoretically be no
-					downside to this, but bear in mind other than time (and cpu)
-					that since all the generated cache files are new, any
-					system backups will consider those files as new and may
-					likely cause your next incremental backup to be much larger
-#>
-	param
-	(
-		[switch]$All,
-		[switch]$Force,
-		[switch]$Confirm
-	)
-
-	if (!$Confirm){
-		Write-Host "Press enter to continue and start using NGENPosh, or press CTRL+C to cancel"
-		pause
-	}
-    
-# INTERNAL HELPER
-function Write-InfoInColor
-{
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(Mandatory = $true)]
-		[ValidateNotNullOrEmpty()]
-		[String]$Message,
-		[Parameter(Mandatory = $false)]
-		[ValidateNotNullOrEmpty()]
-		[System.ConsoleColor[]]$Background = $Host.UI.RawUI.BackgroundColor,
-		[Parameter(Mandatory = $false)]
-		[ValidateNotNullOrEmpty()]
-		[System.ConsoleColor[]]$Foreground = $Host.UI.RawUI.ForegroundColor,
-		[Switch]$NoNewline
-	)
-	
-	[HostInformationMessage]$outMessage = @{
-		Message			     = $Message
-		ForegroundColor	     = $Foreground
-		BackgroundColor	     = $Background
-		NoNewline		     = $NoNewline
-	}
-	Write-Information $outMessage -InformationAction Continue
-}
-	
-	Write-InfoInColor "`n===================================================================================" -Foreground 'DarkCyan'
-	Write-InfoInColor "                             BEGINNING TO NGEN                                     " -Foreground 'Cyan'
-	Write-InfoInColor "===================================================================================`n" -Foreground 'DarkCyan'
-	
-	Set-Alias ngenpsh (Join-Path ([System.Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()) ngen.exe) -Force
-	
-	if ($All)
-	{
-		Write-InfoInColor "EXECUTING GLOBAL NGEN`n`n" -Foreground 'Cyan'
-		ngenpsh update /nologo /force
-	}
-	else
-	{
-		Write-InfoInColor "EXECUTING TARGETED NGEN`n`n" -Foreground 'Cyan'
-		
-		[AppDomain]::CurrentDomain.GetAssemblies() |
-		ForEach-Object {
-			if ($_.Location)
-			{
-				$Name = (Split-Path $_.location -leaf)
-				if ((!($Force)) -and [System.Runtime.InteropServices.RuntimeEnvironment]::FromGlobalAccessCache($_))
-				{
-					Write-InfoInColor "[SKIPPED]" -Foreground 'Yellow' -NoNewLine
-					Write-InfoInColor " :: " -Foreground 'White' -NoNewline
-					Write-InfoInColor "[ $Name ]" -Foreground 'Cyan'
-					
-				}
-				else
-				{
-					
-					ngenpsh install $_.location /nologo | ForEach-Object {
-						if ($?)
-						{
-							Write-InfoInColor "[SUCCESS]" -Foreground 'Green' -NoNewLine
-							Write-InfoInColor " :: " -Foreground 'White' -NoNewline
-							Write-InfoInColor "[ $Name ]" -Foreground 'Cyan'
-						}
-						else
-						{
-							Write-InfoInColor "[FAILURE]" -Foreground 'Red' -NoNewLine
-							Write-InfoInColor " :: " -Foreground 'White' -NoNewline
-							Write-InfoInColor "[ $Name ]" -Foreground 'Cyan'
-						}
-					}
-				}
-			}
-		}
-	}
-	Write-InfoInColor "`n===================================================================================" -Foreground 'DarkCyan'
-	Write-InfoInColor "                               COMPLETED NGEN                                      " -Foreground 'Cyan'
-	Write-InfoInColor "===================================================================================`n" -Foreground 'DarkCyan'
-}
-
-
-
-function Invoke-Registry {
-    [alias('ireg')]
-    param(
-        [Parameter(
-            Position = 0,
-            Mandatory=$true,
-            ValueFromPipeline = $true
-            )
-        ][Array]$Path,
-
-        [Parameter(
-            Position = 1,
-            Mandatory=$true
-            )
-        ][HashTable]$HashTable
-        
-    )
-
-    Process {
-        "doing $path"
-        $Path = "REGISTRY::$($Path -replace 'REGISTRY::','')"
-        "now its $path"
-        if (-Not(Test-Path -LiteralPath $Path)){
-
-            New-Item -ItemType Key -Path $Path -Force
-        }
-
-        ForEach($Key in $HashTable.Keys){
-
-            Set-ItemProperty -LiteralPath $Path -Name $Key -Value $HashTable.$Key
-        }
-    }
-}
-
-function IsCustomISO {
-    switch (
-        Get-ItemProperty "REGISTRY::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation"
-    ){
-        {$_.SupportURL -Like "https://atlasos.net*"}{return 'AtlasOS'}
-        {$_.Manufacturer -eq "Revision"}{return 'Revision'}
-        {$_.Manufacturer -eq "ggOS"}{return 'ggOS'}
-    }
-    return $False
-}
-
-# https://github.com/chrisseroka/ps-menu
-function Menu {
-    param ([array]$menuItems, [switch]$ReturnIndex=$false, [switch]$Multiselect)
-
-function DrawMenu {
-    param ($menuItems, $menuPosition, $Multiselect, $selection)
-    $l = $menuItems.length
-    for ($i = 0; $i -le $l;$i++) {
-		if ($menuItems[$i] -ne $null){
-			$item = $menuItems[$i]
-			if ($Multiselect)
-			{
-				if ($selection -contains $i){
-					$item = '[x] ' + $item
-				}
-				else {
-					$item = '[ ] ' + $item
-				}
-			}
-			if ($i -eq $menuPosition) {
-				Write-Host "> $($item)" -ForegroundColor Green
-			} else {
-				Write-Host "  $($item)"
-			}
-		}
-    }
-}
-
-function Toggle-Selection {
-	param ($pos, [array]$selection)
-	if ($selection -contains $pos){ 
-		$result = $selection | where {$_ -ne $pos}
-	}
-	else {
-		$selection += $pos
-		$result = $selection
-	}
-	$result
-}
-
-    $vkeycode = 0
-    $pos = 0
-    $selection = @()
-    if ($menuItems.Length -gt 0)
-	{
-		try {
-			[console]::CursorVisible=$false #prevents cursor flickering
-			DrawMenu $menuItems $pos $Multiselect $selection
-			While ($vkeycode -ne 13 -and $vkeycode -ne 27) {
-				$press = $host.ui.rawui.readkey("NoEcho,IncludeKeyDown")
-				$vkeycode = $press.virtualkeycode
-				If ($vkeycode -eq 38 -or $press.Character -eq 'k') {$pos--}
-				If ($vkeycode -eq 40 -or $press.Character -eq 'j') {$pos++}
-				If ($vkeycode -eq 36) { $pos = 0 }
-				If ($vkeycode -eq 35) { $pos = $menuItems.length - 1 }
-				If ($press.Character -eq ' ') { $selection = Toggle-Selection $pos $selection }
-				if ($pos -lt 0) {$pos = 0}
-				If ($vkeycode -eq 27) {$pos = $null }
-				if ($pos -ge $menuItems.length) {$pos = $menuItems.length -1}
-				if ($vkeycode -ne 27)
-				{
-					$startPos = [System.Console]::CursorTop - $menuItems.Length
-					[System.Console]::SetCursorPosition(0, $startPos)
-					DrawMenu $menuItems $pos $Multiselect $selection
-				}
-			}
-		}
-		finally {
-			[System.Console]::SetCursorPosition(0, $startPos + $menuItems.Length)
-			[console]::CursorVisible = $true
-		}
-	}
-	else {
-		$pos = $null
-	}
-
-    if ($ReturnIndex -eq $false -and $pos -ne $null)
-	{
-		if ($Multiselect){
-			return $menuItems[$selection]
-		}
-		else {
-			return $menuItems[$pos]
-		}
-	}
-	else 
-	{
-		if ($Multiselect){
-			return $selection
-		}
-		else {
-			return $pos
-		}
-	}
-}
-
-
-<#
-$Original = @{
-    lets = 'go'
-    Sub = @{
-      Foo =  'bar'
-      big = 'ya'
-    }
-    finish = 'fish'
-}
-$Patch = @{
-    lets = 'arrive'
-    Sub = @{
-      Foo =  'baz'
-    }
-    finish ='cum'
-}
-#>
-function Merge-Hashtables {
-    param(
-        $Original,
-        $Patch
-    )
-    $Merged = @{} # Final Merged settings
-
-    if (!$Original){$Original = @{}}
-
-    if ($Original.GetType().Name -in 'PSCustomObject','PSObject'){
-        $Temp = [ordered]@{}
-        $Original.PSObject.Properties | ForEach-Object { $Temp[$_.Name] = $_.Value }
-        $Original = $Temp
-        Remove-Variable Temp #fck temp vars
-    }
-
-    foreach ($Key in [object[]]$Original.Keys) {
-
-        if ($Original.$Key -is [HashTable]){
-            $Merged.$Key += [HashTable](Merge-Hashtables $Original.$Key $Patch.$Key)
-            continue
-        }
-
-        if ($Patch.$Key -and !$Merged.$Key){ # If the setting exists in the patch
-            $Merged.Remove($Key)
-            if ($Original.$Key -ne $Patch.$Key){
-                Write-Verbose "Changing $Key from $($Original.$Key) to $($Patch.$Key)"
-            }
-            $Merged += @{$Key = $Patch.$Key} # Then add it to the final settings
-        }else{ # Else put in the unchanged normal setting
-            $Merged += @{$Key = $Original.$Key}
-        }
-    }
-
-    ForEach ($Key in [object[]]$Patch.Keys) {
-        if ($Patch.$Key -is [HashTable] -and ($Key -NotIn $Original.Keys)){
-            $Merged.$Key += [HashTable](Merge-Hashtables $Original.$Key $Patch.$Key)
-            continue
-        }
-        if ($Key -NotIn $Original.Keys){
-            $Merged.$Key += $Patch.$Key
-        }
-    }
-
-    return $Merged
-}
-
-<# Here's some example hashtables you can mess with:
-
-$Original = [Ordered]@{ # Original settings
-    potato = $true
-    avocado = $false
-}
-
-$Patch = @{ # Fixes
-    avocado = $true
-}
-
-
-function Merge-Hashtables {
-    param(
-        [Switch]$ShowDiff,
-        $Original,
-        $Patch
-    )
-
-    if (!$Original){$Original = @{}}
-
-    if ($Original.GetType().Name -in 'PSCustomObject','PSObject'){
-        $Temp = [ordered]@{}
-        $Original.PSObject.Properties | ForEach-Object { $Temp[$_.Name] = $_.Value }
-        $Original = $Temp
-        Remove-Variable Temp #fck temp vars
-    }
-
-    $Merged = @{} # Final Merged settings
-
-    foreach($Key in $Original.Keys){ # Loops through all OG settings
-        $Merging = $True
-
-        if ($Patch.$Key){ # If the setting exists in the new settings
-            $Merged += @{$Key = $Patch.$Key} # Then add it to the final settings
-        }else{ # Else put in the normal settings
-            $Merged += @{$Key = $Original.$Key}
-        }
-    }
-    foreach($key in $Patch.Keys){ # If Patch has hashtables that Original does not
-        if (!$Merged.$key){
-            $Merged += @{$key = $Patch.$key}
-        }
-    }
-
-    if (!$Merging){$Merged = $Patch} # If no settings were merged (empty $Original), completely overwrite
-    return $Merged
-}
-
-#>
-function New-Shortcut {
-    param(
-        [Switch]$Admin,
-        [Switch]$Overwrite,
-        [String]$LnkPath,
-        [String]$TargetPath,
-        [String]$Arguments,
-        [String]$Icon
-    )
-
-    if ($Overwrite){
-        if (Test-Path $LnkPath){
-            Remove-Item $LnkPath
-        }
-    }
-
-    $WScriptShell = New-Object -ComObject WScript.Shell
-    $Shortcut = $WScriptShell.CreateShortcut($LnkPath)
-    $Shortcut.TargetPath = $TargetPath
-    if ($Arguments){
-        $Shortcut.Arguments = $Arguments
-    }
-    if ($Icon){
-        $Shortcut.IconLocation = $Icon
-    }
-
-    $Shortcut.Save()
-    if ((Get-Item $LnkPath).FullName -cne $LnkPath){
-        Rename-Item $LnkPath -NewName (Get-Item $LnkPath).Name # Shortcut names are always underscore
-    }
-
-    if ($Admin){
-    
-        $bytes = [System.IO.File]::ReadAllBytes($LnkPath)
-        $bytes[0x15] = $bytes[0x15] -bor 0x20 #set byte 21 (0x15) bit 6 (0x20) ON
-        [System.IO.File]::WriteAllBytes($LnkPath, $bytes)
-    }
-}
-function PauseNul {
-    $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null
-}
-<# This function messes with the message that appears before the commands you type
-
-# Turns:
-PS D:\Scoop>
-# into
-TL D:\Scoop>
-
-To indicate TweakList has been imported
-
-You can prevent this from happening by setting the environment variable TL_NOPROMPT to 1
-#>
-$global:CSI = [char] 27 + '['
-if (!$env:TL_NOPROMPT -and !$TL_NOPROMPT){
-    function global:prompt {
-            "$CSI`97;7mTL$CSI`m $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) ";
-    }
-}
-
-function Set-Choice { # Converts passed string to an array of chars
-    param(
-        [char[]]$Letters = "YN"
-    )
-    While ($Key -NotIn $Letters){
-        [char]$Key = $host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]'NoEcho, IncludeKeyDown').Character
-        if (($Key -NotIn $Letters) -and !$IsLinux){
-                [Console]::Beep(500,300)
-        }
-    }
-    return $Key
-}
-function Set-Title {
-    param(
-        $Title
-    )
-    $Host.UI.RawUI.WindowTitle = "TweakList - $Title"
-}
-
-function Set-Verbosity {
-    [alias('Verbose','Verb')]
-    param (
-
-		[Parameter(Mandatory = $true,ParameterSetName = "Enabled")]
-        [switch]$Enabled,
-
-		[Parameter(Mandatory = $true,ParameterSetName = "Disabled")]
-		[switch]$Disabled
-	)
-    
-    switch ($PSCmdlet.ParameterSetName){
-        "Enabled" {
-            $script:Verbose = $True
-            $script:VerbosePreference = 'Continue'
-        }
-        "Disabled" {
-            $script:Verbose = $True
-            $script:VerbosePreference = 'SilentlyContinue'
-        }
-    }
-}
-function Test-Admin {
-
-    if (!$IsLinux -and !$IsMacOS){
-
-        $identity  = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-        $principal = New-Object System.Security.Principal.WindowsPrincipal( $identity )
-        return $principal.IsInRole( [System.Security.Principal.WindowsBuiltInRole]::Administrator )
-    
-    }else{ # Running on *nix
-        return ((id -u) -eq 0)
-    }
-}
-
-function Write-Color {
-    # Ported to PowerShell from an old version of https://github.com/atzuur/colors
-    param(
-        [String]$Message
-    )
-    $E = [char]0x1b
-    $Presets = [Ordered]@{
-        '&RESET'   ="$E[0m"
-        '&BOLD'    ="$E[1m"
-        '&ITALIC'  ="$E[3m"
-        '&URL'     ="$E[4m"
-        '&BLINK'   ="$E[5m"
-        '&ALTBLINK'="$E[6m"
-        '&SELECTED'="$E[7m"
-        '@BLACK'   ="$E[30m"
-        '@RED'     ="$E[31m"
-        '@GREEN'   ="$E[32m"
-        '@YELLOW'  ="$E[33m"
-        '@BLUE'    ="$E[34m"
-        '@VIOLET'  ="$E[35m"
-        '@BEIGE'   ="$E[36m"
-        '@WHITE'   ="$E[37m"
-        '@GREY'    ="$E[90m"
-        '@LRED'    ="$E[91m"
-        '@LGREEN'  ="$E[92m"
-        '@LYELLOW' ="$E[93m"
-        '@LBLUE'   ="$E[94m"
-        '@LVIOLET' ="$E[95m"
-        '@LBEIGE'  ="$E[96m"
-        '@LWHITE'  ="$E[97m"
-        '%BLACK'   ="$E[40m"
-        '%RED'     ="$E[41m"
-        '%GREEN'   ="$E[42m"
-        '%YELLOW'  ="$E[43m"
-        '%BLUE'    ="$E[44m"
-        '%VIOLET'  ="$E[45m"
-        '%BEIGE'   ="$E[46m"
-        '%WHITE'   ="$E[47m"
-        '%GREY'    ="$E[100m"
-        '%LRED'    ="$E[101m"
-        '%LGREEN'  ="$E[102m"
-        '%LYELLOW' ="$E[103m"
-        '%LBLUE'   ="$E[104m"
-        '%LVIOLET' ="$E[105m"
-        '%LBEIGE'  ="$E[106m"
-        '%LWHITE'  ="$E[107m"
-    }
-    Foreach($Pattern in $Presets.Keys){
-        $Message = $Message -replace $Pattern, $Presets.$Pattern
-    }
-    return $Message + $Presets.'$RESET'
-}
-
-function Write-Diff {
-	param(
-	[String]$Message,
-	[Boolean]$Positivity,
-	[String]$Term
-	)
-	$E = [char]0x1b # Ansi ESC character
-
-	if ($Positivity){
-		$Sign = '+'
-		$Accent = "$E[92m"
-		if (!$Term){
-		$Term = "Enabled"
-		}
-	}
-	elseif(!$Positivity){
-		$Sign = '-'
-		if (!$Term){
-			$Term = "Removed"
-		}
-		$Accent = "$E[91m"
-	}
-
-	$Gray = "$E[90m"
-	$Reset = "$E[0m"
-
-	Write-Host "  $Gray[$Accent$Sign$Gray]$Reset $Term $Accent$Message"
- 
-}
-
-
-function Write-Menu {
-    <#
-        By QuietusPlus on GitHub: https://github.com/QuietusPlus/Write-Menu
-
-        .SYNOPSIS
-            Outputs a command-line menu which can be navigated using the keyboard.
-
-        .DESCRIPTION
-            Outputs a command-line menu which can be navigated using the keyboard.
-
-            * Automatically creates multiple pages if the entries cannot fit on-screen.
-            * Supports nested menus using a combination of hashtables and arrays.
-            * No entry / page limitations (apart from device performance).
-            * Sort entries using the -Sort parameter.
-            * -MultiSelect: Use space to check a selected entry, all checked entries will be invoked / returned upon confirmation.
-            * Jump to the top / bottom of the page using the "Home" and "End" keys.
-            * "Scrolling" list effect by automatically switching pages when reaching the top/bottom.
-            * Nested menu indicator next to entries.
-            * Remembers parent menus: Opening three levels of nested menus means you have to press "Esc" three times.
-
-            Controls             Description
-            --------             -----------
-            Up                   Previous entry
-            Down                 Next entry
-            Left / PageUp        Previous page
-            Right / PageDown     Next page
-            Home                 Jump to top
-            End                  Jump to bottom
-            Space                Check selection (-MultiSelect only)
-            Enter                Confirm selection
-            Esc / Backspace      Exit / Previous menu
-
-        .EXAMPLE
-            PS C:\>$menuReturn = Write-Menu -Title 'Menu Title' -Entries @('Menu Option 1', 'Menu Option 2', 'Menu Option 3', 'Menu Option 4')
-
-            Output:
-
-              Menu Title
-
-               Menu Option 1
-               Menu Option 2
-               Menu Option 3
-               Menu Option 4
-
-        .EXAMPLE
-            PS C:\>$menuReturn = Write-Menu -Title 'AppxPackages' -Entries (Get-AppxPackage).Name -Sort
-
-            This example uses Write-Menu to sort and list app packages (Windows Store/Modern Apps) that are installed for the current profile.
-
-        .EXAMPLE
-            PS C:\>$menuReturn = Write-Menu -Title 'Advanced Menu' -Sort -Entries @{
-                'Command Entry' = '(Get-AppxPackage).Name'
-                'Invoke Entry' = '@(Get-AppxPackage).Name'
-                'Hashtable Entry' = @{
-                    'Array Entry' = "@('Menu Option 1', 'Menu Option 2', 'Menu Option 3', 'Menu Option 4')"
-                }
-            }
-
-            This example includes all possible entry types:
-
-            Command Entry     Invoke without opening as nested menu (does not contain any prefixes)
-            Invoke Entry      Invoke and open as nested menu (contains the "@" prefix)
-            Hashtable Entry   Opened as a nested menu
-            Array Entry       Opened as a nested menu
-
-        .NOTES
-            Write-Menu by QuietusPlus (inspired by "Simple Textbased Powershell Menu" [Michael Albert])
-
-        .LINK
-            https://quietusplus.github.io/Write-Menu
-
-        .LINK
-            https://github.com/QuietusPlus/Write-Menu
-    #>
-
-    [CmdletBinding()]
-
-    <#
-        Parameters
-    #>
-
-    param(
-        # Array or hashtable containing the menu entries
-        [Parameter(Mandatory=$true, ValueFromPipeline = $true)]
-        [ValidateNotNullOrEmpty()]
-        [Alias('InputObject')]
-        $Entries,
-
-        # Title shown at the top of the menu.
-        [Parameter(ValueFromPipelineByPropertyName = $true)]
-        [Alias('Name')]
-        [string]
-        $Title,
-
-        # Sort entries before they are displayed.
-        [Parameter()]
-        [switch]
-        $Sort,
-
-        # Select multiple menu entries using space, each selected entry will then get invoked (this will disable nested menu's).
-        [Parameter()]
-        [switch]
-        $MultiSelect
-    )
-
-    <#
-        Configuration
-    #>
-
-    # Entry prefix, suffix and padding
-    $script:cfgPrefix = ' '
-    $script:cfgPadding = 2
-    $script:cfgSuffix = ' '
-    $script:cfgNested = ' >'
-
-    # Minimum page width
-    $script:cfgWidth = 30
-
-    # Hide cursor
-    [System.Console]::CursorVisible = $false
-
-    # Save initial colours
-    $script:colorForeground = [System.Console]::ForegroundColor
-    $script:colorBackground = [System.Console]::BackgroundColor
-
-    <#
-        Checks
-    #>
-
-    # Check if entries has been passed
-    if ($Entries -like $null) {
-        Write-Error "Missing -Entries parameter!"
-        return
-    }
-
-    # Check if host is console
-    if ($host.Name -ne 'ConsoleHost') {
-        Write-Error "[$($host.Name)] Cannot run inside current host, please use a console window instead!"
-        return
-    }
-
-    <#
-        Set-Color
-    #>
-
-    function Set-Color ([switch]$Inverted) {
-        switch ($Inverted) {
-            $true {
-                [System.Console]::ForegroundColor = $colorBackground
-                [System.Console]::BackgroundColor = $colorForeground
-            }
-            Default {
-                [System.Console]::ForegroundColor = $colorForeground
-                [System.Console]::BackgroundColor = $colorBackground
-            }
-        }
-    }
-
-    <#
-        Get-Menu
-    #>
-
-    function Get-Menu ($script:inputEntries) {
-        # Clear console
-        Clear-Host
-
-        # Check if -Title has been provided, if so set window title, otherwise set default.
-        if ($Title -notlike $null) {
-            #$host.UI.RawUI.WindowTitle = $Title # DISABLED FOR TWEAKLIST
-            $script:menuTitle = "$Title"
-        } else {
-            $script:menuTitle = 'Menu'
-        }
-
-        # Set menu height
-        $script:pageSize = ($host.UI.RawUI.WindowSize.Height - 5)
-
-        # Convert entries to object
-        $script:menuEntries = @()
-        switch ($inputEntries.GetType().Name) {
-            'String' {
-                # Set total entries
-                $script:menuEntryTotal = 1
-                # Create object
-                $script:menuEntries = New-Object PSObject -Property @{
-                    Command = ''
-                    Name = $inputEntries
-                    Selected = $false
-                    onConfirm = 'Name'
-                }; break
-            }
-            'Object[]' {
-                # Get total entries
-                $script:menuEntryTotal = $inputEntries.Length
-                # Loop through array
-                foreach ($i in 0..$($menuEntryTotal - 1)) {
-                    # Create object
-                    $script:menuEntries += New-Object PSObject -Property @{
-                        Command = ''
-                        Name = $($inputEntries)[$i]
-                        Selected = $false
-                        onConfirm = 'Name'
-                    }; $i++
-                }; break
-            }
-            'Hashtable' {
-                # Get total entries
-                $script:menuEntryTotal = $inputEntries.Count
-                # Loop through hashtable
-                foreach ($i in 0..($menuEntryTotal - 1)) {
-                    # Check if hashtable contains a single entry, copy values directly if true
-                    if ($menuEntryTotal -eq 1) {
-                        $tempName = $($inputEntries.Keys)
-                        $tempCommand = $($inputEntries.Values)
-                    } else {
-                        $tempName = $($inputEntries.Keys)[$i]
-                        $tempCommand = $($inputEntries.Values)[$i]
-                    }
-
-                    # Check if command contains nested menu
-                    if ($tempCommand.GetType().Name -eq 'Hashtable') {
-                        $tempAction = 'Hashtable'
-                    } elseif ($tempCommand.Substring(0,1) -eq '@') {
-                        $tempAction = 'Invoke'
-                    } else {
-                        $tempAction = 'Command'
-                    }
-
-                    # Create object
-                    $script:menuEntries += New-Object PSObject -Property @{
-                        Name = $tempName
-                        Command = $tempCommand
-                        Selected = $false
-                        onConfirm = $tempAction
-                    }; $i++
-                }; break
-            }
-            Default {
-                Write-Error "Type `"$($inputEntries.GetType().Name)`" not supported, please use an array or hashtable."
-                exit
-            }
-        }
-
-        # Sort entries
-        if ($Sort -eq $true) {
-            $script:menuEntries = $menuEntries | Sort-Object -Property Name
-        }
-
-        # Get longest entry
-        $script:entryWidth = ($menuEntries.Name | Measure-Object -Maximum -Property Length).Maximum
-        # Widen if -MultiSelect is enabled
-        if ($MultiSelect) { $script:entryWidth += 4 }
-        # Set minimum entry width
-        if ($entryWidth -lt $cfgWidth) { $script:entryWidth = $cfgWidth }
-        # Set page width
-        $script:pageWidth = $cfgPrefix.Length + $cfgPadding + $entryWidth + $cfgPadding + $cfgSuffix.Length
-
-        # Set current + total pages
-        $script:pageCurrent = 0
-        $script:pageTotal = [math]::Ceiling((($menuEntryTotal - $pageSize) / $pageSize))
-
-        # Insert new line
-        [System.Console]::WriteLine("")
-
-        # Save title line location + write title
-        $script:lineTitle = [System.Console]::CursorTop
-        [System.Console]::WriteLine("  $menuTitle" + "`n")
-
-        # Save first entry line location
-        $script:lineTop = [System.Console]::CursorTop
-    }
-
-    <#
-        Get-Page
-    #>
-
-    function Get-Page {
-        # Update header if multiple pages
-        if ($pageTotal -ne 0) { Update-Header }
-
-        # Clear entries
-        for ($i = 0; $i -le $pageSize; $i++) {
-            # Overwrite each entry with whitespace
-            [System.Console]::WriteLine("".PadRight($pageWidth) + ' ')
-        }
-
-        # Move cursor to first entry
-        [System.Console]::CursorTop = $lineTop
-
-        # Get index of first entry
-        $script:pageEntryFirst = ($pageSize * $pageCurrent)
-
-        # Get amount of entries for last page + fully populated page
-        if ($pageCurrent -eq $pageTotal) {
-            $script:pageEntryTotal = ($menuEntryTotal - ($pageSize * $pageTotal))
-        } else {
-            $script:pageEntryTotal = $pageSize
-        }
-
-        # Set position within console
-        $script:lineSelected = 0
-
-        # Write all page entries
-        for ($i = 0; $i -le ($pageEntryTotal - 1); $i++) {
-            Write-Entry $i
-        }
-    }
-
-    <#
-        Write-Entry
-    #>
-
-    function Write-Entry ([int16]$Index, [switch]$Update) {
-        # Check if entry should be highlighted
-        switch ($Update) {
-            $true { $lineHighlight = $false; break }
-            Default { $lineHighlight = ($Index -eq $lineSelected) }
-        }
-
-        # Page entry name
-        $pageEntry = $menuEntries[($pageEntryFirst + $Index)].Name
-
-        # Prefix checkbox if -MultiSelect is enabled
-        if ($MultiSelect) {
-            switch ($menuEntries[($pageEntryFirst + $Index)].Selected) {
-                $true { $pageEntry = "[X] $pageEntry"; break }
-                Default { $pageEntry = "[ ] $pageEntry" }
-            }
-        }
-
-        # Full width highlight + Nested menu indicator
-        switch ($menuEntries[($pageEntryFirst + $Index)].onConfirm -in 'Hashtable', 'Invoke') {
-            $true { $pageEntry = "$pageEntry".PadRight($entryWidth) + "$cfgNested"; break }
-            Default { $pageEntry = "$pageEntry".PadRight($entryWidth + $cfgNested.Length) }
-        }
-
-        # Write new line and add whitespace without inverted colours
-        [System.Console]::Write("`r" + $cfgPrefix)
-        # Invert colours if selected
-        if ($lineHighlight) { Set-Color -Inverted }
-        # Write page entry
-        [System.Console]::Write("".PadLeft($cfgPadding) + $pageEntry + "".PadRight($cfgPadding))
-        # Restore colours if selected
-        if ($lineHighlight) { Set-Color }
-        # Entry suffix
-        [System.Console]::Write($cfgSuffix + "`n")
-    }
-
-    <#
-        Update-Entry
-    #>
-
-    function Update-Entry ([int16]$Index) {
-        # Reset current entry
-        [System.Console]::CursorTop = ($lineTop + $lineSelected)
-        Write-Entry $lineSelected -Update
-
-        # Write updated entry
-        $script:lineSelected = $Index
-        [System.Console]::CursorTop = ($lineTop + $Index)
-        Write-Entry $lineSelected
-
-        # Move cursor to first entry on page
-        [System.Console]::CursorTop = $lineTop
-    }
-
-    <#
-        Update-Header
-    #>
-
-    function Update-Header {
-        # Set corrected page numbers
-        $pCurrent = ($pageCurrent + 1)
-        $pTotal = ($pageTotal + 1)
-
-        # Calculate offset
-        $pOffset = ($pTotal.ToString()).Length
-
-        # Build string, use offset and padding to right align current page number
-        $script:pageNumber = "{0,-$pOffset}{1,0}" -f "$("$pCurrent".PadLeft($pOffset))","/$pTotal"
-
-        # Move cursor to title
-        [System.Console]::CursorTop = $lineTitle
-        # Move cursor to the right
-        [System.Console]::CursorLeft = ($pageWidth - ($pOffset * 2) - 1)
-        # Write page indicator
-        [System.Console]::WriteLine("$pageNumber")
-    }
-
-    <#
-        Initialisation
-    #>
-
-    # Get menu
-    Get-Menu $Entries
-
-    # Get page
-    Get-Page
-
-    # Declare hashtable for nested entries
-    $menuNested = [ordered]@{}
-
-    <#
-        User Input
-    #>
-
-    # Loop through user input until valid key has been pressed
-    do { $inputLoop = $true
-
-        # Move cursor to first entry and beginning of line
-        [System.Console]::CursorTop = $lineTop
-        [System.Console]::Write("`r")
-
-        # Get pressed key
-        $menuInput = [System.Console]::ReadKey($false)
-
-        # Define selected entry
-        $entrySelected = $menuEntries[($pageEntryFirst + $lineSelected)]
-
-        # Check if key has function attached to it
-        switch ($menuInput.Key) {
-            # Exit / Return
-            { $_ -in 'Escape', 'Backspace' } {
-                # Return to parent if current menu is nested
-                if ($menuNested.Count -ne 0) {
-                    $pageCurrent = 0
-                    $Title = $($menuNested.GetEnumerator())[$menuNested.Count - 1].Name
-                    Get-Menu $($menuNested.GetEnumerator())[$menuNested.Count - 1].Value
-                    Get-Page
-                    $menuNested.RemoveAt($menuNested.Count - 1) | Out-Null
-                # Otherwise exit and return $null
-                } else {
-                    Clear-Host
-                    $inputLoop = $false
-                    [System.Console]::CursorVisible = $true
-                    return $null
-                }; break
-            }
-
-            # Next entry
-            'DownArrow' {
-                if ($lineSelected -lt ($pageEntryTotal - 1)) { # Check if entry isn't last on page
-                    Update-Entry ($lineSelected + 1)
-                } elseif ($pageCurrent -ne $pageTotal) { # Switch if not on last page
-                    $pageCurrent++
-                    Get-Page
-                }; break
-            }
-
-            # Previous entry
-            'UpArrow' {
-                if ($lineSelected -gt 0) { # Check if entry isn't first on page
-                    Update-Entry ($lineSelected - 1)
-                } elseif ($pageCurrent -ne 0) { # Switch if not on first page
-                    $pageCurrent--
-                    Get-Page
-                    Update-Entry ($pageEntryTotal - 1)
-                }; break
-            }
-
-            # Select top entry
-            'Home' {
-                if ($lineSelected -ne 0) { # Check if top entry isn't already selected
-                    Update-Entry 0
-                } elseif ($pageCurrent -ne 0) { # Switch if not on first page
-                    $pageCurrent--
-                    Get-Page
-                    Update-Entry ($pageEntryTotal - 1)
-                }; break
-            }
-
-            # Select bottom entry
-            'End' {
-                if ($lineSelected -ne ($pageEntryTotal - 1)) { # Check if bottom entry isn't already selected
-                    Update-Entry ($pageEntryTotal - 1)
-                } elseif ($pageCurrent -ne $pageTotal) { # Switch if not on last page
-                    $pageCurrent++
-                    Get-Page
-                }; break
-            }
-
-            # Next page
-            { $_ -in 'RightArrow','PageDown' } {
-                if ($pageCurrent -lt $pageTotal) { # Check if already on last page
-                    $pageCurrent++
-                    Get-Page
-                }; break
-            }
-
-            # Previous page
-            { $_ -in 'LeftArrow','PageUp' } { # Check if already on first page
-                if ($pageCurrent -gt 0) {
-                    $pageCurrent--
-                    Get-Page
-                }; break
-            }
-
-            # Select/check entry if -MultiSelect is enabled
-            'Spacebar' {
-                if ($MultiSelect) {
-                    switch ($entrySelected.Selected) {
-                        $true { $entrySelected.Selected = $false }
-                        $false { $entrySelected.Selected = $true }
-                    }
-                    Update-Entry ($lineSelected)
-                }; break
-            }
-
-            # Select all if -MultiSelect has been enabled
-            'Insert' {
-                if ($MultiSelect) {
-                    $menuEntries | ForEach-Object {
-                        $_.Selected = $true
-                    }
-                    Get-Page
-                }; break
-            }
-
-            # Select none if -MultiSelect has been enabled
-            'Delete' {
-                if ($MultiSelect) {
-                    $menuEntries | ForEach-Object {
-                        $_.Selected = $false
-                    }
-                    Get-Page
-                }; break
-            }
-
-            # Confirm selection
-            'Enter' {
-                # Check if -MultiSelect has been enabled
-                if ($MultiSelect) {
-                    Clear-Host
-                    # Process checked/selected entries
-                    $menuEntries | ForEach-Object {
-                        # Entry contains command, invoke it
-                        if (($_.Selected) -and ($_.Command -notlike $null) -and ($entrySelected.Command.GetType().Name -ne 'Hashtable')) {
-                            Invoke-Expression -Command $_.Command
-                        # Return name, entry does not contain command
-                        } elseif ($_.Selected) {
-                            return $_.Name
-                        }
-                    }
-                    # Exit and re-enable cursor
-                    $inputLoop = $false
-                    [System.Console]::CursorVisible = $true
-                    break
-                }
-
-                # Use onConfirm to process entry
-                switch ($entrySelected.onConfirm) {
-                    # Return hashtable as nested menu
-                    'Hashtable' {
-                        $menuNested.$Title = $inputEntries
-                        $Title = $entrySelected.Name
-                        Get-Menu $entrySelected.Command
-                        Get-Page
-                        break
-                    }
-
-                    # Invoke attached command and return as nested menu
-                    'Invoke' {
-                        $menuNested.$Title = $inputEntries
-                        $Title = $entrySelected.Name
-                        Get-Menu $(Invoke-Expression -Command $entrySelected.Command.Substring(1))
-                        Get-Page
-                        break
-                    }
-
-                    # Invoke attached command and exit
-                    'Command' {
-                        Clear-Host
-                        Invoke-Expression -Command $entrySelected.Command
-                        $inputLoop = $false
-                        [System.Console]::CursorVisible = $true
-                        break
-                    }
-
-                    # Return name and exit
-                    'Name' {
-                        Clear-Host
-                        return $entrySelected.Name
-                        $inputLoop = $false
-                        [System.Console]::CursorVisible = $true
-                    }
-                }
-            }
-        }
-    } while ($inputLoop)
-}
-
-function Get-IniContent {
-    <#
-    .Synopsis
-        Gets the content of an INI file
-
-    .Description
-        Gets the content of an INI file and returns it as a hashtable
-
-    .Notes
-        Author		: Oliver Lipkau <oliver@lipkau.net>
-		Source		: https://github.com/lipkau/PsIni
-                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
-        Version		: 1.0.0 - 2010/03/12 - OL - Initial release
-                      1.0.1 - 2014/12/11 - OL - Typo (Thx SLDR)
-                                              Typo (Thx Dave Stiff)
-                      1.0.2 - 2015/06/06 - OL - Improvment to switch (Thx Tallandtree)
-                      1.0.3 - 2015/06/18 - OL - Migrate to semantic versioning (GitHub issue#4)
-                      1.0.4 - 2015/06/18 - OL - Remove check for .ini extension (GitHub Issue#6)
-                      1.1.0 - 2015/07/14 - CB - Improve round-tripping and be a bit more liberal (GitHub Pull #7)
-                                           OL - Small Improvments and cleanup
-                      1.1.1 - 2015/07/14 - CB - changed .outputs section to be OrderedDictionary
-                      1.1.2 - 2016/08/18 - SS - Add some more verbose outputs as the ini is parsed,
-                      				            allow non-existent paths for new ini handling,
-                      				            test for variable existence using local scope,
-                      				            added additional debug output.
-
-        #Requires -Version 2.0
-
-    .Inputs
-        System.String
-
-    .Outputs
-        System.Collections.Specialized.OrderedDictionary
-
-    .Example
-        $FileContent = Get-IniContent "C:\myinifile.ini"
-        -----------
-        Description
-        Saves the content of the c:\myinifile.ini in a hashtable called $FileContent
-
-    .Example
-        $inifilepath | $FileContent = Get-IniContent
-        -----------
-        Description
-        Gets the content of the ini file passed through the pipe into a hashtable called $FileContent
-
-    .Example
-        C:\PS>$FileContent = Get-IniContent "c:\settings.ini"
-        C:\PS>$FileContent["Section"]["Key"]
-        -----------
-        Description
-        Returns the key "Key" of the section "Section" from the C:\settings.ini file
-
-    .Link
-        Out-IniFile
-    #>
-
-    [CmdletBinding()]
-    [OutputType(
-        [System.Collections.Specialized.OrderedDictionary]
-    )]
-    Param(
-        # Specifies the path to the input file.
-        [ValidateNotNullOrEmpty()]
-        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
-        [String]
-        $FilePath,
-
-        # Specify what characters should be describe a comment.
-        # Lines starting with the characters provided will be rendered as comments.
-        # Default: ";"
-        [Char[]]
-        $CommentChar = @(";"),
-
-        # Remove lines determined to be comments from the resulting dictionary.
-        [Switch]
-        $IgnoreComments
-    )
-
-    Begin {
-        Write-Debug "PsBoundParameters:"
-        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
-        if ($PSBoundParameters['Debug']) {
-            $DebugPreference = 'Continue'
-        }
-        Write-Debug "DebugPreference: $DebugPreference"
-
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
-
-        $commentRegex = "^\s*([$($CommentChar -join '')].*)$"
-        $sectionRegex = "^\s*\[(.+)\]\s*$"
-        $keyRegex     = "^\s*(.+?)\s*=\s*(['`"]?)(.*)\2\s*$"
-
-        Write-Debug ("commentRegex is {0}." -f $commentRegex)
-    }
-
-    Process {
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Processing file: $Filepath"
-
-        $ini = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-        #$ini = @{}
-
-        if (!(Test-Path $Filepath)) {
-            Write-Verbose ("Warning: `"{0}`" was not found." -f $Filepath)
-            Write-Output $ini
-        }
-
-        $commentCount = 0
-        switch -regex -file $FilePath {
-            $sectionRegex {
-                # Section
-                $section = $matches[1]
-                Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding section : $section"
-                $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-                $CommentCount = 0
-                continue
-            }
-            $commentRegex {
-                # Comment
-                if (!$IgnoreComments) {
-                    if (!(test-path "variable:local:section")) {
-                        $section = $script:NoSection
-                        $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-                    }
-                    $value = $matches[1]
-                    $CommentCount++
-                    Write-Debug ("Incremented CommentCount is now {0}." -f $CommentCount)
-                    $name = "Comment" + $CommentCount
-                    Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding $name with value: $value"
-                    $ini[$section][$name] = $value
-                }
-                else {
-                    Write-Debug ("Ignoring comment {0}." -f $matches[1])
-                }
-
-                continue
-            }
-            $keyRegex {
-                # Key
-                if (!(test-path "variable:local:section")) {
-                    $section = $script:NoSection
-                    $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-                }
-                $name, $value = $matches[1, 3]
-                Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding key $name with value: $value"
-                if (-not $ini[$section][$name]) {
-                    $ini[$section][$name] = $value
-                }
-                else {
-                    if ($ini[$section][$name] -is [string]) {
-                        $ini[$section][$name] = [System.Collections.ArrayList]::new()
-                        $ini[$section][$name].Add($ini[$section][$name]) | Out-Null
-                        $ini[$section][$name].Add($value) | Out-Null
-                    }
-                    else {
-                        $ini[$section][$name].Add($value) | Out-Null
-                    }
-                }
-                continue
-            }
-        }
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Finished Processing file: $FilePath"
-        Write-Output $ini
-    }
-
-    End {
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function ended"
-    }
-}
-
-Set-Alias gic Get-IniContent
-
-Function Out-IniFile {
-    <#
-    .Synopsis
-        Write hash content to INI file
-
-    .Description
-        Write hash content to INI file
-
-    .Notes
-        Author      : Oliver Lipkau <oliver@lipkau.net>
-        Blog        : http://oliver.lipkau.net/blog/
-        Source      : https://github.com/lipkau/PsIni
-                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
-
-        #Requires -Version 2.0
-
-    .Inputs
-        System.String
-        System.Collections.IDictionary
-
-    .Outputs
-        System.IO.FileSystemInfo
-
-    .Example
-        Out-IniFile $IniVar "C:\myinifile.ini"
-        -----------
-        Description
-        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini
-
-    .Example
-        $IniVar | Out-IniFile "C:\myinifile.ini" -Force
-        -----------
-        Description
-        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini and overwrites the file if it is already present
-
-    .Example
-        $file = Out-IniFile $IniVar "C:\myinifile.ini" -PassThru
-        -----------
-        Description
-        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini and saves the file into $file
-
-    .Example
-        $Category1 = @{“Key1”=”Value1”;”Key2”=”Value2”}
-        $Category2 = @{“Key1”=”Value1”;”Key2”=”Value2”}
-        $NewINIContent = @{“Category1”=$Category1;”Category2”=$Category2}
-        Out-IniFile -InputObject $NewINIContent -FilePath "C:\MyNewFile.ini"
-        -----------
-        Description
-        Creating a custom Hashtable and saving it to C:\MyNewFile.ini
-    .Link
-        Get-IniContent
-    #>
-
-    [CmdletBinding()]
-    [OutputType(
-        [System.IO.FileSystemInfo]
-    )]
-    Param(
-        # Adds the output to the end of an existing file, instead of replacing the file contents.
-        [switch]
-        $Append,
-
-        # Specifies the file encoding. The default is UTF8.
-        #
-        # Valid values are:
-        # -- ASCII:  Uses the encoding for the ASCII (7-bit) character set.
-        # -- BigEndianUnicode:  Encodes in UTF-16 format using the big-endian byte order.
-        # -- Byte:   Encodes a set of characters into a sequence of bytes.
-        # -- String:  Uses the encoding type for a string.
-        # -- Unicode:  Encodes in UTF-16 format using the little-endian byte order.
-        # -- UTF7:   Encodes in UTF-7 format.
-        # -- UTF8:  Encodes in UTF-8 format.
-        [ValidateSet("Unicode", "UTF7", "UTF8", "ASCII", "BigEndianUnicode", "Byte", "String")]
-        [Parameter()]
-        [String]
-        $Encoding = "UTF8",
-
-        # Specifies the path to the output file.
-        [ValidateNotNullOrEmpty()]
-        [ValidateScript( {Test-Path $_ -IsValid} )]
-        [Parameter( Position = 0, Mandatory = $true )]
-        [String]
-        $FilePath,
-
-        # Allows the cmdlet to overwrite an existing read-only file. Even using the Force parameter, the cmdlet cannot override security restrictions.
-        [Switch]
-        $Force,
-
-        # Specifies the Hashtable to be written to the file. Enter a variable that contains the objects or type a command or expression that gets the objects.
-        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
-        [System.Collections.IDictionary]
-        $InputObject,
-
-        # Passes an object representing the location to the pipeline. By default, this cmdlet does not generate any output.
-        [Switch]
-        $Passthru,
-
-        # Adds spaces around the equal sign when writing the key = value
-        [Switch]
-        $Loose,
-
-        # Writes the file as "pretty" as possible
-        #
-        # Adds an extra linebreak between Sections
-        [Switch]
-        $Pretty
-    )
-
-    Begin {
-        Write-Debug "PsBoundParameters:"
-        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
-        if ($PSBoundParameters['Debug']) {
-            $DebugPreference = 'Continue'
-        }
-        Write-Debug "DebugPreference: $DebugPreference"
-
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
-
-        function Out-Keys {
-            param(
-                [ValidateNotNullOrEmpty()]
-                [Parameter( Mandatory, ValueFromPipeline )]
-                [System.Collections.IDictionary]
-                $InputObject,
-
-                [ValidateSet("Unicode", "UTF7", "UTF8", "ASCII", "BigEndianUnicode", "Byte", "String")]
-                [Parameter( Mandatory )]
-                [string]
-                $Encoding = "UTF8",
-
-                [ValidateNotNullOrEmpty()]
-                [ValidateScript( {Test-Path $_ -IsValid})]
-                [Parameter( Mandatory, ValueFromPipelineByPropertyName )]
-                [Alias("Path")]
-                [string]
-                $FilePath,
-
-                [Parameter( Mandatory )]
-                $Delimiter,
-
-                [Parameter( Mandatory )]
-                $MyInvocation
-            )
-
-            Process {
-                if (!($InputObject.get_keys())) {
-                    Write-Warning ("No data found in '{0}'." -f $FilePath)
-                }
-                Foreach ($key in $InputObject.get_keys()) {
-                    if ($key -match "^Comment\d+") {
-                        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing comment: $key"
-                        "$($InputObject[$key])" | Out-File -Encoding $Encoding -FilePath $FilePath -Append
-                    }
-                    else {
-                        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing key: $key"
-                        $InputObject[$key] |
-                            ForEach-Object { "$key$delimiter$_" } |
-                            Out-File -Encoding $Encoding -FilePath $FilePath -Append
-                    }
-                }
-            }
-        }
-
-        $delimiter = '='
-        if ($Loose) {
-            $delimiter = ' = '
-        }
-
-        # Splatting Parameters
-        $parameters = @{
-            Encoding = $Encoding;
-            FilePath = $FilePath
-        }
-
-    }
-
-    Process {
-        $extraLF = ""
-
-        if ($Append) {
-            Write-Debug ("Appending to '{0}'." -f $FilePath)
-            $outfile = Get-Item $FilePath
-        }
-        else {
-            Write-Debug ("Creating new file '{0}'." -f $FilePath)
-            $outFile = New-Item -ItemType file -Path $Filepath -Force:$Force
-        }
-
-        if (!(Test-Path $outFile.FullName)) {Throw "Could not create File"}
-
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing to file: $Filepath"
-        foreach ($i in $InputObject.get_keys()) {
-            if (!($InputObject[$i].GetType().GetInterface('IDictionary'))) {
-                #Key value pair
-                Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing key: $i"
-                "$i$delimiter$($InputObject[$i])" | Out-File -Append @parameters
-
-            }
-            elseif ($i -eq $script:NoSection) {
-                #Key value pair of NoSection
-                Out-Keys $InputObject[$i] `
-                    @parameters `
-                    -Delimiter $delimiter `
-                    -MyInvocation $MyInvocation
-            }
-            else {
-                #Sections
-                Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing Section: [$i]"
-
-                # Only write section, if it is not a dummy ($script:NoSection)
-                if ($i -ne $script:NoSection) { "$extraLF[$i]"  | Out-File -Append @parameters }
-                if ($Pretty) {
-                    $extraLF = "`r`n"
-                }
-
-                if ( $InputObject[$i].Count) {
-                    Out-Keys $InputObject[$i] `
-                        @parameters `
-                        -Delimiter $delimiter `
-                        -MyInvocation $MyInvocation
-                }
-
-            }
-        }
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Finished Writing to file: $FilePath"
-    }
-
-    End {
-        if ($PassThru) {
-            Write-Debug ("Returning file due to PassThru argument.")
-            Write-Output (Get-Item $outFile)
-        }
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function ended"
-    }
-}
-
-Set-Alias oif Out-IniFile
-
-Function ConvertFrom-VDF {
-<# 
-.Synopsis 
-    Reads a Valve Data File (VDF) formatted string into a custom object.
-
-.Description 
-    The ConvertFrom-VDF cmdlet converts a VDF-formatted string to a custom object (PSCustomObject) that has a property for each field in the VDF string. VDF is used as a textual data format for Valve software applications, such as Steam.
-
-.Parameter InputObject
-    Specifies the VDF strings to convert to PSObjects. Enter a variable that contains the string, or type a command or expression that gets the string. 
-
-.Example 
-    $vdf = ConvertFrom-VDF -InputObject (Get-Content ".\SharedConfig.vdf")
-
-    Description 
-    ----------- 
-    Gets the content of a VDF file named "SharedConfig.vdf" in the current location and converts it to a PSObject named $vdf
-
-.Inputs 
-    System.String
-
-.Outputs 
-    PSCustomObject
-
-
-#>
-    param
-    (
-        [Parameter(Position=0, Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [String[]]
-        $InputObject
-    )
-
-    $root = New-Object -TypeName PSObject
-    $chain = [ordered]@{}
-    $depth = 0
-    $parent = $root
-    $element = $null
-
-    #Magic PowerShell Switch Enumrates Arrays
-    switch -Regex ($InputObject) {
-        #Case: ValueKey
-        '^\t*"(\S+)"\t\t"(.+)"$' {
-            Add-Member -InputObject $element -MemberType NoteProperty -Name $Matches[1] -Value $Matches[2]
-            continue
-        }
-        #Case: ParentKey
-        '^\t*"(\S+)"$' { 
-            $element = New-Object -TypeName PSObject
-            Add-Member -InputObject $parent -MemberType NoteProperty -Name $Matches[1] -Value $element
-            continue
-        }
-        #Case: Opening ParentKey Scope
-        '^\t*{$' {
-            $parent = $element
-            $chain.Add($depth, $element)
-            $depth++
-            continue
-        }
-        #Case: Closing ParentKey Scope
-        '^\t*}$' {
-            $depth--
-            $parent = $chain.($depth - 1)
-            $element = $parent
-            $chain.Remove($depth)
-            continue
-        }
-        #Case: Comments or unsupported lines
-        Default {
-            Write-Debug "Ignored line: $_"
-            continue
-        }
-    }
-
-    return $root
-}
-
-Function ConvertTo-VDF
-{
-<# 
-.Synopsis 
-    Converts a custom object into a Valve Data File (VDF) formatted string.
-
-.Description 
-    The ConvertTo-VDF cmdlet converts any object to a string in Valve Data File (VDF) format. The properties are converted to field names, the field values are converted to property values, and the methods are removed.
-
-.Parameter InputObject
-    Specifies PSObject to be converted into VDF strings.  Enter a variable that contains the object. You can also pipe an object to ConvertTo-Json.
-
-.Example 
-    ConvertTo-VDF -InputObject $VDFObject | Out-File ".\SharedConfig.vdf"
-
-    Description 
-    ----------- 
-    Converts the PS object to VDF format and pipes it into "SharedConfig.vdf" in the current directory
-
-.Inputs 
-    PSCustomObject
-
-.Outputs 
-    System.String
-
-
-#>
-    param
-    (
-        [Parameter(Position=0, Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [PSObject]
-        $InputObject,
-
-        [Parameter(Position=1, Mandatory=$false)]
-        [int]
-        $Depth = 0
-    )
-    $output = [string]::Empty
-    
-    foreach ( $property in ($InputObject.psobject.Properties) ) {
-        switch ($property.TypeNameOfValue) {
-            "System.String" { 
-                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`t`t`"" + $property.Value + "`"`n"
-                break
-            }
-            "System.Management.Automation.PSCustomObject" {
-                $element = $property.Value
-                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`n"
-                $output += ("`t" * $Depth) + "{`n"
-                $output += ConvertTo-VDF -InputObject $element -Depth ($Depth + 1)
-                $output += ("`t" * $Depth) + "}`n"
-                break
-            }
-            Default {
-                Write-Error ("Unsupported Property of type {0}" -f $_) -ErrorAction Stop
-                break
-            }
-        }
-    }
-
-    return $output
-}
-
-function Get-SteamGameInstallDir (
-    [Parameter(Mandatory = $true)][string]$Game, 
-    [array]$LibraryFolders = (Get-SteamLibraryFolders)) {
-
-    # Get the installation directory of a Steam game.
-    foreach ($LibraryFolder in $LibraryFolders) {
-        $GameInstallDir = "$LibraryFolder\steamapps\common\$Game"
-        if (Test-Path "$($GameInstallDir.ToLower())") {
-            return "$GameInstallDir"
-        }
-    }
-}
-Function Get-SteamLibraryFolders()
-{
-<#
-.Synopsis 
-	Retrieves library folder paths from .\SteamApps\libraryfolders.vdf
-.Description
-	Reads .\SteamApps\libraryfolders.vdf to find the paths of all the library folders set up in steam
-.Example 
-	$libraryFolders = Get-LibraryFolders
-	Description 
-	----------- 
-	Retrieves a list of the library folders set up in steam
-#>
-	$steamPath = Get-SteamPath
-	
-	$vdfPath = "$($steamPath)\SteamApps\libraryfolders.vdf"
-	
-	[array]$libraryFolderPaths = @()
-	
-	if (Test-Path $vdfPath)
-	{
-		$libraryFolders = ConvertFrom-VDF (Get-Content $vdfPath -Encoding UTF8) | Select-Object -ExpandProperty libraryfolders
-		
-		$libraryFolderIds = $libraryFolders | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
-		
-		ForEach ($libraryId in $libraryFolderIds)
-		{
-			$libraryFolder = $libraryFolders.($libraryId)
-			
-			$libraryFolderPaths += $libraryFolder.path.Replace('\\','\')
-		}
-	}
-	
-	return $libraryFolderPaths
-}
-
-
-function Get-SteamPath {
-    # Get the Steam installation directory.
-
-    $MUICache = "Registry::HKCR\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
-    $Protocol = "Registry::HKCR\steam\Shell\Open\Command"
-    $Steam = Get-ItemPropertyValue "Registry::HKCU\Software\Valve\Steam" -Name "SteamPath" -ErrorAction SilentlyContinue
-    
-    # MUICache
-    if (!$Steam) {
-        $Steam = Split-Path (((Get-Item "$MUICache").Property | Where-Object { $PSItem -Like "*Steam*" } |
-                Where-Object { (Get-ItemPropertyValue "$MUICache" -Name $PSItem) -eq "Steam" }).TrimEnd(".FriendlyAppName"))
-    }
-
-    # Steam Browser Protocol
-    if (!$Steam) {
-        $Steam = Split-Path (((Get-ItemPropertyValue "$Protocol" -Name "(Default)" -ErrorAction SilentlyContinue) -Split "--", 2, "SimpleMatch")[0]).Trim('"')
-    }
-
-    return $Steam.ToLower()
 }
 Export-ModuleMember * -Alias *
 })) | Import-Module -DisableNameChecking -Global
@@ -5196,6 +5196,2548 @@ using namespace System.Management.Automation # Required by Invoke-NGENpsosh
 Remove-Module TweakList -ErrorAction Ignore
 New-Module TweakList ([ScriptBlock]::Create({
 
+function Assert-Choice {
+    if (-Not(Get-Command choice.exe -ErrorAction Ignore)){
+        Write-Host "[!] Unable to find choice.exe (it comes with Windows, did a little bit of unecessary debloating?)" -ForegroundColor Red
+        PauseNul
+        exit 1
+    }
+}
+function Assert-Path {
+    param(
+        $Path
+    )
+    if (-Not(Test-Path -Path $Path)) {
+        New-Item -Path $Path -Force | Out-Null
+    }
+}
+function FindInText{
+    <#
+    Recreated a simple grep for finding shit in TweakList,
+    I mostly use this to check if a function/word has ever been mentionned in all my code
+    #>
+    param(
+        [String]$String,
+        $Path = (Get-Location),
+        [Array]$Exclude,
+        [Switch]$Recurse
+    )
+
+    $Exclude += @(
+    '*.exe','*.bin','*.dll'
+    '*.png','*.jpg'
+    '*.mkv','*.mp4','*.webm'
+    '*.zip','*.tar','*.gz','*.rar','*.7z','*.so'
+    '*.pyc','*.pyd'
+    )
+
+    $Parameters = @{
+        Path = $Path
+        Recurse = $Recurse
+        Exclude = $Exclude
+    }
+    $script:FoundOnce = $False
+    $script:Match = $null
+    Get-ChildItem @Parameters -File | ForEach-Object {
+        $Match = $null
+        Write-Verbose ("Checking " + $PSItem.Name)
+        $Match = Get-Content $PSItem.FullName | Where-Object {$_ -Like "*$String*"}
+        if ($Match){
+            $script:FoundOnce = $True
+            Write-Host "- Found in $($_.Name) ($($_.FullName))" -ForegroundColor Green
+            $Match
+        }
+    }
+
+    if (!$FoundOnce){
+        Write-Host "Not found" -ForegroundColor red
+    }
+}
+function Get-7zPath {
+
+    if (Get-Command 7z.exe -Ea Ignore){return (Get-Command 7z.exe).Source}
+
+    $DefaultPath = "$env:ProgramFiles\7-Zip\7z.exe"
+    if (Test-Path $DefaultPath) {return $DefaultPath}
+
+    Try {
+        $InstallLocation = (Get-Package 7-Zip* -ErrorAction Stop).Metadata['InstallLocation'] # Compatible with 7-Zip installed normally / with winget
+        if (Test-Path $InstallLocation -ErrorAction Stop){
+            return "$InstallLocation`7z.exe"
+        }
+    }Catch{} # If there's an error it's probably not installed anyways
+
+    if (Get-Boolean "7-Zip could not be found, would you like to download it using Scoop?"){
+        Install-Scoop
+        scoop install 7zip
+        if (Get-Command 7z -Ea Ignore){
+            return (Get-Command 7z.exe).Source
+        }else{
+            Write-Error "7-Zip could not be installed"
+            return 
+        }
+
+    }else{return}
+
+    # leaving this here if anyone knows a smart way to implement this ))
+    # $7Zip = (Get-ChildItem -Path "$env:HOMEDRIVE\*7z.exe" -Recurse -Force -ErrorAction Ignore).FullName | Select-Object -First 1
+
+}
+
+function Get-Boolean {
+    param(
+        $Message
+    )
+    $null = $Response
+    $Response = Read-Host $Message
+    While ($Response -NotIn 'yes','y','n','no'){
+        Write-Host "Answer must be 'yes','y','n' or 'no'" -ForegroundColor Red
+        $Response = Read-Host $Message
+    }
+    if ($Response -in 'yes','y'){return $true}
+    elseif($Response -in 'n','no'){return $false}
+    else{Write-Error "Invalid response";pause;exit}
+}
+
+function Get-EncodingArgs{
+    [alias('genca')]
+    param(
+        [String]$Resolution = '3840x2160',
+        [Switch]$Silent,
+        [Switch]$EzEncArgs
+    )
+
+Install-FFmpeg
+
+$DriverVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}_Display.Driver" -ErrorAction Ignore).DisplayVersion
+    if ($DriverVersion){ # Only triggers if it parsed a NVIDIA driver version, else it can probably be an NVIDIA GPU
+        if ($DriverVersion -lt 477.41){ # Oldest NVIDIA version capable
+        Write-Warning "Outdated NVIDIA Drivers detected ($DriverVersion), you won't be able to encode using NVENC util you update them."
+    }
+}
+
+$EncCommands = [ordered]@{
+    'HEVC NVENC' = 'hevc_nvenc -rc vbr  -preset p7 -b:v 400M -cq 19'
+    'H264 NVENC' = 'h264_nvenc -rc vbr  -preset p7 -b:v 400M -cq 16'
+    'HEVC AMF' = 'hevc_amf -quality quality -qp_i 16 -qp_p 18 -qp_b 20'
+    'H264 AMF' = 'h264_amf -quality quality -qp_i 12 -qp_p 12 -qp_b 12'
+    'HEVC QSV' = 'hevc_qsv -preset veryslow -global_quality:v 18'
+    'H264 QSV' = 'h264_qsv -preset veryslow -global_quality:v 15'
+    'H264 CPU' = 'libx264 -preset slow -crf 16 -x265-params aq-mode=3'
+    'HEVC CPU' = 'libx265 -preset medium -crf 18 -x265-params aq-mode=3:no-sao=1:frame-threads=1'
+}
+
+$EncCommands.Keys | ForEach-Object -Begin {
+    $script:shouldStop = $false
+} -Process {
+    if ($shouldStop -eq $true) { return }
+    Invoke-Expression "ffmpeg.exe -loglevel fatal -f lavfi -i nullsrc=$Resolution -t 0.1 -c:v $($EncCommands.$_) -f null NUL"
+    if ($LASTEXITCODE -eq 0){
+        $script:valid_args = $EncCommands.$_
+        $script:valid_ezenc = $_
+
+        if ($Silent){
+            Write-Host ("Found compatible encoding settings using $PSItem`: {0}" -f ($EncCommands.$_)) -ForegroundColor Green
+        }
+        $shouldStop = $true # Crappy way to stop the loop since most people that'll execute this will technically be parsing the raw URL as a scriptblock
+    }
+}
+
+if (-Not($script:valid_args)){
+    Write-Host "No compatible encoding settings found (should not happen, is FFmpeg installed?)" -ForegroundColor DarkRed
+    Get-Command FFmpeg -Ea Ignore
+    pause
+    return
+}
+
+if ($EzEncArgs){
+    return $script:valid_ezenc
+}else{
+    return $valid_args
+}
+
+}
+function Get-FunctionContent {
+    [alias('gfc')]
+    [CmdletBinding()]
+    param([Parameter()]
+        [String[]]$Functions,
+        [Switch]$Dependencies,
+        [Switch]$ReturnNames
+    )
+
+    $FunctionsPassed = [System.Collections.ArrayList]@()
+    $Content = [System.Collections.ArrayList]@()
+
+    Get-Command $Functions -ErrorAction Stop | ForEach-Object { # Loop through all functions
+        if ($Resolved = $_.ResolvedCommand){ # Checks if $_.ResolveCommand exists, also assigns it to $Resolved
+            Write-Verbose "Switching from alias $_ to function $($Resolved.Name)" -Verbose
+            $_ = Get-Command $Resolved.Name
+        }
+        if ($_ -NotIn $FunctionsPassed){ # If it hasn't been looped over yet
+
+            $Content += ($Block = $_.ScriptBlock.Ast.Extent.Text)
+                # Assigns function block to $Block and appends to $Content
+            
+            $FunctionsPassed.Add($_) | Out-Null # So it doesn't get checked again
+
+            if ($Dependencies){
+
+                if (!$TL_FUNCTIONS){
+                    if (Get-Module -Name TweakList -ErrorAction Ignore){
+                        $TL_FUNCTIONS = [String[]](Get-Module -Name TweakList).ExportedFunctions.Keys
+                    }else {
+                        throw "TL_FUNCTIONS variable is not defined, which is needed to get available TweakList functions"
+                    }
+                }
+
+                $AST = [System.Management.Automation.Language.Parser]::ParseInput($Block, [ref]$null, [ref]$null)
+                
+                $DepMatches = $AST.FindAll({
+                        param ($node)
+                        $node.GetType().Name -eq 'CommandAst'
+                    }, $true) | #It gets all cmdlets from the Abstract Syntax Tree
+                ForEach-Object {$_.CommandElements[0].Value} | # Returns their name
+                    Where-Object { # Filters out only TweakList functions
+                        $_ -In ($TL_FUNCTIONS | Where-Object {$_ -ne $_.Name})
+
+                    } | Select-Object -Unique
+
+                ForEach($Match in $DepMatches){
+                    $FunctionsPassed.Add((Get-Command -Name $Match -CommandType Function)) | Out-Null
+
+                    $Content += (Get-Command -Name $Match -CommandType Function).ScriptBlock.Ast.Extent.Text
+
+                }
+            }
+        }
+    }
+
+    if ($Content){
+        $Content = "#region gfc`n" + $Content + "`n#endregion"
+    }
+
+    if($ReturnNames){
+        return $FunctionsPassed | Select-Object -Unique # | Where-Object {$_ -notin $Functions} 
+    } else {
+        return $Content
+    }
+}
+
+function Get-HeaderSize {
+    param(
+        $URL,
+        $FileName = "file"
+    )
+    Try {
+        $Size = (Invoke-WebRequest -Useb $URL -Method Head -ErrorAction Stop).Headers.'Content-Length'
+    }Catch{
+        Write-Host "Failed to parse $FileName size (Invalid URL?):" -ForegroundColor DarkRed
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        return
+
+    }
+    return [Math]::Round((($Size | Select-Object -First 1) / 1MB), 2)
+    
+}
+function Get-Path {
+    [alias('gpa')]
+    param($File)
+
+    if (-Not(Get-Command $File -ErrorAction Ignore)){return $null}
+
+    $BaseName, $Extension = $File.Split('.')
+
+    if (Get-Command "$BaseName.shim" -ErrorAction Ignore){
+        return (Get-Content (Get-Command "$BaseName.shim").Source | Select-Object -First 1).Trim('path = ').replace('"','')
+    }elseif($Extension){
+        return (Get-Command "$BaseName.$Extension").Source
+    }else{
+        return (Get-Command $BaseName).Source
+    }
+}
+
+function Get-ScoopApp {
+    [CmdletBinding()] param (
+
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [System.Collections.Arraylist]
+        $Apps # Not necessarily plural
+    )
+
+    Install-Scoop
+
+    $Scoop = (Get-Item (Get-Command scoop).Source).Directory | Split-Path
+    $ToInstall = $Apps | Where-Object {$PSItem -NotIn (Get-ChildItem "$Scoop\apps")}
+    $Available = (Get-ChildItem "$Scoop\buckets\*\bucket\*").BaseName
+    $Buckets = (Get-ChildItem "$Scoop\buckets" -Directory).Name
+    $Installed = (Get-ChildItem "$Scoop\apps" -Directory).Name
+    $script:FailedToInstall = @()
+
+    function Get-Git {
+        if ('git' -NotIn $Installed){
+            scoop install git
+            if ($LASTEXITCODE -ne 0){
+                Write-Host "Failed to install Git." -ForegroundColor Red
+                return
+            }
+        }
+        $ToInstall = $ToInstall | Where-Object {$_ -ne 'git'}
+    }
+
+    $Repos = @{
+
+        main            = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
+        extras          = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
+        utils           = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
+        nirsoft         = @{org = 'kodybrown'     ;repo = 'scoop-nirsoft';branch = 'master'}
+        games           = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
+        'nerd-fonts'    = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
+        versions        = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
+        java            = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
+    }
+    $RepoNames = $Repos.Keys -Split('\r?\n')
+
+    Foreach($App in $ToInstall){
+
+        if ($App.Split('/').Count -eq 2){
+
+            $Bucket, $App = $App.Split('/')
+
+            if ($Bucket -NotIn $RepoNames){
+                Write-Host "Bucket $Bucket is not known, add it yourself by typing 'scoop.cmd bucket add bucketname https://bucket.repo/url'"
+                continue
+            }elseif (($Bucket -NotIn $Buckets) -And ($Bucket -In $RepoNames)){
+                Get-Git
+                scoop bucket add $Repos.$Bucket.repo https://github.com/$($Repos.$Bucket.org)/$($Repos.$Bucket.repo)
+            }
+        }
+
+        $Available = (Get-ChildItem "$Scoop\buckets\*\bucket\*").BaseName
+
+        if ($App -NotIn $Available){
+            Remove-Variable -Name Found -ErrorAction Ignore
+            ForEach($Bucket in $RepoNames){
+                if ($Found){continue}
+
+                Write-Host "`rCould not find $App, looking for it in the $Bucket bucket.." -NoNewline
+
+                $Response = Invoke-RestMethod "https://api.github.com/repos/$($Repos.$Bucket.org)/$($Repos.$Bucket.repo)/git/trees//$($Repos.$Bucket.branch)?recursive=1"
+                $Manifests = $Response.tree.path | Where-Object {$_ -Like "bucket/*.json"}
+                $Manifests = ($Manifests).Replace('bucket/','').Replace('.json','')
+
+                if ($App -in $Manifests){
+                    $script:Found = $True
+                    ''
+                    Get-Git
+                    
+                    scoop bucket add $Repos.$Bucket.repo https://github.com/$($Repos.$Bucket.org)/$($Repos.$Bucket.repo)
+                }else{''} # Fixes the -NoNewLine
+            }
+            
+        }
+        scoop install $App
+        if ($LASTEXITCODE -ne 0){
+            $script:FailedToInstall += $App
+            Write-Verbose "$App exitted with code $LASTEXITCODE"        
+        }
+    }
+
+}
+function Get-ShortcutTarget {
+    [alias('gst')]
+
+    param([String]$ShortcutPath)
+
+    Try {
+        $null = Get-Item $ShortcutPath -ErrorAction Stop
+    } Catch {
+        throw
+    }
+    
+    return (New-Object -ComObject WScript.Shell).CreateShortcut($ShortcutPath).TargetPath
+}
+function Install-FFmpeg {
+
+    $IsFFmpegScoop = (Get-Command ffmpeg -Ea Ignore).Source -Like "*\shims\*"
+
+    if(Get-Command ffmpeg -Ea Ignore){
+
+        $IsFFmpeg5 = (ffmpeg -hide_banner -h filter=libplacebo) -ne "Unknown filter 'libplacebo'."
+
+        if (-Not($IsFFmpeg5)){
+
+            if ($IsFFmpegScoop){
+                Get Scoop
+                scoop update ffmpeg
+            }else{
+                Write-Warning @"
+An old FFmpeg installation was detected @ ($((Get-Command FFmpeg).Source)),
+
+You could encounter errors such as:
+- Encoding with NVENC failing (in simple terms not being able to render with your GPU)
+- Scripts using new filters (e.g libplacebo)
+
+If you want to update FFmpeg yourself, you can remove it and use the following command to install ffmpeg and add it to the path:
+iex(irm tl.ctt.cx);Get FFmpeg
+
+If you're using it because you prefer old NVIDIA drivers (why) here be dragons!
+"@
+pause
+                
+            }
+            
+        }
+                
+    }else{
+        Get Scoop
+        $Scoop = (Get-Command Scoop.ps1).Source | Split-Path | Split-Path
+
+        if (-Not(Test-Path "$Scoop\buckets\main")){
+            if (-Not(Test-Path "$Scoop\apps\git\current\bin\git.exe")){
+                scoop install git
+            }
+            scoop bucket add main
+        }
+
+        $Local = ((scoop cat ffmpeg) | ConvertFrom-Json).version
+        $Latest = (Invoke-RestMethod https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/ffmpeg.json).version
+
+        if ($Local -ne $Latest){
+            "FFmpeg version installed using scoop is outdated, updating Scoop.."
+            if (-not(Test-Path "$Scoop\apps\git")){
+                scoop install git
+            }
+            scoop update
+        }
+
+        scoop install ffmpeg
+        if ($LASTEXITCODE -ne 0){
+            Write-Warning "Failed to install FFmpeg"
+            pause
+        }
+    }
+}
+
+function Install-Scoop {
+    param(
+        [String]$InstallDir
+    )
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+
+    if (-Not(Get-Command scoop -Ea Ignore)){
+        
+        $RunningAsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]'Administrator')
+
+        if($InstallDir){
+            $env:SCOOP = $InstallDir	
+            [Environment]::SetEnvironmentVariable('SCOOP', $env:SCOOP, 'User')
+        }
+
+        If (-Not($RunningAsAdmin)){
+            Invoke-Expression (Invoke-RestMethod -Uri http://get.scoop.sh)
+        }else{
+            Invoke-Expression "& {$(Invoke-RestMethod -Uri https://get.scoop.sh)} -RunAsAdmin"
+        }
+    }
+
+    Try {
+        scoop -ErrorAction Stop | Out-Null
+    } Catch {
+        Write-Host "Failed to install Scoop" -ForegroundColor DarkRed
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        return
+
+    }
+}
+<#
+	.LINK
+	Frankensteined from Inestic's WindowsFeatures Sophia Script function
+	https://github.com/Inestic
+	https://github.com/farag2/Sophia-Script-for-Windows/blob/06a315c643d5939eae75bf6e24c3f5c6baaf929e/src/Sophia_Script_for_Windows_10/Module/Sophia.psm1#L4946
+
+	.SYNOPSIS
+	User gets a nice checkbox-styled menu in where they can select 
+	
+	.EXAMPLE
+
+	Screenshot: https://i.imgur.com/zrCtR3Y.png
+
+	$ToInstall = Invoke-CheckBox -Items "7-Zip", "PowerShell", "Discord"
+
+	Or you can have each item have a description by passing an array of hashtables:
+
+	$ToInstall = Invoke-CheckBox -Items @(
+
+		@{
+			DisplayName = "7-Zip"
+			# Description = "Cool Unarchiver"
+		},
+		@{
+			DisplayName = "Windows Sandbox"
+			Description = "Windows' Virtual machine"
+		},
+		@{
+			DisplayName = "Firefox"
+			Description = "A great browser"
+		},
+		@{
+			DisplayName = "PowerShell 777"
+			Description = "PowerShell on every system!"
+		}
+	)
+#>
+function Invoke-Checkbox{
+param(
+	$Title = "Select an option",
+	$ButtonName = "Confirm",
+	$Items = @("Fill this", "With passing an array", "to the -Item param!")
+)
+
+if (!$Items.Description){
+	$NewItems = @()
+	ForEach($Item in $Items){
+		$NewItems += @{DisplayName = $Item}
+	}
+	$Items = $NewItems
+} 
+
+Add-Type -AssemblyName PresentationCore, PresentationFramework
+
+# Initialize an array list to store the selected Windows features
+$SelectedFeatures = New-Object -TypeName System.Collections.ArrayList($null)
+$ToReturn = New-Object -TypeName System.Collections.ArrayList($null)
+
+
+#region XAML Markup
+# The section defines the design of the upcoming dialog box
+[xml]$XAML = '
+<Window
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	Name="Window"
+	MinHeight="450" MinWidth="400"
+	SizeToContent="WidthAndHeight" WindowStartupLocation="CenterScreen"
+	TextOptions.TextFormattingMode="Display" SnapsToDevicePixels="True"
+	FontFamily="Arial" FontSize="16" ShowInTaskbar="True"
+	Background="#F1F1F1" Foreground="#262626">
+
+	<Window.TaskbarItemInfo>
+		<TaskbarItemInfo/>
+	</Window.TaskbarItemInfo>
+	
+	<Window.Resources>
+		<Style TargetType="StackPanel">
+			<Setter Property="Orientation" Value="Horizontal"/>
+			<Setter Property="VerticalAlignment" Value="Top"/>
+		</Style>
+		<Style TargetType="CheckBox">
+			<Setter Property="Margin" Value="10, 10, 5, 10"/>
+			<Setter Property="IsChecked" Value="True"/>
+		</Style>
+		<Style TargetType="TextBlock">
+			<Setter Property="Margin" Value="5, 10, 10, 10"/>
+		</Style>
+		<Style TargetType="Button">
+			<Setter Property="Margin" Value="25"/>
+			<Setter Property="Padding" Value="15"/>
+		</Style>
+		<Style TargetType="Border">
+			<Setter Property="Grid.Row" Value="1"/>
+			<Setter Property="CornerRadius" Value="0"/>
+			<Setter Property="BorderThickness" Value="0, 1, 0, 1"/>
+			<Setter Property="BorderBrush" Value="#000000"/>
+		</Style>
+		<Style TargetType="ScrollViewer">
+			<Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
+			<Setter Property="BorderBrush" Value="#000000"/>
+			<Setter Property="BorderThickness" Value="0, 1, 0, 1"/>
+		</Style>
+	</Window.Resources>
+	<Grid>
+		<Grid.RowDefinitions>
+			<RowDefinition Height="Auto"/>
+			<RowDefinition Height="*"/>
+			<RowDefinition Height="Auto"/>
+		</Grid.RowDefinitions>
+		<ScrollViewer Name="Scroll" Grid.Row="0"
+			HorizontalScrollBarVisibility="Disabled"
+			VerticalScrollBarVisibility="Auto">
+			<StackPanel Name="PanelContainer" Orientation="Vertical"/>
+		</ScrollViewer>
+		<Button Name="Button" Grid.Row="2"/>
+	</Grid>
+</Window>
+'
+#endregion XAML Markup
+
+$Form = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
+$XAML.SelectNodes("//*[@Name]") | ForEach-Object {
+	Set-Variable -Name ($_.Name) -Value $Form.FindName($_.Name)
+}
+
+#region Functions
+function Get-CheckboxClicked
+{
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(
+			Mandatory = $true,
+			ValueFromPipeline = $true
+		)]
+		[ValidateNotNull()]
+		$CheckBox
+	)
+
+	$Feature = $Items | Where-Object -FilterScript {$_.DisplayName -eq $CheckBox.Parent.Children[1].Text}
+
+	if ($CheckBox.IsChecked)
+	{
+		[void]$SelectedFeatures.Add($Feature)
+	}
+	else
+	{
+		[void]$SelectedFeatures.Remove($Feature)
+	}
+	if ($SelectedFeatures.Count -gt 0)
+	{
+		$Button.Content = $ButtonName
+		$Button.IsEnabled = $true
+	}
+	else
+	{
+		$Button.Content = "Cancel"
+		$Button.IsEnabled = $true
+	}
+}
+
+function DisableButton
+{
+	[void]$Window.Close()
+
+	#$SelectedFeatures | ForEach-Object -Process {Write-Verbose $_.DisplayName -Verbose}
+	$SelectedFeatures.DisplayName
+	$ToReturn.Add($SelectedFeatures.DisplayName)
+}
+
+function Add-FeatureControl
+{
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(
+			Mandatory = $true,
+			ValueFromPipeline = $true
+		)]
+		[ValidateNotNull()]
+		$Feature
+	)
+
+	process
+	{
+		$CheckBox = New-Object -TypeName System.Windows.Controls.CheckBox
+		$CheckBox.Add_Click({Get-CheckboxClicked -CheckBox $_.Source})
+		if ($Feature.Description){
+			$CheckBox.ToolTip = $Feature.Description
+		}
+
+		$TextBlock = New-Object -TypeName System.Windows.Controls.TextBlock
+		#$TextBlock.On_Click({Get-CheckboxClicked -CheckBox $_.Source})
+		$TextBlock.Text = $Feature.DisplayName
+		if ($Feature.Description){
+			$TextBlock.ToolTip = $Feature.Description
+		}
+
+		$StackPanel = New-Object -TypeName System.Windows.Controls.StackPanel
+		[void]$StackPanel.Children.Add($CheckBox)
+		[void]$StackPanel.Children.Add($TextBlock)
+		[void]$PanelContainer.Children.Add($StackPanel)
+
+		$CheckBox.IsChecked = $false
+
+		# If feature checked add to the array list
+		[void]$SelectedFeatures.Add($Feature)
+		$SelectedFeatures.Remove($Feature)
+	}
+}
+#endregion Functions
+
+# Getting list of all optional features according to the conditions
+
+
+# Add-Type -AssemblyName System.Windows.Forms
+
+
+
+# if (-not ("WinAPI.ForegroundWindow" -as [type]))
+# {
+# 	Add-Type @SetForegroundWindow
+# }
+
+# Get-Process | Where-Object -FilterScript {$_.Id -eq $PID} | ForEach-Object -Process {
+# 	# Show window, if minimized
+# 	[WinAPI.ForegroundWindow]::ShowWindowAsync($_.MainWindowHandle, 10)
+
+# 	#Start-Sleep -Seconds 1
+
+# 	# Force move the console window to the foreground
+# 	[WinAPI.ForegroundWindow]::SetForegroundWindow($_.MainWindowHandle)
+
+# 	#Start-Sleep -Seconds 1
+
+# 	# Emulate the Backspace key sending
+# 	[System.Windows.Forms.SendKeys]::SendWait("{BACKSPACE 1}")
+# }
+# #endregion Sendkey function
+
+$Window.Add_Loaded({$Items | Add-FeatureControl})
+$Button.Content = $ButtonName
+$Button.Add_Click({& DisableButton})
+$Window.Title = $Title
+
+# ty chrissy <3 https://blog.netnerds.net/2016/01/adding-toolbar-icons-to-your-powershell-wpf-guis/
+$base64 = "iVBORw0KGgoAAAANSUhEUgAAACoAAAAqCAMAAADyHTlpAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAPUExURQAAAP///+vr6+fn5wAAAD8IT84AAAAFdFJOU/////8A+7YOUwAAAAlwSFlzAAALEwAACxMBAJqcGAAAANBJREFUSEut08ESgjAMRVFQ/v+bDbxLm9Q0lRnvQtrkDBt1O4a2FoNWHIBajJW/sQ+xOnNnlkMsrXZkkwRolHHaTXiUYfS5SOgXKfuQci0T5bLoIeWYt/O0FnTfu62pyW5X7/S26D/yFca19AvBXMaVbrnc3n6p80QGq9NUOqtnIRshhi7/ffHeK0a94TfQLQPX+HO5LVef0cxy8SX/gokU/bIcQvxjB5t1qYd0aYWuz4XF6FHam/AsLKDTGWZpuWNqWZ358zdmrOLNAlkM6Dg+78AGkhvs7wgAAAAASUVORK5CYII="
+ 
+ 
+# Create a streaming image by streaming the base64 string to a bitmap streamsource
+$bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
+$bitmap.BeginInit()
+$bitmap.StreamSource = [System.IO.MemoryStream][System.Convert]::FromBase64String($base64)
+$bitmap.EndInit()
+$bitmap.Freeze()
+
+# This is the icon in the upper left hand corner of the app
+# $Form.Icon = $bitmap
+ 
+# This is the toolbar icon and description
+$Form.TaskbarItemInfo.Overlay = $bitmap
+$Form.TaskbarItemInfo.Description = $window.Title
+
+# # Force move the WPF form to the foreground
+# $Window.Add_Loaded({$Window.Activate()})
+# $Form.ShowDialog() | Out-Null
+# return $ToReturn
+
+# [System.Windows.Forms.Integration.ElementHost]::EnableModelessKeyboardInterop($Form)
+
+Add-Type -AssemblyName PresentationFramework, System.Drawing, System.Windows.Forms, WindowsFormsIntegration
+$window.Add_Closing({[System.Windows.Forms.Application]::Exit()})
+
+$Form.Show()
+
+# This makes it pop up
+$Form.Activate() | Out-Null
+ 
+# Create an application context for it to all run within. 
+# This helps with responsiveness and threading.
+$appContext = New-Object System.Windows.Forms.ApplicationContext
+[void][System.Windows.Forms.Application]::Run($appContext) 
+return $ToReturn
+}
+#using namespace System.Management.Automation # this can't be a function but whatever, it doesn't slow down anything
+# Author:	Collin Chaffin
+# License: MIT (https://github.com/CollinChaffin/psNGENposh/blob/master/LICENSE)
+function Invoke-NGENposh {
+<#
+	.SYNOPSIS
+		This Powershell function performs various SYNCHRONOUS ngen functions
+	
+	.DESCRIPTION
+		This Powershell function performs various SYNCHRONOUS ngen functions
+	
+		Since the purpose of this module is to for interactive use,
+		I intentionally did not include any "Queue" options.
+	
+	.PARAMETER All
+		Regenerate cache for all system assemblies
+	
+	.PARAMETER Force
+		Invoke ngen on currently loaded assembles (ensure up to date even if cached)
+	
+	.EXAMPLE
+		To invoke ngen on currently loaded assembles, skipping those already generated:
+
+		PS C:\> Invoke-NGENposh
+	
+	.EXAMPLE	
+		To invoke ngen on currently loaded assembles (ensure up to date even if cached):
+
+		PS C:\> Invoke-NGENposh -Force
+	
+	.EXAMPLE	
+		To invoke ngen to regenerate cache for all system assemblies (*SEE WARNING BELOW**):
+
+		PS C:\> Invoke-NGENposh -All
+	
+	.NOTES
+		 **WARNING: The '-All' switch since the execution is SYNCHRONOUS will
+					take considerable time, and literally regenerate all the
+					global assembly cache.  There should theoretically be no
+					downside to this, but bear in mind other than time (and cpu)
+					that since all the generated cache files are new, any
+					system backups will consider those files as new and may
+					likely cause your next incremental backup to be much larger
+#>
+	param
+	(
+		[switch]$All,
+		[switch]$Force,
+		[switch]$Confirm
+	)
+
+	if (!$Confirm){
+		Write-Host "Press enter to continue and start using NGENPosh, or press CTRL+C to cancel"
+		pause
+	}
+    
+# INTERNAL HELPER
+function Write-InfoInColor
+{
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(Mandatory = $true)]
+		[ValidateNotNullOrEmpty()]
+		[String]$Message,
+		[Parameter(Mandatory = $false)]
+		[ValidateNotNullOrEmpty()]
+		[System.ConsoleColor[]]$Background = $Host.UI.RawUI.BackgroundColor,
+		[Parameter(Mandatory = $false)]
+		[ValidateNotNullOrEmpty()]
+		[System.ConsoleColor[]]$Foreground = $Host.UI.RawUI.ForegroundColor,
+		[Switch]$NoNewline
+	)
+	
+	[HostInformationMessage]$outMessage = @{
+		Message			     = $Message
+		ForegroundColor	     = $Foreground
+		BackgroundColor	     = $Background
+		NoNewline		     = $NoNewline
+	}
+	Write-Information $outMessage -InformationAction Continue
+}
+	
+	Write-InfoInColor "`n===================================================================================" -Foreground 'DarkCyan'
+	Write-InfoInColor "                             BEGINNING TO NGEN                                     " -Foreground 'Cyan'
+	Write-InfoInColor "===================================================================================`n" -Foreground 'DarkCyan'
+	
+	Set-Alias ngenpsh (Join-Path ([System.Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()) ngen.exe) -Force
+	
+	if ($All)
+	{
+		Write-InfoInColor "EXECUTING GLOBAL NGEN`n`n" -Foreground 'Cyan'
+		ngenpsh update /nologo /force
+	}
+	else
+	{
+		Write-InfoInColor "EXECUTING TARGETED NGEN`n`n" -Foreground 'Cyan'
+		
+		[AppDomain]::CurrentDomain.GetAssemblies() |
+		ForEach-Object {
+			if ($_.Location)
+			{
+				$Name = (Split-Path $_.location -leaf)
+				if ((!($Force)) -and [System.Runtime.InteropServices.RuntimeEnvironment]::FromGlobalAccessCache($_))
+				{
+					Write-InfoInColor "[SKIPPED]" -Foreground 'Yellow' -NoNewLine
+					Write-InfoInColor " :: " -Foreground 'White' -NoNewline
+					Write-InfoInColor "[ $Name ]" -Foreground 'Cyan'
+					
+				}
+				else
+				{
+					
+					ngenpsh install $_.location /nologo | ForEach-Object {
+						if ($?)
+						{
+							Write-InfoInColor "[SUCCESS]" -Foreground 'Green' -NoNewLine
+							Write-InfoInColor " :: " -Foreground 'White' -NoNewline
+							Write-InfoInColor "[ $Name ]" -Foreground 'Cyan'
+						}
+						else
+						{
+							Write-InfoInColor "[FAILURE]" -Foreground 'Red' -NoNewLine
+							Write-InfoInColor " :: " -Foreground 'White' -NoNewline
+							Write-InfoInColor "[ $Name ]" -Foreground 'Cyan'
+						}
+					}
+				}
+			}
+		}
+	}
+	Write-InfoInColor "`n===================================================================================" -Foreground 'DarkCyan'
+	Write-InfoInColor "                               COMPLETED NGEN                                      " -Foreground 'Cyan'
+	Write-InfoInColor "===================================================================================`n" -Foreground 'DarkCyan'
+}
+
+
+
+function Invoke-Registry {
+    [alias('ireg')]
+    param(
+        [Parameter(
+            Position = 0,
+            Mandatory=$true,
+            ValueFromPipeline = $true
+            )
+        ][Array]$Path,
+
+        [Parameter(
+            Position = 1,
+            Mandatory=$true
+            )
+        ][HashTable]$HashTable
+        
+    )
+
+    Process {
+        "doing $path"
+        $Path = "REGISTRY::$($Path -replace 'REGISTRY::','')"
+        "now its $path"
+        if (-Not(Test-Path -LiteralPath $Path)){
+
+            New-Item -ItemType Key -Path $Path -Force
+        }
+
+        ForEach($Key in $HashTable.Keys){
+
+            Set-ItemProperty -LiteralPath $Path -Name $Key -Value $HashTable.$Key
+        }
+    }
+}
+
+function IsCustomISO {
+    switch (
+        Get-ItemProperty "REGISTRY::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation"
+    ){
+        {$_.SupportURL -Like "https://atlasos.net*"}{return 'AtlasOS'}
+        {$_.Manufacturer -eq "Revision"}{return 'Revision'}
+        {$_.Manufacturer -eq "ggOS"}{return 'ggOS'}
+    }
+    return $False
+}
+
+# https://github.com/chrisseroka/ps-menu
+function Menu {
+    param ([array]$menuItems, [switch]$ReturnIndex=$false, [switch]$Multiselect)
+
+function DrawMenu {
+    param ($menuItems, $menuPosition, $Multiselect, $selection)
+    $l = $menuItems.length
+    for ($i = 0; $i -le $l;$i++) {
+		if ($menuItems[$i] -ne $null){
+			$item = $menuItems[$i]
+			if ($Multiselect)
+			{
+				if ($selection -contains $i){
+					$item = '[x] ' + $item
+				}
+				else {
+					$item = '[ ] ' + $item
+				}
+			}
+			if ($i -eq $menuPosition) {
+				Write-Host "> $($item)" -ForegroundColor Green
+			} else {
+				Write-Host "  $($item)"
+			}
+		}
+    }
+}
+
+function Toggle-Selection {
+	param ($pos, [array]$selection)
+	if ($selection -contains $pos){ 
+		$result = $selection | where {$_ -ne $pos}
+	}
+	else {
+		$selection += $pos
+		$result = $selection
+	}
+	$result
+}
+
+    $vkeycode = 0
+    $pos = 0
+    $selection = @()
+    if ($menuItems.Length -gt 0)
+	{
+		try {
+			[console]::CursorVisible=$false #prevents cursor flickering
+			DrawMenu $menuItems $pos $Multiselect $selection
+			While ($vkeycode -ne 13 -and $vkeycode -ne 27) {
+				$press = $host.ui.rawui.readkey("NoEcho,IncludeKeyDown")
+				$vkeycode = $press.virtualkeycode
+				If ($vkeycode -eq 38 -or $press.Character -eq 'k') {$pos--}
+				If ($vkeycode -eq 40 -or $press.Character -eq 'j') {$pos++}
+				If ($vkeycode -eq 36) { $pos = 0 }
+				If ($vkeycode -eq 35) { $pos = $menuItems.length - 1 }
+				If ($press.Character -eq ' ') { $selection = Toggle-Selection $pos $selection }
+				if ($pos -lt 0) {$pos = 0}
+				If ($vkeycode -eq 27) {$pos = $null }
+				if ($pos -ge $menuItems.length) {$pos = $menuItems.length -1}
+				if ($vkeycode -ne 27)
+				{
+					$startPos = [System.Console]::CursorTop - $menuItems.Length
+					[System.Console]::SetCursorPosition(0, $startPos)
+					DrawMenu $menuItems $pos $Multiselect $selection
+				}
+			}
+		}
+		finally {
+			[System.Console]::SetCursorPosition(0, $startPos + $menuItems.Length)
+			[console]::CursorVisible = $true
+		}
+	}
+	else {
+		$pos = $null
+	}
+
+    if ($ReturnIndex -eq $false -and $pos -ne $null)
+	{
+		if ($Multiselect){
+			return $menuItems[$selection]
+		}
+		else {
+			return $menuItems[$pos]
+		}
+	}
+	else 
+	{
+		if ($Multiselect){
+			return $selection
+		}
+		else {
+			return $pos
+		}
+	}
+}
+
+
+<#
+$Original = @{
+    lets = 'go'
+    Sub = @{
+      Foo =  'bar'
+      big = 'ya'
+    }
+    finish = 'fish'
+}
+$Patch = @{
+    lets = 'arrive'
+    Sub = @{
+      Foo =  'baz'
+    }
+    finish ='cum'
+}
+#>
+function Merge-Hashtables {
+    param(
+        $Original,
+        $Patch
+    )
+    $Merged = @{} # Final Merged settings
+
+    if (!$Original){$Original = @{}}
+
+    if ($Original.GetType().Name -in 'PSCustomObject','PSObject'){
+        $Temp = [ordered]@{}
+        $Original.PSObject.Properties | ForEach-Object { $Temp[$_.Name] = $_.Value }
+        $Original = $Temp
+        Remove-Variable Temp #fck temp vars
+    }
+
+    foreach ($Key in [object[]]$Original.Keys) {
+
+        if ($Original.$Key -is [HashTable]){
+            $Merged.$Key += [HashTable](Merge-Hashtables $Original.$Key $Patch.$Key)
+            continue
+        }
+
+        if ($Patch.$Key -and !$Merged.$Key){ # If the setting exists in the patch
+            $Merged.Remove($Key)
+            if ($Original.$Key -ne $Patch.$Key){
+                Write-Verbose "Changing $Key from $($Original.$Key) to $($Patch.$Key)"
+            }
+            $Merged += @{$Key = $Patch.$Key} # Then add it to the final settings
+        }else{ # Else put in the unchanged normal setting
+            $Merged += @{$Key = $Original.$Key}
+        }
+    }
+
+    ForEach ($Key in [object[]]$Patch.Keys) {
+        if ($Patch.$Key -is [HashTable] -and ($Key -NotIn $Original.Keys)){
+            $Merged.$Key += [HashTable](Merge-Hashtables $Original.$Key $Patch.$Key)
+            continue
+        }
+        if ($Key -NotIn $Original.Keys){
+            $Merged.$Key += $Patch.$Key
+        }
+    }
+
+    return $Merged
+}
+
+<# Here's some example hashtables you can mess with:
+
+$Original = [Ordered]@{ # Original settings
+    potato = $true
+    avocado = $false
+}
+
+$Patch = @{ # Fixes
+    avocado = $true
+}
+
+
+function Merge-Hashtables {
+    param(
+        [Switch]$ShowDiff,
+        $Original,
+        $Patch
+    )
+
+    if (!$Original){$Original = @{}}
+
+    if ($Original.GetType().Name -in 'PSCustomObject','PSObject'){
+        $Temp = [ordered]@{}
+        $Original.PSObject.Properties | ForEach-Object { $Temp[$_.Name] = $_.Value }
+        $Original = $Temp
+        Remove-Variable Temp #fck temp vars
+    }
+
+    $Merged = @{} # Final Merged settings
+
+    foreach($Key in $Original.Keys){ # Loops through all OG settings
+        $Merging = $True
+
+        if ($Patch.$Key){ # If the setting exists in the new settings
+            $Merged += @{$Key = $Patch.$Key} # Then add it to the final settings
+        }else{ # Else put in the normal settings
+            $Merged += @{$Key = $Original.$Key}
+        }
+    }
+    foreach($key in $Patch.Keys){ # If Patch has hashtables that Original does not
+        if (!$Merged.$key){
+            $Merged += @{$key = $Patch.$key}
+        }
+    }
+
+    if (!$Merging){$Merged = $Patch} # If no settings were merged (empty $Original), completely overwrite
+    return $Merged
+}
+
+#>
+function New-Shortcut {
+    param(
+        [Switch]$Admin,
+        [Switch]$Overwrite,
+        [String]$LnkPath,
+        [String]$TargetPath,
+        [String]$Arguments,
+        [String]$Icon
+    )
+
+    if ($Overwrite){
+        if (Test-Path $LnkPath){
+            Remove-Item $LnkPath
+        }
+    }
+
+    $WScriptShell = New-Object -ComObject WScript.Shell
+    $Shortcut = $WScriptShell.CreateShortcut($LnkPath)
+    $Shortcut.TargetPath = $TargetPath
+    if ($Arguments){
+        $Shortcut.Arguments = $Arguments
+    }
+    if ($Icon){
+        $Shortcut.IconLocation = $Icon
+    }
+
+    $Shortcut.Save()
+    if ((Get-Item $LnkPath).FullName -cne $LnkPath){
+        Rename-Item $LnkPath -NewName (Get-Item $LnkPath).Name # Shortcut names are always underscore
+    }
+
+    if ($Admin){
+    
+        $bytes = [System.IO.File]::ReadAllBytes($LnkPath)
+        $bytes[0x15] = $bytes[0x15] -bor 0x20 #set byte 21 (0x15) bit 6 (0x20) ON
+        [System.IO.File]::WriteAllBytes($LnkPath, $bytes)
+    }
+}
+function PauseNul {
+    $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null
+}
+<# This function messes with the message that appears before the commands you type
+
+# Turns:
+PS D:\Scoop>
+# into
+TL D:\Scoop>
+
+To indicate TweakList has been imported
+
+You can prevent this from happening by setting the environment variable TL_NOPROMPT to 1
+#>
+$global:CSI = [char] 27 + '['
+if (!$env:TL_NOPROMPT -and !$TL_NOPROMPT){
+    function global:prompt {
+            "$CSI`97;7mTL$CSI`m $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) ";
+    }
+}
+
+function Set-Choice { # Converts passed string to an array of chars
+    param(
+        [char[]]$Letters = "YN"
+    )
+    While ($Key -NotIn $Letters){
+        [char]$Key = $host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]'NoEcho, IncludeKeyDown').Character
+        if (($Key -NotIn $Letters) -and !$IsLinux){
+                [Console]::Beep(500,300)
+        }
+    }
+    return $Key
+}
+function Set-Title {
+    param(
+        $Title
+    )
+    $Host.UI.RawUI.WindowTitle = "TweakList - $Title"
+}
+
+function Set-Verbosity {
+    [alias('Verbose','Verb')]
+    param (
+
+		[Parameter(Mandatory = $true,ParameterSetName = "Enabled")]
+        [switch]$Enabled,
+
+		[Parameter(Mandatory = $true,ParameterSetName = "Disabled")]
+		[switch]$Disabled
+	)
+    
+    switch ($PSCmdlet.ParameterSetName){
+        "Enabled" {
+            $script:Verbose = $True
+            $script:VerbosePreference = 'Continue'
+        }
+        "Disabled" {
+            $script:Verbose = $True
+            $script:VerbosePreference = 'SilentlyContinue'
+        }
+    }
+}
+function Test-Admin {
+
+    if (!$IsLinux -and !$IsMacOS){
+
+        $identity  = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object System.Security.Principal.WindowsPrincipal( $identity )
+        return $principal.IsInRole( [System.Security.Principal.WindowsBuiltInRole]::Administrator )
+    
+    }else{ # Running on *nix
+        return ((id -u) -eq 0)
+    }
+}
+
+function Write-Color {
+    # Ported to PowerShell from an old version of https://github.com/atzuur/colors
+    param(
+        [String]$Message
+    )
+    $E = [char]0x1b
+    $Presets = [Ordered]@{
+        '&RESET'   ="$E[0m"
+        '&BOLD'    ="$E[1m"
+        '&ITALIC'  ="$E[3m"
+        '&URL'     ="$E[4m"
+        '&BLINK'   ="$E[5m"
+        '&ALTBLINK'="$E[6m"
+        '&SELECTED'="$E[7m"
+        '@BLACK'   ="$E[30m"
+        '@RED'     ="$E[31m"
+        '@GREEN'   ="$E[32m"
+        '@YELLOW'  ="$E[33m"
+        '@BLUE'    ="$E[34m"
+        '@VIOLET'  ="$E[35m"
+        '@BEIGE'   ="$E[36m"
+        '@WHITE'   ="$E[37m"
+        '@GREY'    ="$E[90m"
+        '@LRED'    ="$E[91m"
+        '@LGREEN'  ="$E[92m"
+        '@LYELLOW' ="$E[93m"
+        '@LBLUE'   ="$E[94m"
+        '@LVIOLET' ="$E[95m"
+        '@LBEIGE'  ="$E[96m"
+        '@LWHITE'  ="$E[97m"
+        '%BLACK'   ="$E[40m"
+        '%RED'     ="$E[41m"
+        '%GREEN'   ="$E[42m"
+        '%YELLOW'  ="$E[43m"
+        '%BLUE'    ="$E[44m"
+        '%VIOLET'  ="$E[45m"
+        '%BEIGE'   ="$E[46m"
+        '%WHITE'   ="$E[47m"
+        '%GREY'    ="$E[100m"
+        '%LRED'    ="$E[101m"
+        '%LGREEN'  ="$E[102m"
+        '%LYELLOW' ="$E[103m"
+        '%LBLUE'   ="$E[104m"
+        '%LVIOLET' ="$E[105m"
+        '%LBEIGE'  ="$E[106m"
+        '%LWHITE'  ="$E[107m"
+    }
+    Foreach($Pattern in $Presets.Keys){
+        $Message = $Message -replace $Pattern, $Presets.$Pattern
+    }
+    return $Message + $Presets.'$RESET'
+}
+
+function Write-Diff {
+	param(
+	[String]$Message,
+	[Boolean]$Positivity,
+	[String]$Term
+	)
+	$E = [char]0x1b # Ansi ESC character
+
+	if ($Positivity){
+		$Sign = '+'
+		$Accent = "$E[92m"
+		if (!$Term){
+		$Term = "Enabled"
+		}
+	}
+	elseif(!$Positivity){
+		$Sign = '-'
+		if (!$Term){
+			$Term = "Removed"
+		}
+		$Accent = "$E[91m"
+	}
+
+	$Gray = "$E[90m"
+	$Reset = "$E[0m"
+
+	Write-Host "  $Gray[$Accent$Sign$Gray]$Reset $Term $Accent$Message"
+ 
+}
+
+
+function Write-Menu {
+    <#
+        By QuietusPlus on GitHub: https://github.com/QuietusPlus/Write-Menu
+
+        .SYNOPSIS
+            Outputs a command-line menu which can be navigated using the keyboard.
+
+        .DESCRIPTION
+            Outputs a command-line menu which can be navigated using the keyboard.
+
+            * Automatically creates multiple pages if the entries cannot fit on-screen.
+            * Supports nested menus using a combination of hashtables and arrays.
+            * No entry / page limitations (apart from device performance).
+            * Sort entries using the -Sort parameter.
+            * -MultiSelect: Use space to check a selected entry, all checked entries will be invoked / returned upon confirmation.
+            * Jump to the top / bottom of the page using the "Home" and "End" keys.
+            * "Scrolling" list effect by automatically switching pages when reaching the top/bottom.
+            * Nested menu indicator next to entries.
+            * Remembers parent menus: Opening three levels of nested menus means you have to press "Esc" three times.
+
+            Controls             Description
+            --------             -----------
+            Up                   Previous entry
+            Down                 Next entry
+            Left / PageUp        Previous page
+            Right / PageDown     Next page
+            Home                 Jump to top
+            End                  Jump to bottom
+            Space                Check selection (-MultiSelect only)
+            Enter                Confirm selection
+            Esc / Backspace      Exit / Previous menu
+
+        .EXAMPLE
+            PS C:\>$menuReturn = Write-Menu -Title 'Menu Title' -Entries @('Menu Option 1', 'Menu Option 2', 'Menu Option 3', 'Menu Option 4')
+
+            Output:
+
+              Menu Title
+
+               Menu Option 1
+               Menu Option 2
+               Menu Option 3
+               Menu Option 4
+
+        .EXAMPLE
+            PS C:\>$menuReturn = Write-Menu -Title 'AppxPackages' -Entries (Get-AppxPackage).Name -Sort
+
+            This example uses Write-Menu to sort and list app packages (Windows Store/Modern Apps) that are installed for the current profile.
+
+        .EXAMPLE
+            PS C:\>$menuReturn = Write-Menu -Title 'Advanced Menu' -Sort -Entries @{
+                'Command Entry' = '(Get-AppxPackage).Name'
+                'Invoke Entry' = '@(Get-AppxPackage).Name'
+                'Hashtable Entry' = @{
+                    'Array Entry' = "@('Menu Option 1', 'Menu Option 2', 'Menu Option 3', 'Menu Option 4')"
+                }
+            }
+
+            This example includes all possible entry types:
+
+            Command Entry     Invoke without opening as nested menu (does not contain any prefixes)
+            Invoke Entry      Invoke and open as nested menu (contains the "@" prefix)
+            Hashtable Entry   Opened as a nested menu
+            Array Entry       Opened as a nested menu
+
+        .NOTES
+            Write-Menu by QuietusPlus (inspired by "Simple Textbased Powershell Menu" [Michael Albert])
+
+        .LINK
+            https://quietusplus.github.io/Write-Menu
+
+        .LINK
+            https://github.com/QuietusPlus/Write-Menu
+    #>
+
+    [CmdletBinding()]
+
+    <#
+        Parameters
+    #>
+
+    param(
+        # Array or hashtable containing the menu entries
+        [Parameter(Mandatory=$true, ValueFromPipeline = $true)]
+        [ValidateNotNullOrEmpty()]
+        [Alias('InputObject')]
+        $Entries,
+
+        # Title shown at the top of the menu.
+        [Parameter(ValueFromPipelineByPropertyName = $true)]
+        [Alias('Name')]
+        [string]
+        $Title,
+
+        # Sort entries before they are displayed.
+        [Parameter()]
+        [switch]
+        $Sort,
+
+        # Select multiple menu entries using space, each selected entry will then get invoked (this will disable nested menu's).
+        [Parameter()]
+        [switch]
+        $MultiSelect
+    )
+
+    <#
+        Configuration
+    #>
+
+    # Entry prefix, suffix and padding
+    $script:cfgPrefix = ' '
+    $script:cfgPadding = 2
+    $script:cfgSuffix = ' '
+    $script:cfgNested = ' >'
+
+    # Minimum page width
+    $script:cfgWidth = 30
+
+    # Hide cursor
+    [System.Console]::CursorVisible = $false
+
+    # Save initial colours
+    $script:colorForeground = [System.Console]::ForegroundColor
+    $script:colorBackground = [System.Console]::BackgroundColor
+
+    <#
+        Checks
+    #>
+
+    # Check if entries has been passed
+    if ($Entries -like $null) {
+        Write-Error "Missing -Entries parameter!"
+        return
+    }
+
+    # Check if host is console
+    if ($host.Name -ne 'ConsoleHost') {
+        Write-Error "[$($host.Name)] Cannot run inside current host, please use a console window instead!"
+        return
+    }
+
+    <#
+        Set-Color
+    #>
+
+    function Set-Color ([switch]$Inverted) {
+        switch ($Inverted) {
+            $true {
+                [System.Console]::ForegroundColor = $colorBackground
+                [System.Console]::BackgroundColor = $colorForeground
+            }
+            Default {
+                [System.Console]::ForegroundColor = $colorForeground
+                [System.Console]::BackgroundColor = $colorBackground
+            }
+        }
+    }
+
+    <#
+        Get-Menu
+    #>
+
+    function Get-Menu ($script:inputEntries) {
+        # Clear console
+        Clear-Host
+
+        # Check if -Title has been provided, if so set window title, otherwise set default.
+        if ($Title -notlike $null) {
+            #$host.UI.RawUI.WindowTitle = $Title # DISABLED FOR TWEAKLIST
+            $script:menuTitle = "$Title"
+        } else {
+            $script:menuTitle = 'Menu'
+        }
+
+        # Set menu height
+        $script:pageSize = ($host.UI.RawUI.WindowSize.Height - 5)
+
+        # Convert entries to object
+        $script:menuEntries = @()
+        switch ($inputEntries.GetType().Name) {
+            'String' {
+                # Set total entries
+                $script:menuEntryTotal = 1
+                # Create object
+                $script:menuEntries = New-Object PSObject -Property @{
+                    Command = ''
+                    Name = $inputEntries
+                    Selected = $false
+                    onConfirm = 'Name'
+                }; break
+            }
+            'Object[]' {
+                # Get total entries
+                $script:menuEntryTotal = $inputEntries.Length
+                # Loop through array
+                foreach ($i in 0..$($menuEntryTotal - 1)) {
+                    # Create object
+                    $script:menuEntries += New-Object PSObject -Property @{
+                        Command = ''
+                        Name = $($inputEntries)[$i]
+                        Selected = $false
+                        onConfirm = 'Name'
+                    }; $i++
+                }; break
+            }
+            'Hashtable' {
+                # Get total entries
+                $script:menuEntryTotal = $inputEntries.Count
+                # Loop through hashtable
+                foreach ($i in 0..($menuEntryTotal - 1)) {
+                    # Check if hashtable contains a single entry, copy values directly if true
+                    if ($menuEntryTotal -eq 1) {
+                        $tempName = $($inputEntries.Keys)
+                        $tempCommand = $($inputEntries.Values)
+                    } else {
+                        $tempName = $($inputEntries.Keys)[$i]
+                        $tempCommand = $($inputEntries.Values)[$i]
+                    }
+
+                    # Check if command contains nested menu
+                    if ($tempCommand.GetType().Name -eq 'Hashtable') {
+                        $tempAction = 'Hashtable'
+                    } elseif ($tempCommand.Substring(0,1) -eq '@') {
+                        $tempAction = 'Invoke'
+                    } else {
+                        $tempAction = 'Command'
+                    }
+
+                    # Create object
+                    $script:menuEntries += New-Object PSObject -Property @{
+                        Name = $tempName
+                        Command = $tempCommand
+                        Selected = $false
+                        onConfirm = $tempAction
+                    }; $i++
+                }; break
+            }
+            Default {
+                Write-Error "Type `"$($inputEntries.GetType().Name)`" not supported, please use an array or hashtable."
+                exit
+            }
+        }
+
+        # Sort entries
+        if ($Sort -eq $true) {
+            $script:menuEntries = $menuEntries | Sort-Object -Property Name
+        }
+
+        # Get longest entry
+        $script:entryWidth = ($menuEntries.Name | Measure-Object -Maximum -Property Length).Maximum
+        # Widen if -MultiSelect is enabled
+        if ($MultiSelect) { $script:entryWidth += 4 }
+        # Set minimum entry width
+        if ($entryWidth -lt $cfgWidth) { $script:entryWidth = $cfgWidth }
+        # Set page width
+        $script:pageWidth = $cfgPrefix.Length + $cfgPadding + $entryWidth + $cfgPadding + $cfgSuffix.Length
+
+        # Set current + total pages
+        $script:pageCurrent = 0
+        $script:pageTotal = [math]::Ceiling((($menuEntryTotal - $pageSize) / $pageSize))
+
+        # Insert new line
+        [System.Console]::WriteLine("")
+
+        # Save title line location + write title
+        $script:lineTitle = [System.Console]::CursorTop
+        [System.Console]::WriteLine("  $menuTitle" + "`n")
+
+        # Save first entry line location
+        $script:lineTop = [System.Console]::CursorTop
+    }
+
+    <#
+        Get-Page
+    #>
+
+    function Get-Page {
+        # Update header if multiple pages
+        if ($pageTotal -ne 0) { Update-Header }
+
+        # Clear entries
+        for ($i = 0; $i -le $pageSize; $i++) {
+            # Overwrite each entry with whitespace
+            [System.Console]::WriteLine("".PadRight($pageWidth) + ' ')
+        }
+
+        # Move cursor to first entry
+        [System.Console]::CursorTop = $lineTop
+
+        # Get index of first entry
+        $script:pageEntryFirst = ($pageSize * $pageCurrent)
+
+        # Get amount of entries for last page + fully populated page
+        if ($pageCurrent -eq $pageTotal) {
+            $script:pageEntryTotal = ($menuEntryTotal - ($pageSize * $pageTotal))
+        } else {
+            $script:pageEntryTotal = $pageSize
+        }
+
+        # Set position within console
+        $script:lineSelected = 0
+
+        # Write all page entries
+        for ($i = 0; $i -le ($pageEntryTotal - 1); $i++) {
+            Write-Entry $i
+        }
+    }
+
+    <#
+        Write-Entry
+    #>
+
+    function Write-Entry ([int16]$Index, [switch]$Update) {
+        # Check if entry should be highlighted
+        switch ($Update) {
+            $true { $lineHighlight = $false; break }
+            Default { $lineHighlight = ($Index -eq $lineSelected) }
+        }
+
+        # Page entry name
+        $pageEntry = $menuEntries[($pageEntryFirst + $Index)].Name
+
+        # Prefix checkbox if -MultiSelect is enabled
+        if ($MultiSelect) {
+            switch ($menuEntries[($pageEntryFirst + $Index)].Selected) {
+                $true { $pageEntry = "[X] $pageEntry"; break }
+                Default { $pageEntry = "[ ] $pageEntry" }
+            }
+        }
+
+        # Full width highlight + Nested menu indicator
+        switch ($menuEntries[($pageEntryFirst + $Index)].onConfirm -in 'Hashtable', 'Invoke') {
+            $true { $pageEntry = "$pageEntry".PadRight($entryWidth) + "$cfgNested"; break }
+            Default { $pageEntry = "$pageEntry".PadRight($entryWidth + $cfgNested.Length) }
+        }
+
+        # Write new line and add whitespace without inverted colours
+        [System.Console]::Write("`r" + $cfgPrefix)
+        # Invert colours if selected
+        if ($lineHighlight) { Set-Color -Inverted }
+        # Write page entry
+        [System.Console]::Write("".PadLeft($cfgPadding) + $pageEntry + "".PadRight($cfgPadding))
+        # Restore colours if selected
+        if ($lineHighlight) { Set-Color }
+        # Entry suffix
+        [System.Console]::Write($cfgSuffix + "`n")
+    }
+
+    <#
+        Update-Entry
+    #>
+
+    function Update-Entry ([int16]$Index) {
+        # Reset current entry
+        [System.Console]::CursorTop = ($lineTop + $lineSelected)
+        Write-Entry $lineSelected -Update
+
+        # Write updated entry
+        $script:lineSelected = $Index
+        [System.Console]::CursorTop = ($lineTop + $Index)
+        Write-Entry $lineSelected
+
+        # Move cursor to first entry on page
+        [System.Console]::CursorTop = $lineTop
+    }
+
+    <#
+        Update-Header
+    #>
+
+    function Update-Header {
+        # Set corrected page numbers
+        $pCurrent = ($pageCurrent + 1)
+        $pTotal = ($pageTotal + 1)
+
+        # Calculate offset
+        $pOffset = ($pTotal.ToString()).Length
+
+        # Build string, use offset and padding to right align current page number
+        $script:pageNumber = "{0,-$pOffset}{1,0}" -f "$("$pCurrent".PadLeft($pOffset))","/$pTotal"
+
+        # Move cursor to title
+        [System.Console]::CursorTop = $lineTitle
+        # Move cursor to the right
+        [System.Console]::CursorLeft = ($pageWidth - ($pOffset * 2) - 1)
+        # Write page indicator
+        [System.Console]::WriteLine("$pageNumber")
+    }
+
+    <#
+        Initialisation
+    #>
+
+    # Get menu
+    Get-Menu $Entries
+
+    # Get page
+    Get-Page
+
+    # Declare hashtable for nested entries
+    $menuNested = [ordered]@{}
+
+    <#
+        User Input
+    #>
+
+    # Loop through user input until valid key has been pressed
+    do { $inputLoop = $true
+
+        # Move cursor to first entry and beginning of line
+        [System.Console]::CursorTop = $lineTop
+        [System.Console]::Write("`r")
+
+        # Get pressed key
+        $menuInput = [System.Console]::ReadKey($false)
+
+        # Define selected entry
+        $entrySelected = $menuEntries[($pageEntryFirst + $lineSelected)]
+
+        # Check if key has function attached to it
+        switch ($menuInput.Key) {
+            # Exit / Return
+            { $_ -in 'Escape', 'Backspace' } {
+                # Return to parent if current menu is nested
+                if ($menuNested.Count -ne 0) {
+                    $pageCurrent = 0
+                    $Title = $($menuNested.GetEnumerator())[$menuNested.Count - 1].Name
+                    Get-Menu $($menuNested.GetEnumerator())[$menuNested.Count - 1].Value
+                    Get-Page
+                    $menuNested.RemoveAt($menuNested.Count - 1) | Out-Null
+                # Otherwise exit and return $null
+                } else {
+                    Clear-Host
+                    $inputLoop = $false
+                    [System.Console]::CursorVisible = $true
+                    return $null
+                }; break
+            }
+
+            # Next entry
+            'DownArrow' {
+                if ($lineSelected -lt ($pageEntryTotal - 1)) { # Check if entry isn't last on page
+                    Update-Entry ($lineSelected + 1)
+                } elseif ($pageCurrent -ne $pageTotal) { # Switch if not on last page
+                    $pageCurrent++
+                    Get-Page
+                }; break
+            }
+
+            # Previous entry
+            'UpArrow' {
+                if ($lineSelected -gt 0) { # Check if entry isn't first on page
+                    Update-Entry ($lineSelected - 1)
+                } elseif ($pageCurrent -ne 0) { # Switch if not on first page
+                    $pageCurrent--
+                    Get-Page
+                    Update-Entry ($pageEntryTotal - 1)
+                }; break
+            }
+
+            # Select top entry
+            'Home' {
+                if ($lineSelected -ne 0) { # Check if top entry isn't already selected
+                    Update-Entry 0
+                } elseif ($pageCurrent -ne 0) { # Switch if not on first page
+                    $pageCurrent--
+                    Get-Page
+                    Update-Entry ($pageEntryTotal - 1)
+                }; break
+            }
+
+            # Select bottom entry
+            'End' {
+                if ($lineSelected -ne ($pageEntryTotal - 1)) { # Check if bottom entry isn't already selected
+                    Update-Entry ($pageEntryTotal - 1)
+                } elseif ($pageCurrent -ne $pageTotal) { # Switch if not on last page
+                    $pageCurrent++
+                    Get-Page
+                }; break
+            }
+
+            # Next page
+            { $_ -in 'RightArrow','PageDown' } {
+                if ($pageCurrent -lt $pageTotal) { # Check if already on last page
+                    $pageCurrent++
+                    Get-Page
+                }; break
+            }
+
+            # Previous page
+            { $_ -in 'LeftArrow','PageUp' } { # Check if already on first page
+                if ($pageCurrent -gt 0) {
+                    $pageCurrent--
+                    Get-Page
+                }; break
+            }
+
+            # Select/check entry if -MultiSelect is enabled
+            'Spacebar' {
+                if ($MultiSelect) {
+                    switch ($entrySelected.Selected) {
+                        $true { $entrySelected.Selected = $false }
+                        $false { $entrySelected.Selected = $true }
+                    }
+                    Update-Entry ($lineSelected)
+                }; break
+            }
+
+            # Select all if -MultiSelect has been enabled
+            'Insert' {
+                if ($MultiSelect) {
+                    $menuEntries | ForEach-Object {
+                        $_.Selected = $true
+                    }
+                    Get-Page
+                }; break
+            }
+
+            # Select none if -MultiSelect has been enabled
+            'Delete' {
+                if ($MultiSelect) {
+                    $menuEntries | ForEach-Object {
+                        $_.Selected = $false
+                    }
+                    Get-Page
+                }; break
+            }
+
+            # Confirm selection
+            'Enter' {
+                # Check if -MultiSelect has been enabled
+                if ($MultiSelect) {
+                    Clear-Host
+                    # Process checked/selected entries
+                    $menuEntries | ForEach-Object {
+                        # Entry contains command, invoke it
+                        if (($_.Selected) -and ($_.Command -notlike $null) -and ($entrySelected.Command.GetType().Name -ne 'Hashtable')) {
+                            Invoke-Expression -Command $_.Command
+                        # Return name, entry does not contain command
+                        } elseif ($_.Selected) {
+                            return $_.Name
+                        }
+                    }
+                    # Exit and re-enable cursor
+                    $inputLoop = $false
+                    [System.Console]::CursorVisible = $true
+                    break
+                }
+
+                # Use onConfirm to process entry
+                switch ($entrySelected.onConfirm) {
+                    # Return hashtable as nested menu
+                    'Hashtable' {
+                        $menuNested.$Title = $inputEntries
+                        $Title = $entrySelected.Name
+                        Get-Menu $entrySelected.Command
+                        Get-Page
+                        break
+                    }
+
+                    # Invoke attached command and return as nested menu
+                    'Invoke' {
+                        $menuNested.$Title = $inputEntries
+                        $Title = $entrySelected.Name
+                        Get-Menu $(Invoke-Expression -Command $entrySelected.Command.Substring(1))
+                        Get-Page
+                        break
+                    }
+
+                    # Invoke attached command and exit
+                    'Command' {
+                        Clear-Host
+                        Invoke-Expression -Command $entrySelected.Command
+                        $inputLoop = $false
+                        [System.Console]::CursorVisible = $true
+                        break
+                    }
+
+                    # Return name and exit
+                    'Name' {
+                        Clear-Host
+                        return $entrySelected.Name
+                        $inputLoop = $false
+                        [System.Console]::CursorVisible = $true
+                    }
+                }
+            }
+        }
+    } while ($inputLoop)
+}
+
+function Get-IniContent {
+    <#
+    .Synopsis
+        Gets the content of an INI file
+
+    .Description
+        Gets the content of an INI file and returns it as a hashtable
+
+    .Notes
+        Author		: Oliver Lipkau <oliver@lipkau.net>
+		Source		: https://github.com/lipkau/PsIni
+                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
+        Version		: 1.0.0 - 2010/03/12 - OL - Initial release
+                      1.0.1 - 2014/12/11 - OL - Typo (Thx SLDR)
+                                              Typo (Thx Dave Stiff)
+                      1.0.2 - 2015/06/06 - OL - Improvment to switch (Thx Tallandtree)
+                      1.0.3 - 2015/06/18 - OL - Migrate to semantic versioning (GitHub issue#4)
+                      1.0.4 - 2015/06/18 - OL - Remove check for .ini extension (GitHub Issue#6)
+                      1.1.0 - 2015/07/14 - CB - Improve round-tripping and be a bit more liberal (GitHub Pull #7)
+                                           OL - Small Improvments and cleanup
+                      1.1.1 - 2015/07/14 - CB - changed .outputs section to be OrderedDictionary
+                      1.1.2 - 2016/08/18 - SS - Add some more verbose outputs as the ini is parsed,
+                      				            allow non-existent paths for new ini handling,
+                      				            test for variable existence using local scope,
+                      				            added additional debug output.
+
+        #Requires -Version 2.0
+
+    .Inputs
+        System.String
+
+    .Outputs
+        System.Collections.Specialized.OrderedDictionary
+
+    .Example
+        $FileContent = Get-IniContent "C:\myinifile.ini"
+        -----------
+        Description
+        Saves the content of the c:\myinifile.ini in a hashtable called $FileContent
+
+    .Example
+        $inifilepath | $FileContent = Get-IniContent
+        -----------
+        Description
+        Gets the content of the ini file passed through the pipe into a hashtable called $FileContent
+
+    .Example
+        C:\PS>$FileContent = Get-IniContent "c:\settings.ini"
+        C:\PS>$FileContent["Section"]["Key"]
+        -----------
+        Description
+        Returns the key "Key" of the section "Section" from the C:\settings.ini file
+
+    .Link
+        Out-IniFile
+    #>
+
+    [CmdletBinding()]
+    [OutputType(
+        [System.Collections.Specialized.OrderedDictionary]
+    )]
+    Param(
+        # Specifies the path to the input file.
+        [ValidateNotNullOrEmpty()]
+        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
+        [String]
+        $FilePath,
+
+        # Specify what characters should be describe a comment.
+        # Lines starting with the characters provided will be rendered as comments.
+        # Default: ";"
+        [Char[]]
+        $CommentChar = @(";"),
+
+        # Remove lines determined to be comments from the resulting dictionary.
+        [Switch]
+        $IgnoreComments
+    )
+
+    Begin {
+        Write-Debug "PsBoundParameters:"
+        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
+        if ($PSBoundParameters['Debug']) {
+            $DebugPreference = 'Continue'
+        }
+        Write-Debug "DebugPreference: $DebugPreference"
+
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
+
+        $commentRegex = "^\s*([$($CommentChar -join '')].*)$"
+        $sectionRegex = "^\s*\[(.+)\]\s*$"
+        $keyRegex     = "^\s*(.+?)\s*=\s*(['`"]?)(.*)\2\s*$"
+
+        Write-Debug ("commentRegex is {0}." -f $commentRegex)
+    }
+
+    Process {
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Processing file: $Filepath"
+
+        $ini = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
+        #$ini = @{}
+
+        if (!(Test-Path $Filepath)) {
+            Write-Verbose ("Warning: `"{0}`" was not found." -f $Filepath)
+            Write-Output $ini
+        }
+
+        $commentCount = 0
+        switch -regex -file $FilePath {
+            $sectionRegex {
+                # Section
+                $section = $matches[1]
+                Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding section : $section"
+                $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
+                $CommentCount = 0
+                continue
+            }
+            $commentRegex {
+                # Comment
+                if (!$IgnoreComments) {
+                    if (!(test-path "variable:local:section")) {
+                        $section = $script:NoSection
+                        $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
+                    }
+                    $value = $matches[1]
+                    $CommentCount++
+                    Write-Debug ("Incremented CommentCount is now {0}." -f $CommentCount)
+                    $name = "Comment" + $CommentCount
+                    Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding $name with value: $value"
+                    $ini[$section][$name] = $value
+                }
+                else {
+                    Write-Debug ("Ignoring comment {0}." -f $matches[1])
+                }
+
+                continue
+            }
+            $keyRegex {
+                # Key
+                if (!(test-path "variable:local:section")) {
+                    $section = $script:NoSection
+                    $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
+                }
+                $name, $value = $matches[1, 3]
+                Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding key $name with value: $value"
+                if (-not $ini[$section][$name]) {
+                    $ini[$section][$name] = $value
+                }
+                else {
+                    if ($ini[$section][$name] -is [string]) {
+                        $ini[$section][$name] = [System.Collections.ArrayList]::new()
+                        $ini[$section][$name].Add($ini[$section][$name]) | Out-Null
+                        $ini[$section][$name].Add($value) | Out-Null
+                    }
+                    else {
+                        $ini[$section][$name].Add($value) | Out-Null
+                    }
+                }
+                continue
+            }
+        }
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Finished Processing file: $FilePath"
+        Write-Output $ini
+    }
+
+    End {
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function ended"
+    }
+}
+
+Set-Alias gic Get-IniContent
+
+Function Out-IniFile {
+    <#
+    .Synopsis
+        Write hash content to INI file
+
+    .Description
+        Write hash content to INI file
+
+    .Notes
+        Author      : Oliver Lipkau <oliver@lipkau.net>
+        Blog        : http://oliver.lipkau.net/blog/
+        Source      : https://github.com/lipkau/PsIni
+                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
+
+        #Requires -Version 2.0
+
+    .Inputs
+        System.String
+        System.Collections.IDictionary
+
+    .Outputs
+        System.IO.FileSystemInfo
+
+    .Example
+        Out-IniFile $IniVar "C:\myinifile.ini"
+        -----------
+        Description
+        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini
+
+    .Example
+        $IniVar | Out-IniFile "C:\myinifile.ini" -Force
+        -----------
+        Description
+        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini and overwrites the file if it is already present
+
+    .Example
+        $file = Out-IniFile $IniVar "C:\myinifile.ini" -PassThru
+        -----------
+        Description
+        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini and saves the file into $file
+
+    .Example
+        $Category1 = @{“Key1”=”Value1”;”Key2”=”Value2”}
+        $Category2 = @{“Key1”=”Value1”;”Key2”=”Value2”}
+        $NewINIContent = @{“Category1”=$Category1;”Category2”=$Category2}
+        Out-IniFile -InputObject $NewINIContent -FilePath "C:\MyNewFile.ini"
+        -----------
+        Description
+        Creating a custom Hashtable and saving it to C:\MyNewFile.ini
+    .Link
+        Get-IniContent
+    #>
+
+    [CmdletBinding()]
+    [OutputType(
+        [System.IO.FileSystemInfo]
+    )]
+    Param(
+        # Adds the output to the end of an existing file, instead of replacing the file contents.
+        [switch]
+        $Append,
+
+        # Specifies the file encoding. The default is UTF8.
+        #
+        # Valid values are:
+        # -- ASCII:  Uses the encoding for the ASCII (7-bit) character set.
+        # -- BigEndianUnicode:  Encodes in UTF-16 format using the big-endian byte order.
+        # -- Byte:   Encodes a set of characters into a sequence of bytes.
+        # -- String:  Uses the encoding type for a string.
+        # -- Unicode:  Encodes in UTF-16 format using the little-endian byte order.
+        # -- UTF7:   Encodes in UTF-7 format.
+        # -- UTF8:  Encodes in UTF-8 format.
+        [ValidateSet("Unicode", "UTF7", "UTF8", "ASCII", "BigEndianUnicode", "Byte", "String")]
+        [Parameter()]
+        [String]
+        $Encoding = "UTF8",
+
+        # Specifies the path to the output file.
+        [ValidateNotNullOrEmpty()]
+        [ValidateScript( {Test-Path $_ -IsValid} )]
+        [Parameter( Position = 0, Mandatory = $true )]
+        [String]
+        $FilePath,
+
+        # Allows the cmdlet to overwrite an existing read-only file. Even using the Force parameter, the cmdlet cannot override security restrictions.
+        [Switch]
+        $Force,
+
+        # Specifies the Hashtable to be written to the file. Enter a variable that contains the objects or type a command or expression that gets the objects.
+        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
+        [System.Collections.IDictionary]
+        $InputObject,
+
+        # Passes an object representing the location to the pipeline. By default, this cmdlet does not generate any output.
+        [Switch]
+        $Passthru,
+
+        # Adds spaces around the equal sign when writing the key = value
+        [Switch]
+        $Loose,
+
+        # Writes the file as "pretty" as possible
+        #
+        # Adds an extra linebreak between Sections
+        [Switch]
+        $Pretty
+    )
+
+    Begin {
+        Write-Debug "PsBoundParameters:"
+        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
+        if ($PSBoundParameters['Debug']) {
+            $DebugPreference = 'Continue'
+        }
+        Write-Debug "DebugPreference: $DebugPreference"
+
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
+
+        function Out-Keys {
+            param(
+                [ValidateNotNullOrEmpty()]
+                [Parameter( Mandatory, ValueFromPipeline )]
+                [System.Collections.IDictionary]
+                $InputObject,
+
+                [ValidateSet("Unicode", "UTF7", "UTF8", "ASCII", "BigEndianUnicode", "Byte", "String")]
+                [Parameter( Mandatory )]
+                [string]
+                $Encoding = "UTF8",
+
+                [ValidateNotNullOrEmpty()]
+                [ValidateScript( {Test-Path $_ -IsValid})]
+                [Parameter( Mandatory, ValueFromPipelineByPropertyName )]
+                [Alias("Path")]
+                [string]
+                $FilePath,
+
+                [Parameter( Mandatory )]
+                $Delimiter,
+
+                [Parameter( Mandatory )]
+                $MyInvocation
+            )
+
+            Process {
+                if (!($InputObject.get_keys())) {
+                    Write-Warning ("No data found in '{0}'." -f $FilePath)
+                }
+                Foreach ($key in $InputObject.get_keys()) {
+                    if ($key -match "^Comment\d+") {
+                        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing comment: $key"
+                        "$($InputObject[$key])" | Out-File -Encoding $Encoding -FilePath $FilePath -Append
+                    }
+                    else {
+                        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing key: $key"
+                        $InputObject[$key] |
+                            ForEach-Object { "$key$delimiter$_" } |
+                            Out-File -Encoding $Encoding -FilePath $FilePath -Append
+                    }
+                }
+            }
+        }
+
+        $delimiter = '='
+        if ($Loose) {
+            $delimiter = ' = '
+        }
+
+        # Splatting Parameters
+        $parameters = @{
+            Encoding = $Encoding;
+            FilePath = $FilePath
+        }
+
+    }
+
+    Process {
+        $extraLF = ""
+
+        if ($Append) {
+            Write-Debug ("Appending to '{0}'." -f $FilePath)
+            $outfile = Get-Item $FilePath
+        }
+        else {
+            Write-Debug ("Creating new file '{0}'." -f $FilePath)
+            $outFile = New-Item -ItemType file -Path $Filepath -Force:$Force
+        }
+
+        if (!(Test-Path $outFile.FullName)) {Throw "Could not create File"}
+
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing to file: $Filepath"
+        foreach ($i in $InputObject.get_keys()) {
+            if (!($InputObject[$i].GetType().GetInterface('IDictionary'))) {
+                #Key value pair
+                Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing key: $i"
+                "$i$delimiter$($InputObject[$i])" | Out-File -Append @parameters
+
+            }
+            elseif ($i -eq $script:NoSection) {
+                #Key value pair of NoSection
+                Out-Keys $InputObject[$i] `
+                    @parameters `
+                    -Delimiter $delimiter `
+                    -MyInvocation $MyInvocation
+            }
+            else {
+                #Sections
+                Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing Section: [$i]"
+
+                # Only write section, if it is not a dummy ($script:NoSection)
+                if ($i -ne $script:NoSection) { "$extraLF[$i]"  | Out-File -Append @parameters }
+                if ($Pretty) {
+                    $extraLF = "`r`n"
+                }
+
+                if ( $InputObject[$i].Count) {
+                    Out-Keys $InputObject[$i] `
+                        @parameters `
+                        -Delimiter $delimiter `
+                        -MyInvocation $MyInvocation
+                }
+
+            }
+        }
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Finished Writing to file: $FilePath"
+    }
+
+    End {
+        if ($PassThru) {
+            Write-Debug ("Returning file due to PassThru argument.")
+            Write-Output (Get-Item $outFile)
+        }
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function ended"
+    }
+}
+
+Set-Alias oif Out-IniFile
+
+Function ConvertFrom-VDF {
+<# 
+.Synopsis 
+    Reads a Valve Data File (VDF) formatted string into a custom object.
+
+.Description 
+    The ConvertFrom-VDF cmdlet converts a VDF-formatted string to a custom object (PSCustomObject) that has a property for each field in the VDF string. VDF is used as a textual data format for Valve software applications, such as Steam.
+
+.Parameter InputObject
+    Specifies the VDF strings to convert to PSObjects. Enter a variable that contains the string, or type a command or expression that gets the string. 
+
+.Example 
+    $vdf = ConvertFrom-VDF -InputObject (Get-Content ".\SharedConfig.vdf")
+
+    Description 
+    ----------- 
+    Gets the content of a VDF file named "SharedConfig.vdf" in the current location and converts it to a PSObject named $vdf
+
+.Inputs 
+    System.String
+
+.Outputs 
+    PSCustomObject
+
+
+#>
+    param
+    (
+        [Parameter(Position=0, Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [String[]]
+        $InputObject
+    )
+
+    $root = New-Object -TypeName PSObject
+    $chain = [ordered]@{}
+    $depth = 0
+    $parent = $root
+    $element = $null
+
+    #Magic PowerShell Switch Enumrates Arrays
+    switch -Regex ($InputObject) {
+        #Case: ValueKey
+        '^\t*"(\S+)"\t\t"(.+)"$' {
+            Add-Member -InputObject $element -MemberType NoteProperty -Name $Matches[1] -Value $Matches[2]
+            continue
+        }
+        #Case: ParentKey
+        '^\t*"(\S+)"$' { 
+            $element = New-Object -TypeName PSObject
+            Add-Member -InputObject $parent -MemberType NoteProperty -Name $Matches[1] -Value $element
+            continue
+        }
+        #Case: Opening ParentKey Scope
+        '^\t*{$' {
+            $parent = $element
+            $chain.Add($depth, $element)
+            $depth++
+            continue
+        }
+        #Case: Closing ParentKey Scope
+        '^\t*}$' {
+            $depth--
+            $parent = $chain.($depth - 1)
+            $element = $parent
+            $chain.Remove($depth)
+            continue
+        }
+        #Case: Comments or unsupported lines
+        Default {
+            Write-Debug "Ignored line: $_"
+            continue
+        }
+    }
+
+    return $root
+}
+
+Function ConvertTo-VDF
+{
+<# 
+.Synopsis 
+    Converts a custom object into a Valve Data File (VDF) formatted string.
+
+.Description 
+    The ConvertTo-VDF cmdlet converts any object to a string in Valve Data File (VDF) format. The properties are converted to field names, the field values are converted to property values, and the methods are removed.
+
+.Parameter InputObject
+    Specifies PSObject to be converted into VDF strings.  Enter a variable that contains the object. You can also pipe an object to ConvertTo-Json.
+
+.Example 
+    ConvertTo-VDF -InputObject $VDFObject | Out-File ".\SharedConfig.vdf"
+
+    Description 
+    ----------- 
+    Converts the PS object to VDF format and pipes it into "SharedConfig.vdf" in the current directory
+
+.Inputs 
+    PSCustomObject
+
+.Outputs 
+    System.String
+
+
+#>
+    param
+    (
+        [Parameter(Position=0, Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [PSObject]
+        $InputObject,
+
+        [Parameter(Position=1, Mandatory=$false)]
+        [int]
+        $Depth = 0
+    )
+    $output = [string]::Empty
+    
+    foreach ( $property in ($InputObject.psobject.Properties) ) {
+        switch ($property.TypeNameOfValue) {
+            "System.String" { 
+                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`t`t`"" + $property.Value + "`"`n"
+                break
+            }
+            "System.Management.Automation.PSCustomObject" {
+                $element = $property.Value
+                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`n"
+                $output += ("`t" * $Depth) + "{`n"
+                $output += ConvertTo-VDF -InputObject $element -Depth ($Depth + 1)
+                $output += ("`t" * $Depth) + "}`n"
+                break
+            }
+            Default {
+                Write-Error ("Unsupported Property of type {0}" -f $_) -ErrorAction Stop
+                break
+            }
+        }
+    }
+
+    return $output
+}
+
+function Get-SteamGameInstallDir (
+    [Parameter(Mandatory = $true)][string]$Game, 
+    [array]$LibraryFolders = (Get-SteamLibraryFolders)) {
+
+    # Get the installation directory of a Steam game.
+    foreach ($LibraryFolder in $LibraryFolders) {
+        $GameInstallDir = "$LibraryFolder\steamapps\common\$Game"
+        if (Test-Path "$($GameInstallDir.ToLower())") {
+            return "$GameInstallDir"
+        }
+    }
+}
+Function Get-SteamLibraryFolders()
+{
+<#
+.Synopsis 
+	Retrieves library folder paths from .\SteamApps\libraryfolders.vdf
+.Description
+	Reads .\SteamApps\libraryfolders.vdf to find the paths of all the library folders set up in steam
+.Example 
+	$libraryFolders = Get-LibraryFolders
+	Description 
+	----------- 
+	Retrieves a list of the library folders set up in steam
+#>
+	$steamPath = Get-SteamPath
+	
+	$vdfPath = "$($steamPath)\SteamApps\libraryfolders.vdf"
+	
+	[array]$libraryFolderPaths = @()
+	
+	if (Test-Path $vdfPath)
+	{
+		$libraryFolders = ConvertFrom-VDF (Get-Content $vdfPath -Encoding UTF8) | Select-Object -ExpandProperty libraryfolders
+		
+		$libraryFolderIds = $libraryFolders | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
+		
+		ForEach ($libraryId in $libraryFolderIds)
+		{
+			$libraryFolder = $libraryFolders.($libraryId)
+			
+			$libraryFolderPaths += $libraryFolder.path.Replace('\\','\')
+		}
+	}
+	
+	return $libraryFolderPaths
+}
+
+
+function Get-SteamPath {
+    # Get the Steam installation directory.
+
+    $MUICache = "Registry::HKCR\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
+    $Protocol = "Registry::HKCR\steam\Shell\Open\Command"
+    $Steam = Get-ItemPropertyValue "Registry::HKCU\Software\Valve\Steam" -Name "SteamPath" -ErrorAction SilentlyContinue
+    
+    # MUICache
+    if (!$Steam) {
+        $Steam = Split-Path (((Get-Item "$MUICache").Property | Where-Object { $PSItem -Like "*Steam*" } |
+                Where-Object { (Get-ItemPropertyValue "$MUICache" -Name $PSItem) -eq "Steam" }).TrimEnd(".FriendlyAppName"))
+    }
+
+    # Steam Browser Protocol
+    if (!$Steam) {
+        $Steam = Split-Path (((Get-ItemPropertyValue "$Protocol" -Name "(Default)" -ErrorAction SilentlyContinue) -Split "--", 2, "SimpleMatch")[0]).Trim('"')
+    }
+
+    return $Steam.ToLower()
+}
 function Add-ContextMenu {
     #! TODO https://www.tenforums.com/tutorials/69524-add-remove-drives-send-context-menu-windows-10-a.html
     param(
@@ -7841,2548 +10383,6 @@ $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.options
 $Hash.maxFPS = 260
 Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force
 
-}
-function Assert-Choice {
-    if (-Not(Get-Command choice.exe -ErrorAction Ignore)){
-        Write-Host "[!] Unable to find choice.exe (it comes with Windows, did a little bit of unecessary debloating?)" -ForegroundColor Red
-        PauseNul
-        exit 1
-    }
-}
-function Assert-Path {
-    param(
-        $Path
-    )
-    if (-Not(Test-Path -Path $Path)) {
-        New-Item -Path $Path -Force | Out-Null
-    }
-}
-function FindInText{
-    <#
-    Recreated a simple grep for finding shit in TweakList,
-    I mostly use this to check if a function/word has ever been mentionned in all my code
-    #>
-    param(
-        [String]$String,
-        $Path = (Get-Location),
-        [Array]$Exclude,
-        [Switch]$Recurse
-    )
-
-    $Exclude += @(
-    '*.exe','*.bin','*.dll'
-    '*.png','*.jpg'
-    '*.mkv','*.mp4','*.webm'
-    '*.zip','*.tar','*.gz','*.rar','*.7z','*.so'
-    '*.pyc','*.pyd'
-    )
-
-    $Parameters = @{
-        Path = $Path
-        Recurse = $Recurse
-        Exclude = $Exclude
-    }
-    $script:FoundOnce = $False
-    $script:Match = $null
-    Get-ChildItem @Parameters -File | ForEach-Object {
-        $Match = $null
-        Write-Verbose ("Checking " + $PSItem.Name)
-        $Match = Get-Content $PSItem.FullName | Where-Object {$_ -Like "*$String*"}
-        if ($Match){
-            $script:FoundOnce = $True
-            Write-Host "- Found in $($_.Name) ($($_.FullName))" -ForegroundColor Green
-            $Match
-        }
-    }
-
-    if (!$FoundOnce){
-        Write-Host "Not found" -ForegroundColor red
-    }
-}
-function Get-7zPath {
-
-    if (Get-Command 7z.exe -Ea Ignore){return (Get-Command 7z.exe).Source}
-
-    $DefaultPath = "$env:ProgramFiles\7-Zip\7z.exe"
-    if (Test-Path $DefaultPath) {return $DefaultPath}
-
-    Try {
-        $InstallLocation = (Get-Package 7-Zip* -ErrorAction Stop).Metadata['InstallLocation'] # Compatible with 7-Zip installed normally / with winget
-        if (Test-Path $InstallLocation -ErrorAction Stop){
-            return "$InstallLocation`7z.exe"
-        }
-    }Catch{} # If there's an error it's probably not installed anyways
-
-    if (Get-Boolean "7-Zip could not be found, would you like to download it using Scoop?"){
-        Install-Scoop
-        scoop install 7zip
-        if (Get-Command 7z -Ea Ignore){
-            return (Get-Command 7z.exe).Source
-        }else{
-            Write-Error "7-Zip could not be installed"
-            return 
-        }
-
-    }else{return}
-
-    # leaving this here if anyone knows a smart way to implement this ))
-    # $7Zip = (Get-ChildItem -Path "$env:HOMEDRIVE\*7z.exe" -Recurse -Force -ErrorAction Ignore).FullName | Select-Object -First 1
-
-}
-
-function Get-Boolean {
-    param(
-        $Message
-    )
-    $null = $Response
-    $Response = Read-Host $Message
-    While ($Response -NotIn 'yes','y','n','no'){
-        Write-Host "Answer must be 'yes','y','n' or 'no'" -ForegroundColor Red
-        $Response = Read-Host $Message
-    }
-    if ($Response -in 'yes','y'){return $true}
-    elseif($Response -in 'n','no'){return $false}
-    else{Write-Error "Invalid response";pause;exit}
-}
-
-function Get-EncodingArgs{
-    [alias('genca')]
-    param(
-        [String]$Resolution = '3840x2160',
-        [Switch]$Silent,
-        [Switch]$EzEncArgs
-    )
-
-Install-FFmpeg
-
-$DriverVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}_Display.Driver" -ErrorAction Ignore).DisplayVersion
-    if ($DriverVersion){ # Only triggers if it parsed a NVIDIA driver version, else it can probably be an NVIDIA GPU
-        if ($DriverVersion -lt 477.41){ # Oldest NVIDIA version capable
-        Write-Warning "Outdated NVIDIA Drivers detected ($DriverVersion), you won't be able to encode using NVENC util you update them."
-    }
-}
-
-$EncCommands = [ordered]@{
-    'HEVC NVENC' = 'hevc_nvenc -rc vbr  -preset p7 -b:v 400M -cq 19'
-    'H264 NVENC' = 'h264_nvenc -rc vbr  -preset p7 -b:v 400M -cq 16'
-    'HEVC AMF' = 'hevc_amf -quality quality -qp_i 16 -qp_p 18 -qp_b 20'
-    'H264 AMF' = 'h264_amf -quality quality -qp_i 12 -qp_p 12 -qp_b 12'
-    'HEVC QSV' = 'hevc_qsv -preset veryslow -global_quality:v 18'
-    'H264 QSV' = 'h264_qsv -preset veryslow -global_quality:v 15'
-    'H264 CPU' = 'libx264 -preset slow -crf 16 -x265-params aq-mode=3'
-    'HEVC CPU' = 'libx265 -preset medium -crf 18 -x265-params aq-mode=3:no-sao=1:frame-threads=1'
-}
-
-$EncCommands.Keys | ForEach-Object -Begin {
-    $script:shouldStop = $false
-} -Process {
-    if ($shouldStop -eq $true) { return }
-    Invoke-Expression "ffmpeg.exe -loglevel fatal -f lavfi -i nullsrc=$Resolution -t 0.1 -c:v $($EncCommands.$_) -f null NUL"
-    if ($LASTEXITCODE -eq 0){
-        $script:valid_args = $EncCommands.$_
-        $script:valid_ezenc = $_
-
-        if ($Silent){
-            Write-Host ("Found compatible encoding settings using $PSItem`: {0}" -f ($EncCommands.$_)) -ForegroundColor Green
-        }
-        $shouldStop = $true # Crappy way to stop the loop since most people that'll execute this will technically be parsing the raw URL as a scriptblock
-    }
-}
-
-if (-Not($script:valid_args)){
-    Write-Host "No compatible encoding settings found (should not happen, is FFmpeg installed?)" -ForegroundColor DarkRed
-    Get-Command FFmpeg -Ea Ignore
-    pause
-    return
-}
-
-if ($EzEncArgs){
-    return $script:valid_ezenc
-}else{
-    return $valid_args
-}
-
-}
-function Get-FunctionContent {
-    [alias('gfc')]
-    [CmdletBinding()]
-    param([Parameter()]
-        [String[]]$Functions,
-        [Switch]$Dependencies,
-        [Switch]$ReturnNames
-    )
-
-    $FunctionsPassed = [System.Collections.ArrayList]@()
-    $Content = [System.Collections.ArrayList]@()
-
-    Get-Command $Functions -ErrorAction Stop | ForEach-Object { # Loop through all functions
-        if ($Resolved = $_.ResolvedCommand){ # Checks if $_.ResolveCommand exists, also assigns it to $Resolved
-            Write-Verbose "Switching from alias $_ to function $($Resolved.Name)" -Verbose
-            $_ = Get-Command $Resolved.Name
-        }
-        if ($_ -NotIn $FunctionsPassed){ # If it hasn't been looped over yet
-
-            $Content += ($Block = $_.ScriptBlock.Ast.Extent.Text)
-                # Assigns function block to $Block and appends to $Content
-            
-            $FunctionsPassed.Add($_) | Out-Null # So it doesn't get checked again
-
-            if ($Dependencies){
-
-                if (!$TL_FUNCTIONS){
-                    if (Get-Module -Name TweakList -ErrorAction Ignore){
-                        $TL_FUNCTIONS = [String[]](Get-Module -Name TweakList).ExportedFunctions.Keys
-                    }else {
-                        throw "TL_FUNCTIONS variable is not defined, which is needed to get available TweakList functions"
-                    }
-                }
-
-                $AST = [System.Management.Automation.Language.Parser]::ParseInput($Block, [ref]$null, [ref]$null)
-                
-                $DepMatches = $AST.FindAll({
-                        param ($node)
-                        $node.GetType().Name -eq 'CommandAst'
-                    }, $true) | #It gets all cmdlets from the Abstract Syntax Tree
-                ForEach-Object {$_.CommandElements[0].Value} | # Returns their name
-                    Where-Object { # Filters out only TweakList functions
-                        $_ -In ($TL_FUNCTIONS | Where-Object {$_ -ne $_.Name})
-
-                    } | Select-Object -Unique
-
-                ForEach($Match in $DepMatches){
-                    $FunctionsPassed.Add((Get-Command -Name $Match -CommandType Function)) | Out-Null
-
-                    $Content += (Get-Command -Name $Match -CommandType Function).ScriptBlock.Ast.Extent.Text
-
-                }
-            }
-        }
-    }
-
-    if ($Content){
-        $Content = "#region gfc`n" + $Content + "`n#endregion"
-    }
-
-    if($ReturnNames){
-        return $FunctionsPassed | Select-Object -Unique # | Where-Object {$_ -notin $Functions} 
-    } else {
-        return $Content
-    }
-}
-
-function Get-HeaderSize {
-    param(
-        $URL,
-        $FileName = "file"
-    )
-    Try {
-        $Size = (Invoke-WebRequest -Useb $URL -Method Head -ErrorAction Stop).Headers.'Content-Length'
-    }Catch{
-        Write-Host "Failed to parse $FileName size (Invalid URL?):" -ForegroundColor DarkRed
-        Write-Host $_.Exception.Message -ForegroundColor Red
-        return
-
-    }
-    return [Math]::Round((($Size | Select-Object -First 1) / 1MB), 2)
-    
-}
-function Get-Path {
-    [alias('gpa')]
-    param($File)
-
-    if (-Not(Get-Command $File -ErrorAction Ignore)){return $null}
-
-    $BaseName, $Extension = $File.Split('.')
-
-    if (Get-Command "$BaseName.shim" -ErrorAction Ignore){
-        return (Get-Content (Get-Command "$BaseName.shim").Source | Select-Object -First 1).Trim('path = ').replace('"','')
-    }elseif($Extension){
-        return (Get-Command "$BaseName.$Extension").Source
-    }else{
-        return (Get-Command $BaseName).Source
-    }
-}
-
-function Get-ScoopApp {
-    [CmdletBinding()] param (
-
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [System.Collections.Arraylist]
-        $Apps # Not necessarily plural
-    )
-
-    Install-Scoop
-
-    $Scoop = (Get-Item (Get-Command scoop).Source).Directory | Split-Path
-    $ToInstall = $Apps | Where-Object {$PSItem -NotIn (Get-ChildItem "$Scoop\apps")}
-    $Available = (Get-ChildItem "$Scoop\buckets\*\bucket\*").BaseName
-    $Buckets = (Get-ChildItem "$Scoop\buckets" -Directory).Name
-    $Installed = (Get-ChildItem "$Scoop\apps" -Directory).Name
-    $script:FailedToInstall = @()
-
-    function Get-Git {
-        if ('git' -NotIn $Installed){
-            scoop install git
-            if ($LASTEXITCODE -ne 0){
-                Write-Host "Failed to install Git." -ForegroundColor Red
-                return
-            }
-        }
-        $ToInstall = $ToInstall | Where-Object {$_ -ne 'git'}
-    }
-
-    $Repos = @{
-
-        main            = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
-        extras          = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
-        utils           = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
-        nirsoft         = @{org = 'kodybrown'     ;repo = 'scoop-nirsoft';branch = 'master'}
-        games           = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
-        'nerd-fonts'    = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
-        versions        = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
-        java            = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
-    }
-    $RepoNames = $Repos.Keys -Split('\r?\n')
-
-    Foreach($App in $ToInstall){
-
-        if ($App.Split('/').Count -eq 2){
-
-            $Bucket, $App = $App.Split('/')
-
-            if ($Bucket -NotIn $RepoNames){
-                Write-Host "Bucket $Bucket is not known, add it yourself by typing 'scoop.cmd bucket add bucketname https://bucket.repo/url'"
-                continue
-            }elseif (($Bucket -NotIn $Buckets) -And ($Bucket -In $RepoNames)){
-                Get-Git
-                scoop bucket add $Repos.$Bucket.repo https://github.com/$($Repos.$Bucket.org)/$($Repos.$Bucket.repo)
-            }
-        }
-
-        $Available = (Get-ChildItem "$Scoop\buckets\*\bucket\*").BaseName
-
-        if ($App -NotIn $Available){
-            Remove-Variable -Name Found -ErrorAction Ignore
-            ForEach($Bucket in $RepoNames){
-                if ($Found){continue}
-
-                Write-Host "`rCould not find $App, looking for it in the $Bucket bucket.." -NoNewline
-
-                $Response = Invoke-RestMethod "https://api.github.com/repos/$($Repos.$Bucket.org)/$($Repos.$Bucket.repo)/git/trees//$($Repos.$Bucket.branch)?recursive=1"
-                $Manifests = $Response.tree.path | Where-Object {$_ -Like "bucket/*.json"}
-                $Manifests = ($Manifests).Replace('bucket/','').Replace('.json','')
-
-                if ($App -in $Manifests){
-                    $script:Found = $True
-                    ''
-                    Get-Git
-                    
-                    scoop bucket add $Repos.$Bucket.repo https://github.com/$($Repos.$Bucket.org)/$($Repos.$Bucket.repo)
-                }else{''} # Fixes the -NoNewLine
-            }
-            
-        }
-        scoop install $App
-        if ($LASTEXITCODE -ne 0){
-            $script:FailedToInstall += $App
-            Write-Verbose "$App exitted with code $LASTEXITCODE"        
-        }
-    }
-
-}
-function Get-ShortcutTarget {
-    [alias('gst')]
-
-    param([String]$ShortcutPath)
-
-    Try {
-        $null = Get-Item $ShortcutPath -ErrorAction Stop
-    } Catch {
-        throw
-    }
-    
-    return (New-Object -ComObject WScript.Shell).CreateShortcut($ShortcutPath).TargetPath
-}
-function Install-FFmpeg {
-
-    $IsFFmpegScoop = (Get-Command ffmpeg -Ea Ignore).Source -Like "*\shims\*"
-
-    if(Get-Command ffmpeg -Ea Ignore){
-
-        $IsFFmpeg5 = (ffmpeg -hide_banner -h filter=libplacebo) -ne "Unknown filter 'libplacebo'."
-
-        if (-Not($IsFFmpeg5)){
-
-            if ($IsFFmpegScoop){
-                Get Scoop
-                scoop update ffmpeg
-            }else{
-                Write-Warning @"
-An old FFmpeg installation was detected @ ($((Get-Command FFmpeg).Source)),
-
-You could encounter errors such as:
-- Encoding with NVENC failing (in simple terms not being able to render with your GPU)
-- Scripts using new filters (e.g libplacebo)
-
-If you want to update FFmpeg yourself, you can remove it and use the following command to install ffmpeg and add it to the path:
-iex(irm tl.ctt.cx);Get FFmpeg
-
-If you're using it because you prefer old NVIDIA drivers (why) here be dragons!
-"@
-pause
-                
-            }
-            
-        }
-                
-    }else{
-        Get Scoop
-        $Scoop = (Get-Command Scoop.ps1).Source | Split-Path | Split-Path
-
-        if (-Not(Test-Path "$Scoop\buckets\main")){
-            if (-Not(Test-Path "$Scoop\apps\git\current\bin\git.exe")){
-                scoop install git
-            }
-            scoop bucket add main
-        }
-
-        $Local = ((scoop cat ffmpeg) | ConvertFrom-Json).version
-        $Latest = (Invoke-RestMethod https://raw.githubusercontent.com/ScoopInstaller/Main/master/bucket/ffmpeg.json).version
-
-        if ($Local -ne $Latest){
-            "FFmpeg version installed using scoop is outdated, updating Scoop.."
-            if (-not(Test-Path "$Scoop\apps\git")){
-                scoop install git
-            }
-            scoop update
-        }
-
-        scoop install ffmpeg
-        if ($LASTEXITCODE -ne 0){
-            Write-Warning "Failed to install FFmpeg"
-            pause
-        }
-    }
-}
-
-function Install-Scoop {
-    param(
-        [String]$InstallDir
-    )
-    Set-ExecutionPolicy Bypass -Scope Process -Force
-
-    if (-Not(Get-Command scoop -Ea Ignore)){
-        
-        $RunningAsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]'Administrator')
-
-        if($InstallDir){
-            $env:SCOOP = $InstallDir	
-            [Environment]::SetEnvironmentVariable('SCOOP', $env:SCOOP, 'User')
-        }
-
-        If (-Not($RunningAsAdmin)){
-            Invoke-Expression (Invoke-RestMethod -Uri http://get.scoop.sh)
-        }else{
-            Invoke-Expression "& {$(Invoke-RestMethod -Uri https://get.scoop.sh)} -RunAsAdmin"
-        }
-    }
-
-    Try {
-        scoop -ErrorAction Stop | Out-Null
-    } Catch {
-        Write-Host "Failed to install Scoop" -ForegroundColor DarkRed
-        Write-Host $_.Exception.Message -ForegroundColor Red
-        return
-
-    }
-}
-<#
-	.LINK
-	Frankensteined from Inestic's WindowsFeatures Sophia Script function
-	https://github.com/Inestic
-	https://github.com/farag2/Sophia-Script-for-Windows/blob/06a315c643d5939eae75bf6e24c3f5c6baaf929e/src/Sophia_Script_for_Windows_10/Module/Sophia.psm1#L4946
-
-	.SYNOPSIS
-	User gets a nice checkbox-styled menu in where they can select 
-	
-	.EXAMPLE
-
-	Screenshot: https://i.imgur.com/zrCtR3Y.png
-
-	$ToInstall = Invoke-CheckBox -Items "7-Zip", "PowerShell", "Discord"
-
-	Or you can have each item have a description by passing an array of hashtables:
-
-	$ToInstall = Invoke-CheckBox -Items @(
-
-		@{
-			DisplayName = "7-Zip"
-			# Description = "Cool Unarchiver"
-		},
-		@{
-			DisplayName = "Windows Sandbox"
-			Description = "Windows' Virtual machine"
-		},
-		@{
-			DisplayName = "Firefox"
-			Description = "A great browser"
-		},
-		@{
-			DisplayName = "PowerShell 777"
-			Description = "PowerShell on every system!"
-		}
-	)
-#>
-function Invoke-Checkbox{
-param(
-	$Title = "Select an option",
-	$ButtonName = "Confirm",
-	$Items = @("Fill this", "With passing an array", "to the -Item param!")
-)
-
-if (!$Items.Description){
-	$NewItems = @()
-	ForEach($Item in $Items){
-		$NewItems += @{DisplayName = $Item}
-	}
-	$Items = $NewItems
-} 
-
-Add-Type -AssemblyName PresentationCore, PresentationFramework
-
-# Initialize an array list to store the selected Windows features
-$SelectedFeatures = New-Object -TypeName System.Collections.ArrayList($null)
-$ToReturn = New-Object -TypeName System.Collections.ArrayList($null)
-
-
-#region XAML Markup
-# The section defines the design of the upcoming dialog box
-[xml]$XAML = '
-<Window
-	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-	Name="Window"
-	MinHeight="450" MinWidth="400"
-	SizeToContent="WidthAndHeight" WindowStartupLocation="CenterScreen"
-	TextOptions.TextFormattingMode="Display" SnapsToDevicePixels="True"
-	FontFamily="Arial" FontSize="16" ShowInTaskbar="True"
-	Background="#F1F1F1" Foreground="#262626">
-
-	<Window.TaskbarItemInfo>
-		<TaskbarItemInfo/>
-	</Window.TaskbarItemInfo>
-	
-	<Window.Resources>
-		<Style TargetType="StackPanel">
-			<Setter Property="Orientation" Value="Horizontal"/>
-			<Setter Property="VerticalAlignment" Value="Top"/>
-		</Style>
-		<Style TargetType="CheckBox">
-			<Setter Property="Margin" Value="10, 10, 5, 10"/>
-			<Setter Property="IsChecked" Value="True"/>
-		</Style>
-		<Style TargetType="TextBlock">
-			<Setter Property="Margin" Value="5, 10, 10, 10"/>
-		</Style>
-		<Style TargetType="Button">
-			<Setter Property="Margin" Value="25"/>
-			<Setter Property="Padding" Value="15"/>
-		</Style>
-		<Style TargetType="Border">
-			<Setter Property="Grid.Row" Value="1"/>
-			<Setter Property="CornerRadius" Value="0"/>
-			<Setter Property="BorderThickness" Value="0, 1, 0, 1"/>
-			<Setter Property="BorderBrush" Value="#000000"/>
-		</Style>
-		<Style TargetType="ScrollViewer">
-			<Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
-			<Setter Property="BorderBrush" Value="#000000"/>
-			<Setter Property="BorderThickness" Value="0, 1, 0, 1"/>
-		</Style>
-	</Window.Resources>
-	<Grid>
-		<Grid.RowDefinitions>
-			<RowDefinition Height="Auto"/>
-			<RowDefinition Height="*"/>
-			<RowDefinition Height="Auto"/>
-		</Grid.RowDefinitions>
-		<ScrollViewer Name="Scroll" Grid.Row="0"
-			HorizontalScrollBarVisibility="Disabled"
-			VerticalScrollBarVisibility="Auto">
-			<StackPanel Name="PanelContainer" Orientation="Vertical"/>
-		</ScrollViewer>
-		<Button Name="Button" Grid.Row="2"/>
-	</Grid>
-</Window>
-'
-#endregion XAML Markup
-
-$Form = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
-$XAML.SelectNodes("//*[@Name]") | ForEach-Object {
-	Set-Variable -Name ($_.Name) -Value $Form.FindName($_.Name)
-}
-
-#region Functions
-function Get-CheckboxClicked
-{
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(
-			Mandatory = $true,
-			ValueFromPipeline = $true
-		)]
-		[ValidateNotNull()]
-		$CheckBox
-	)
-
-	$Feature = $Items | Where-Object -FilterScript {$_.DisplayName -eq $CheckBox.Parent.Children[1].Text}
-
-	if ($CheckBox.IsChecked)
-	{
-		[void]$SelectedFeatures.Add($Feature)
-	}
-	else
-	{
-		[void]$SelectedFeatures.Remove($Feature)
-	}
-	if ($SelectedFeatures.Count -gt 0)
-	{
-		$Button.Content = $ButtonName
-		$Button.IsEnabled = $true
-	}
-	else
-	{
-		$Button.Content = "Cancel"
-		$Button.IsEnabled = $true
-	}
-}
-
-function DisableButton
-{
-	[void]$Window.Close()
-
-	#$SelectedFeatures | ForEach-Object -Process {Write-Verbose $_.DisplayName -Verbose}
-	$SelectedFeatures.DisplayName
-	$ToReturn.Add($SelectedFeatures.DisplayName)
-}
-
-function Add-FeatureControl
-{
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(
-			Mandatory = $true,
-			ValueFromPipeline = $true
-		)]
-		[ValidateNotNull()]
-		$Feature
-	)
-
-	process
-	{
-		$CheckBox = New-Object -TypeName System.Windows.Controls.CheckBox
-		$CheckBox.Add_Click({Get-CheckboxClicked -CheckBox $_.Source})
-		if ($Feature.Description){
-			$CheckBox.ToolTip = $Feature.Description
-		}
-
-		$TextBlock = New-Object -TypeName System.Windows.Controls.TextBlock
-		#$TextBlock.On_Click({Get-CheckboxClicked -CheckBox $_.Source})
-		$TextBlock.Text = $Feature.DisplayName
-		if ($Feature.Description){
-			$TextBlock.ToolTip = $Feature.Description
-		}
-
-		$StackPanel = New-Object -TypeName System.Windows.Controls.StackPanel
-		[void]$StackPanel.Children.Add($CheckBox)
-		[void]$StackPanel.Children.Add($TextBlock)
-		[void]$PanelContainer.Children.Add($StackPanel)
-
-		$CheckBox.IsChecked = $false
-
-		# If feature checked add to the array list
-		[void]$SelectedFeatures.Add($Feature)
-		$SelectedFeatures.Remove($Feature)
-	}
-}
-#endregion Functions
-
-# Getting list of all optional features according to the conditions
-
-
-# Add-Type -AssemblyName System.Windows.Forms
-
-
-
-# if (-not ("WinAPI.ForegroundWindow" -as [type]))
-# {
-# 	Add-Type @SetForegroundWindow
-# }
-
-# Get-Process | Where-Object -FilterScript {$_.Id -eq $PID} | ForEach-Object -Process {
-# 	# Show window, if minimized
-# 	[WinAPI.ForegroundWindow]::ShowWindowAsync($_.MainWindowHandle, 10)
-
-# 	#Start-Sleep -Seconds 1
-
-# 	# Force move the console window to the foreground
-# 	[WinAPI.ForegroundWindow]::SetForegroundWindow($_.MainWindowHandle)
-
-# 	#Start-Sleep -Seconds 1
-
-# 	# Emulate the Backspace key sending
-# 	[System.Windows.Forms.SendKeys]::SendWait("{BACKSPACE 1}")
-# }
-# #endregion Sendkey function
-
-$Window.Add_Loaded({$Items | Add-FeatureControl})
-$Button.Content = $ButtonName
-$Button.Add_Click({& DisableButton})
-$Window.Title = $Title
-
-# ty chrissy <3 https://blog.netnerds.net/2016/01/adding-toolbar-icons-to-your-powershell-wpf-guis/
-$base64 = "iVBORw0KGgoAAAANSUhEUgAAACoAAAAqCAMAAADyHTlpAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAPUExURQAAAP///+vr6+fn5wAAAD8IT84AAAAFdFJOU/////8A+7YOUwAAAAlwSFlzAAALEwAACxMBAJqcGAAAANBJREFUSEut08ESgjAMRVFQ/v+bDbxLm9Q0lRnvQtrkDBt1O4a2FoNWHIBajJW/sQ+xOnNnlkMsrXZkkwRolHHaTXiUYfS5SOgXKfuQci0T5bLoIeWYt/O0FnTfu62pyW5X7/S26D/yFca19AvBXMaVbrnc3n6p80QGq9NUOqtnIRshhi7/ffHeK0a94TfQLQPX+HO5LVef0cxy8SX/gokU/bIcQvxjB5t1qYd0aYWuz4XF6FHam/AsLKDTGWZpuWNqWZ358zdmrOLNAlkM6Dg+78AGkhvs7wgAAAAASUVORK5CYII="
- 
- 
-# Create a streaming image by streaming the base64 string to a bitmap streamsource
-$bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
-$bitmap.BeginInit()
-$bitmap.StreamSource = [System.IO.MemoryStream][System.Convert]::FromBase64String($base64)
-$bitmap.EndInit()
-$bitmap.Freeze()
-
-# This is the icon in the upper left hand corner of the app
-# $Form.Icon = $bitmap
- 
-# This is the toolbar icon and description
-$Form.TaskbarItemInfo.Overlay = $bitmap
-$Form.TaskbarItemInfo.Description = $window.Title
-
-# # Force move the WPF form to the foreground
-# $Window.Add_Loaded({$Window.Activate()})
-# $Form.ShowDialog() | Out-Null
-# return $ToReturn
-
-# [System.Windows.Forms.Integration.ElementHost]::EnableModelessKeyboardInterop($Form)
-
-Add-Type -AssemblyName PresentationFramework, System.Drawing, System.Windows.Forms, WindowsFormsIntegration
-$window.Add_Closing({[System.Windows.Forms.Application]::Exit()})
-
-$Form.Show()
-
-# This makes it pop up
-$Form.Activate() | Out-Null
- 
-# Create an application context for it to all run within. 
-# This helps with responsiveness and threading.
-$appContext = New-Object System.Windows.Forms.ApplicationContext
-[void][System.Windows.Forms.Application]::Run($appContext) 
-return $ToReturn
-}
-#using namespace System.Management.Automation # this can't be a function but whatever, it doesn't slow down anything
-# Author:	Collin Chaffin
-# License: MIT (https://github.com/CollinChaffin/psNGENposh/blob/master/LICENSE)
-function Invoke-NGENposh {
-<#
-	.SYNOPSIS
-		This Powershell function performs various SYNCHRONOUS ngen functions
-	
-	.DESCRIPTION
-		This Powershell function performs various SYNCHRONOUS ngen functions
-	
-		Since the purpose of this module is to for interactive use,
-		I intentionally did not include any "Queue" options.
-	
-	.PARAMETER All
-		Regenerate cache for all system assemblies
-	
-	.PARAMETER Force
-		Invoke ngen on currently loaded assembles (ensure up to date even if cached)
-	
-	.EXAMPLE
-		To invoke ngen on currently loaded assembles, skipping those already generated:
-
-		PS C:\> Invoke-NGENposh
-	
-	.EXAMPLE	
-		To invoke ngen on currently loaded assembles (ensure up to date even if cached):
-
-		PS C:\> Invoke-NGENposh -Force
-	
-	.EXAMPLE	
-		To invoke ngen to regenerate cache for all system assemblies (*SEE WARNING BELOW**):
-
-		PS C:\> Invoke-NGENposh -All
-	
-	.NOTES
-		 **WARNING: The '-All' switch since the execution is SYNCHRONOUS will
-					take considerable time, and literally regenerate all the
-					global assembly cache.  There should theoretically be no
-					downside to this, but bear in mind other than time (and cpu)
-					that since all the generated cache files are new, any
-					system backups will consider those files as new and may
-					likely cause your next incremental backup to be much larger
-#>
-	param
-	(
-		[switch]$All,
-		[switch]$Force,
-		[switch]$Confirm
-	)
-
-	if (!$Confirm){
-		Write-Host "Press enter to continue and start using NGENPosh, or press CTRL+C to cancel"
-		pause
-	}
-    
-# INTERNAL HELPER
-function Write-InfoInColor
-{
-	[CmdletBinding()]
-	param
-	(
-		[Parameter(Mandatory = $true)]
-		[ValidateNotNullOrEmpty()]
-		[String]$Message,
-		[Parameter(Mandatory = $false)]
-		[ValidateNotNullOrEmpty()]
-		[System.ConsoleColor[]]$Background = $Host.UI.RawUI.BackgroundColor,
-		[Parameter(Mandatory = $false)]
-		[ValidateNotNullOrEmpty()]
-		[System.ConsoleColor[]]$Foreground = $Host.UI.RawUI.ForegroundColor,
-		[Switch]$NoNewline
-	)
-	
-	[HostInformationMessage]$outMessage = @{
-		Message			     = $Message
-		ForegroundColor	     = $Foreground
-		BackgroundColor	     = $Background
-		NoNewline		     = $NoNewline
-	}
-	Write-Information $outMessage -InformationAction Continue
-}
-	
-	Write-InfoInColor "`n===================================================================================" -Foreground 'DarkCyan'
-	Write-InfoInColor "                             BEGINNING TO NGEN                                     " -Foreground 'Cyan'
-	Write-InfoInColor "===================================================================================`n" -Foreground 'DarkCyan'
-	
-	Set-Alias ngenpsh (Join-Path ([System.Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()) ngen.exe) -Force
-	
-	if ($All)
-	{
-		Write-InfoInColor "EXECUTING GLOBAL NGEN`n`n" -Foreground 'Cyan'
-		ngenpsh update /nologo /force
-	}
-	else
-	{
-		Write-InfoInColor "EXECUTING TARGETED NGEN`n`n" -Foreground 'Cyan'
-		
-		[AppDomain]::CurrentDomain.GetAssemblies() |
-		ForEach-Object {
-			if ($_.Location)
-			{
-				$Name = (Split-Path $_.location -leaf)
-				if ((!($Force)) -and [System.Runtime.InteropServices.RuntimeEnvironment]::FromGlobalAccessCache($_))
-				{
-					Write-InfoInColor "[SKIPPED]" -Foreground 'Yellow' -NoNewLine
-					Write-InfoInColor " :: " -Foreground 'White' -NoNewline
-					Write-InfoInColor "[ $Name ]" -Foreground 'Cyan'
-					
-				}
-				else
-				{
-					
-					ngenpsh install $_.location /nologo | ForEach-Object {
-						if ($?)
-						{
-							Write-InfoInColor "[SUCCESS]" -Foreground 'Green' -NoNewLine
-							Write-InfoInColor " :: " -Foreground 'White' -NoNewline
-							Write-InfoInColor "[ $Name ]" -Foreground 'Cyan'
-						}
-						else
-						{
-							Write-InfoInColor "[FAILURE]" -Foreground 'Red' -NoNewLine
-							Write-InfoInColor " :: " -Foreground 'White' -NoNewline
-							Write-InfoInColor "[ $Name ]" -Foreground 'Cyan'
-						}
-					}
-				}
-			}
-		}
-	}
-	Write-InfoInColor "`n===================================================================================" -Foreground 'DarkCyan'
-	Write-InfoInColor "                               COMPLETED NGEN                                      " -Foreground 'Cyan'
-	Write-InfoInColor "===================================================================================`n" -Foreground 'DarkCyan'
-}
-
-
-
-function Invoke-Registry {
-    [alias('ireg')]
-    param(
-        [Parameter(
-            Position = 0,
-            Mandatory=$true,
-            ValueFromPipeline = $true
-            )
-        ][Array]$Path,
-
-        [Parameter(
-            Position = 1,
-            Mandatory=$true
-            )
-        ][HashTable]$HashTable
-        
-    )
-
-    Process {
-        "doing $path"
-        $Path = "REGISTRY::$($Path -replace 'REGISTRY::','')"
-        "now its $path"
-        if (-Not(Test-Path -LiteralPath $Path)){
-
-            New-Item -ItemType Key -Path $Path -Force
-        }
-
-        ForEach($Key in $HashTable.Keys){
-
-            Set-ItemProperty -LiteralPath $Path -Name $Key -Value $HashTable.$Key
-        }
-    }
-}
-
-function IsCustomISO {
-    switch (
-        Get-ItemProperty "REGISTRY::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation"
-    ){
-        {$_.SupportURL -Like "https://atlasos.net*"}{return 'AtlasOS'}
-        {$_.Manufacturer -eq "Revision"}{return 'Revision'}
-        {$_.Manufacturer -eq "ggOS"}{return 'ggOS'}
-    }
-    return $False
-}
-
-# https://github.com/chrisseroka/ps-menu
-function Menu {
-    param ([array]$menuItems, [switch]$ReturnIndex=$false, [switch]$Multiselect)
-
-function DrawMenu {
-    param ($menuItems, $menuPosition, $Multiselect, $selection)
-    $l = $menuItems.length
-    for ($i = 0; $i -le $l;$i++) {
-		if ($menuItems[$i] -ne $null){
-			$item = $menuItems[$i]
-			if ($Multiselect)
-			{
-				if ($selection -contains $i){
-					$item = '[x] ' + $item
-				}
-				else {
-					$item = '[ ] ' + $item
-				}
-			}
-			if ($i -eq $menuPosition) {
-				Write-Host "> $($item)" -ForegroundColor Green
-			} else {
-				Write-Host "  $($item)"
-			}
-		}
-    }
-}
-
-function Toggle-Selection {
-	param ($pos, [array]$selection)
-	if ($selection -contains $pos){ 
-		$result = $selection | where {$_ -ne $pos}
-	}
-	else {
-		$selection += $pos
-		$result = $selection
-	}
-	$result
-}
-
-    $vkeycode = 0
-    $pos = 0
-    $selection = @()
-    if ($menuItems.Length -gt 0)
-	{
-		try {
-			[console]::CursorVisible=$false #prevents cursor flickering
-			DrawMenu $menuItems $pos $Multiselect $selection
-			While ($vkeycode -ne 13 -and $vkeycode -ne 27) {
-				$press = $host.ui.rawui.readkey("NoEcho,IncludeKeyDown")
-				$vkeycode = $press.virtualkeycode
-				If ($vkeycode -eq 38 -or $press.Character -eq 'k') {$pos--}
-				If ($vkeycode -eq 40 -or $press.Character -eq 'j') {$pos++}
-				If ($vkeycode -eq 36) { $pos = 0 }
-				If ($vkeycode -eq 35) { $pos = $menuItems.length - 1 }
-				If ($press.Character -eq ' ') { $selection = Toggle-Selection $pos $selection }
-				if ($pos -lt 0) {$pos = 0}
-				If ($vkeycode -eq 27) {$pos = $null }
-				if ($pos -ge $menuItems.length) {$pos = $menuItems.length -1}
-				if ($vkeycode -ne 27)
-				{
-					$startPos = [System.Console]::CursorTop - $menuItems.Length
-					[System.Console]::SetCursorPosition(0, $startPos)
-					DrawMenu $menuItems $pos $Multiselect $selection
-				}
-			}
-		}
-		finally {
-			[System.Console]::SetCursorPosition(0, $startPos + $menuItems.Length)
-			[console]::CursorVisible = $true
-		}
-	}
-	else {
-		$pos = $null
-	}
-
-    if ($ReturnIndex -eq $false -and $pos -ne $null)
-	{
-		if ($Multiselect){
-			return $menuItems[$selection]
-		}
-		else {
-			return $menuItems[$pos]
-		}
-	}
-	else 
-	{
-		if ($Multiselect){
-			return $selection
-		}
-		else {
-			return $pos
-		}
-	}
-}
-
-
-<#
-$Original = @{
-    lets = 'go'
-    Sub = @{
-      Foo =  'bar'
-      big = 'ya'
-    }
-    finish = 'fish'
-}
-$Patch = @{
-    lets = 'arrive'
-    Sub = @{
-      Foo =  'baz'
-    }
-    finish ='cum'
-}
-#>
-function Merge-Hashtables {
-    param(
-        $Original,
-        $Patch
-    )
-    $Merged = @{} # Final Merged settings
-
-    if (!$Original){$Original = @{}}
-
-    if ($Original.GetType().Name -in 'PSCustomObject','PSObject'){
-        $Temp = [ordered]@{}
-        $Original.PSObject.Properties | ForEach-Object { $Temp[$_.Name] = $_.Value }
-        $Original = $Temp
-        Remove-Variable Temp #fck temp vars
-    }
-
-    foreach ($Key in [object[]]$Original.Keys) {
-
-        if ($Original.$Key -is [HashTable]){
-            $Merged.$Key += [HashTable](Merge-Hashtables $Original.$Key $Patch.$Key)
-            continue
-        }
-
-        if ($Patch.$Key -and !$Merged.$Key){ # If the setting exists in the patch
-            $Merged.Remove($Key)
-            if ($Original.$Key -ne $Patch.$Key){
-                Write-Verbose "Changing $Key from $($Original.$Key) to $($Patch.$Key)"
-            }
-            $Merged += @{$Key = $Patch.$Key} # Then add it to the final settings
-        }else{ # Else put in the unchanged normal setting
-            $Merged += @{$Key = $Original.$Key}
-        }
-    }
-
-    ForEach ($Key in [object[]]$Patch.Keys) {
-        if ($Patch.$Key -is [HashTable] -and ($Key -NotIn $Original.Keys)){
-            $Merged.$Key += [HashTable](Merge-Hashtables $Original.$Key $Patch.$Key)
-            continue
-        }
-        if ($Key -NotIn $Original.Keys){
-            $Merged.$Key += $Patch.$Key
-        }
-    }
-
-    return $Merged
-}
-
-<# Here's some example hashtables you can mess with:
-
-$Original = [Ordered]@{ # Original settings
-    potato = $true
-    avocado = $false
-}
-
-$Patch = @{ # Fixes
-    avocado = $true
-}
-
-
-function Merge-Hashtables {
-    param(
-        [Switch]$ShowDiff,
-        $Original,
-        $Patch
-    )
-
-    if (!$Original){$Original = @{}}
-
-    if ($Original.GetType().Name -in 'PSCustomObject','PSObject'){
-        $Temp = [ordered]@{}
-        $Original.PSObject.Properties | ForEach-Object { $Temp[$_.Name] = $_.Value }
-        $Original = $Temp
-        Remove-Variable Temp #fck temp vars
-    }
-
-    $Merged = @{} # Final Merged settings
-
-    foreach($Key in $Original.Keys){ # Loops through all OG settings
-        $Merging = $True
-
-        if ($Patch.$Key){ # If the setting exists in the new settings
-            $Merged += @{$Key = $Patch.$Key} # Then add it to the final settings
-        }else{ # Else put in the normal settings
-            $Merged += @{$Key = $Original.$Key}
-        }
-    }
-    foreach($key in $Patch.Keys){ # If Patch has hashtables that Original does not
-        if (!$Merged.$key){
-            $Merged += @{$key = $Patch.$key}
-        }
-    }
-
-    if (!$Merging){$Merged = $Patch} # If no settings were merged (empty $Original), completely overwrite
-    return $Merged
-}
-
-#>
-function New-Shortcut {
-    param(
-        [Switch]$Admin,
-        [Switch]$Overwrite,
-        [String]$LnkPath,
-        [String]$TargetPath,
-        [String]$Arguments,
-        [String]$Icon
-    )
-
-    if ($Overwrite){
-        if (Test-Path $LnkPath){
-            Remove-Item $LnkPath
-        }
-    }
-
-    $WScriptShell = New-Object -ComObject WScript.Shell
-    $Shortcut = $WScriptShell.CreateShortcut($LnkPath)
-    $Shortcut.TargetPath = $TargetPath
-    if ($Arguments){
-        $Shortcut.Arguments = $Arguments
-    }
-    if ($Icon){
-        $Shortcut.IconLocation = $Icon
-    }
-
-    $Shortcut.Save()
-    if ((Get-Item $LnkPath).FullName -cne $LnkPath){
-        Rename-Item $LnkPath -NewName (Get-Item $LnkPath).Name # Shortcut names are always underscore
-    }
-
-    if ($Admin){
-    
-        $bytes = [System.IO.File]::ReadAllBytes($LnkPath)
-        $bytes[0x15] = $bytes[0x15] -bor 0x20 #set byte 21 (0x15) bit 6 (0x20) ON
-        [System.IO.File]::WriteAllBytes($LnkPath, $bytes)
-    }
-}
-function PauseNul {
-    $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | Out-Null
-}
-<# This function messes with the message that appears before the commands you type
-
-# Turns:
-PS D:\Scoop>
-# into
-TL D:\Scoop>
-
-To indicate TweakList has been imported
-
-You can prevent this from happening by setting the environment variable TL_NOPROMPT to 1
-#>
-$global:CSI = [char] 27 + '['
-if (!$env:TL_NOPROMPT -and !$TL_NOPROMPT){
-    function global:prompt {
-            "$CSI`97;7mTL$CSI`m $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) ";
-    }
-}
-
-function Set-Choice { # Converts passed string to an array of chars
-    param(
-        [char[]]$Letters = "YN"
-    )
-    While ($Key -NotIn $Letters){
-        [char]$Key = $host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]'NoEcho, IncludeKeyDown').Character
-        if (($Key -NotIn $Letters) -and !$IsLinux){
-                [Console]::Beep(500,300)
-        }
-    }
-    return $Key
-}
-function Set-Title {
-    param(
-        $Title
-    )
-    $Host.UI.RawUI.WindowTitle = "TweakList - $Title"
-}
-
-function Set-Verbosity {
-    [alias('Verbose','Verb')]
-    param (
-
-		[Parameter(Mandatory = $true,ParameterSetName = "Enabled")]
-        [switch]$Enabled,
-
-		[Parameter(Mandatory = $true,ParameterSetName = "Disabled")]
-		[switch]$Disabled
-	)
-    
-    switch ($PSCmdlet.ParameterSetName){
-        "Enabled" {
-            $script:Verbose = $True
-            $script:VerbosePreference = 'Continue'
-        }
-        "Disabled" {
-            $script:Verbose = $True
-            $script:VerbosePreference = 'SilentlyContinue'
-        }
-    }
-}
-function Test-Admin {
-
-    if (!$IsLinux -and !$IsMacOS){
-
-        $identity  = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-        $principal = New-Object System.Security.Principal.WindowsPrincipal( $identity )
-        return $principal.IsInRole( [System.Security.Principal.WindowsBuiltInRole]::Administrator )
-    
-    }else{ # Running on *nix
-        return ((id -u) -eq 0)
-    }
-}
-
-function Write-Color {
-    # Ported to PowerShell from an old version of https://github.com/atzuur/colors
-    param(
-        [String]$Message
-    )
-    $E = [char]0x1b
-    $Presets = [Ordered]@{
-        '&RESET'   ="$E[0m"
-        '&BOLD'    ="$E[1m"
-        '&ITALIC'  ="$E[3m"
-        '&URL'     ="$E[4m"
-        '&BLINK'   ="$E[5m"
-        '&ALTBLINK'="$E[6m"
-        '&SELECTED'="$E[7m"
-        '@BLACK'   ="$E[30m"
-        '@RED'     ="$E[31m"
-        '@GREEN'   ="$E[32m"
-        '@YELLOW'  ="$E[33m"
-        '@BLUE'    ="$E[34m"
-        '@VIOLET'  ="$E[35m"
-        '@BEIGE'   ="$E[36m"
-        '@WHITE'   ="$E[37m"
-        '@GREY'    ="$E[90m"
-        '@LRED'    ="$E[91m"
-        '@LGREEN'  ="$E[92m"
-        '@LYELLOW' ="$E[93m"
-        '@LBLUE'   ="$E[94m"
-        '@LVIOLET' ="$E[95m"
-        '@LBEIGE'  ="$E[96m"
-        '@LWHITE'  ="$E[97m"
-        '%BLACK'   ="$E[40m"
-        '%RED'     ="$E[41m"
-        '%GREEN'   ="$E[42m"
-        '%YELLOW'  ="$E[43m"
-        '%BLUE'    ="$E[44m"
-        '%VIOLET'  ="$E[45m"
-        '%BEIGE'   ="$E[46m"
-        '%WHITE'   ="$E[47m"
-        '%GREY'    ="$E[100m"
-        '%LRED'    ="$E[101m"
-        '%LGREEN'  ="$E[102m"
-        '%LYELLOW' ="$E[103m"
-        '%LBLUE'   ="$E[104m"
-        '%LVIOLET' ="$E[105m"
-        '%LBEIGE'  ="$E[106m"
-        '%LWHITE'  ="$E[107m"
-    }
-    Foreach($Pattern in $Presets.Keys){
-        $Message = $Message -replace $Pattern, $Presets.$Pattern
-    }
-    return $Message + $Presets.'$RESET'
-}
-
-function Write-Diff {
-	param(
-	[String]$Message,
-	[Boolean]$Positivity,
-	[String]$Term
-	)
-	$E = [char]0x1b # Ansi ESC character
-
-	if ($Positivity){
-		$Sign = '+'
-		$Accent = "$E[92m"
-		if (!$Term){
-		$Term = "Enabled"
-		}
-	}
-	elseif(!$Positivity){
-		$Sign = '-'
-		if (!$Term){
-			$Term = "Removed"
-		}
-		$Accent = "$E[91m"
-	}
-
-	$Gray = "$E[90m"
-	$Reset = "$E[0m"
-
-	Write-Host "  $Gray[$Accent$Sign$Gray]$Reset $Term $Accent$Message"
- 
-}
-
-
-function Write-Menu {
-    <#
-        By QuietusPlus on GitHub: https://github.com/QuietusPlus/Write-Menu
-
-        .SYNOPSIS
-            Outputs a command-line menu which can be navigated using the keyboard.
-
-        .DESCRIPTION
-            Outputs a command-line menu which can be navigated using the keyboard.
-
-            * Automatically creates multiple pages if the entries cannot fit on-screen.
-            * Supports nested menus using a combination of hashtables and arrays.
-            * No entry / page limitations (apart from device performance).
-            * Sort entries using the -Sort parameter.
-            * -MultiSelect: Use space to check a selected entry, all checked entries will be invoked / returned upon confirmation.
-            * Jump to the top / bottom of the page using the "Home" and "End" keys.
-            * "Scrolling" list effect by automatically switching pages when reaching the top/bottom.
-            * Nested menu indicator next to entries.
-            * Remembers parent menus: Opening three levels of nested menus means you have to press "Esc" three times.
-
-            Controls             Description
-            --------             -----------
-            Up                   Previous entry
-            Down                 Next entry
-            Left / PageUp        Previous page
-            Right / PageDown     Next page
-            Home                 Jump to top
-            End                  Jump to bottom
-            Space                Check selection (-MultiSelect only)
-            Enter                Confirm selection
-            Esc / Backspace      Exit / Previous menu
-
-        .EXAMPLE
-            PS C:\>$menuReturn = Write-Menu -Title 'Menu Title' -Entries @('Menu Option 1', 'Menu Option 2', 'Menu Option 3', 'Menu Option 4')
-
-            Output:
-
-              Menu Title
-
-               Menu Option 1
-               Menu Option 2
-               Menu Option 3
-               Menu Option 4
-
-        .EXAMPLE
-            PS C:\>$menuReturn = Write-Menu -Title 'AppxPackages' -Entries (Get-AppxPackage).Name -Sort
-
-            This example uses Write-Menu to sort and list app packages (Windows Store/Modern Apps) that are installed for the current profile.
-
-        .EXAMPLE
-            PS C:\>$menuReturn = Write-Menu -Title 'Advanced Menu' -Sort -Entries @{
-                'Command Entry' = '(Get-AppxPackage).Name'
-                'Invoke Entry' = '@(Get-AppxPackage).Name'
-                'Hashtable Entry' = @{
-                    'Array Entry' = "@('Menu Option 1', 'Menu Option 2', 'Menu Option 3', 'Menu Option 4')"
-                }
-            }
-
-            This example includes all possible entry types:
-
-            Command Entry     Invoke without opening as nested menu (does not contain any prefixes)
-            Invoke Entry      Invoke and open as nested menu (contains the "@" prefix)
-            Hashtable Entry   Opened as a nested menu
-            Array Entry       Opened as a nested menu
-
-        .NOTES
-            Write-Menu by QuietusPlus (inspired by "Simple Textbased Powershell Menu" [Michael Albert])
-
-        .LINK
-            https://quietusplus.github.io/Write-Menu
-
-        .LINK
-            https://github.com/QuietusPlus/Write-Menu
-    #>
-
-    [CmdletBinding()]
-
-    <#
-        Parameters
-    #>
-
-    param(
-        # Array or hashtable containing the menu entries
-        [Parameter(Mandatory=$true, ValueFromPipeline = $true)]
-        [ValidateNotNullOrEmpty()]
-        [Alias('InputObject')]
-        $Entries,
-
-        # Title shown at the top of the menu.
-        [Parameter(ValueFromPipelineByPropertyName = $true)]
-        [Alias('Name')]
-        [string]
-        $Title,
-
-        # Sort entries before they are displayed.
-        [Parameter()]
-        [switch]
-        $Sort,
-
-        # Select multiple menu entries using space, each selected entry will then get invoked (this will disable nested menu's).
-        [Parameter()]
-        [switch]
-        $MultiSelect
-    )
-
-    <#
-        Configuration
-    #>
-
-    # Entry prefix, suffix and padding
-    $script:cfgPrefix = ' '
-    $script:cfgPadding = 2
-    $script:cfgSuffix = ' '
-    $script:cfgNested = ' >'
-
-    # Minimum page width
-    $script:cfgWidth = 30
-
-    # Hide cursor
-    [System.Console]::CursorVisible = $false
-
-    # Save initial colours
-    $script:colorForeground = [System.Console]::ForegroundColor
-    $script:colorBackground = [System.Console]::BackgroundColor
-
-    <#
-        Checks
-    #>
-
-    # Check if entries has been passed
-    if ($Entries -like $null) {
-        Write-Error "Missing -Entries parameter!"
-        return
-    }
-
-    # Check if host is console
-    if ($host.Name -ne 'ConsoleHost') {
-        Write-Error "[$($host.Name)] Cannot run inside current host, please use a console window instead!"
-        return
-    }
-
-    <#
-        Set-Color
-    #>
-
-    function Set-Color ([switch]$Inverted) {
-        switch ($Inverted) {
-            $true {
-                [System.Console]::ForegroundColor = $colorBackground
-                [System.Console]::BackgroundColor = $colorForeground
-            }
-            Default {
-                [System.Console]::ForegroundColor = $colorForeground
-                [System.Console]::BackgroundColor = $colorBackground
-            }
-        }
-    }
-
-    <#
-        Get-Menu
-    #>
-
-    function Get-Menu ($script:inputEntries) {
-        # Clear console
-        Clear-Host
-
-        # Check if -Title has been provided, if so set window title, otherwise set default.
-        if ($Title -notlike $null) {
-            #$host.UI.RawUI.WindowTitle = $Title # DISABLED FOR TWEAKLIST
-            $script:menuTitle = "$Title"
-        } else {
-            $script:menuTitle = 'Menu'
-        }
-
-        # Set menu height
-        $script:pageSize = ($host.UI.RawUI.WindowSize.Height - 5)
-
-        # Convert entries to object
-        $script:menuEntries = @()
-        switch ($inputEntries.GetType().Name) {
-            'String' {
-                # Set total entries
-                $script:menuEntryTotal = 1
-                # Create object
-                $script:menuEntries = New-Object PSObject -Property @{
-                    Command = ''
-                    Name = $inputEntries
-                    Selected = $false
-                    onConfirm = 'Name'
-                }; break
-            }
-            'Object[]' {
-                # Get total entries
-                $script:menuEntryTotal = $inputEntries.Length
-                # Loop through array
-                foreach ($i in 0..$($menuEntryTotal - 1)) {
-                    # Create object
-                    $script:menuEntries += New-Object PSObject -Property @{
-                        Command = ''
-                        Name = $($inputEntries)[$i]
-                        Selected = $false
-                        onConfirm = 'Name'
-                    }; $i++
-                }; break
-            }
-            'Hashtable' {
-                # Get total entries
-                $script:menuEntryTotal = $inputEntries.Count
-                # Loop through hashtable
-                foreach ($i in 0..($menuEntryTotal - 1)) {
-                    # Check if hashtable contains a single entry, copy values directly if true
-                    if ($menuEntryTotal -eq 1) {
-                        $tempName = $($inputEntries.Keys)
-                        $tempCommand = $($inputEntries.Values)
-                    } else {
-                        $tempName = $($inputEntries.Keys)[$i]
-                        $tempCommand = $($inputEntries.Values)[$i]
-                    }
-
-                    # Check if command contains nested menu
-                    if ($tempCommand.GetType().Name -eq 'Hashtable') {
-                        $tempAction = 'Hashtable'
-                    } elseif ($tempCommand.Substring(0,1) -eq '@') {
-                        $tempAction = 'Invoke'
-                    } else {
-                        $tempAction = 'Command'
-                    }
-
-                    # Create object
-                    $script:menuEntries += New-Object PSObject -Property @{
-                        Name = $tempName
-                        Command = $tempCommand
-                        Selected = $false
-                        onConfirm = $tempAction
-                    }; $i++
-                }; break
-            }
-            Default {
-                Write-Error "Type `"$($inputEntries.GetType().Name)`" not supported, please use an array or hashtable."
-                exit
-            }
-        }
-
-        # Sort entries
-        if ($Sort -eq $true) {
-            $script:menuEntries = $menuEntries | Sort-Object -Property Name
-        }
-
-        # Get longest entry
-        $script:entryWidth = ($menuEntries.Name | Measure-Object -Maximum -Property Length).Maximum
-        # Widen if -MultiSelect is enabled
-        if ($MultiSelect) { $script:entryWidth += 4 }
-        # Set minimum entry width
-        if ($entryWidth -lt $cfgWidth) { $script:entryWidth = $cfgWidth }
-        # Set page width
-        $script:pageWidth = $cfgPrefix.Length + $cfgPadding + $entryWidth + $cfgPadding + $cfgSuffix.Length
-
-        # Set current + total pages
-        $script:pageCurrent = 0
-        $script:pageTotal = [math]::Ceiling((($menuEntryTotal - $pageSize) / $pageSize))
-
-        # Insert new line
-        [System.Console]::WriteLine("")
-
-        # Save title line location + write title
-        $script:lineTitle = [System.Console]::CursorTop
-        [System.Console]::WriteLine("  $menuTitle" + "`n")
-
-        # Save first entry line location
-        $script:lineTop = [System.Console]::CursorTop
-    }
-
-    <#
-        Get-Page
-    #>
-
-    function Get-Page {
-        # Update header if multiple pages
-        if ($pageTotal -ne 0) { Update-Header }
-
-        # Clear entries
-        for ($i = 0; $i -le $pageSize; $i++) {
-            # Overwrite each entry with whitespace
-            [System.Console]::WriteLine("".PadRight($pageWidth) + ' ')
-        }
-
-        # Move cursor to first entry
-        [System.Console]::CursorTop = $lineTop
-
-        # Get index of first entry
-        $script:pageEntryFirst = ($pageSize * $pageCurrent)
-
-        # Get amount of entries for last page + fully populated page
-        if ($pageCurrent -eq $pageTotal) {
-            $script:pageEntryTotal = ($menuEntryTotal - ($pageSize * $pageTotal))
-        } else {
-            $script:pageEntryTotal = $pageSize
-        }
-
-        # Set position within console
-        $script:lineSelected = 0
-
-        # Write all page entries
-        for ($i = 0; $i -le ($pageEntryTotal - 1); $i++) {
-            Write-Entry $i
-        }
-    }
-
-    <#
-        Write-Entry
-    #>
-
-    function Write-Entry ([int16]$Index, [switch]$Update) {
-        # Check if entry should be highlighted
-        switch ($Update) {
-            $true { $lineHighlight = $false; break }
-            Default { $lineHighlight = ($Index -eq $lineSelected) }
-        }
-
-        # Page entry name
-        $pageEntry = $menuEntries[($pageEntryFirst + $Index)].Name
-
-        # Prefix checkbox if -MultiSelect is enabled
-        if ($MultiSelect) {
-            switch ($menuEntries[($pageEntryFirst + $Index)].Selected) {
-                $true { $pageEntry = "[X] $pageEntry"; break }
-                Default { $pageEntry = "[ ] $pageEntry" }
-            }
-        }
-
-        # Full width highlight + Nested menu indicator
-        switch ($menuEntries[($pageEntryFirst + $Index)].onConfirm -in 'Hashtable', 'Invoke') {
-            $true { $pageEntry = "$pageEntry".PadRight($entryWidth) + "$cfgNested"; break }
-            Default { $pageEntry = "$pageEntry".PadRight($entryWidth + $cfgNested.Length) }
-        }
-
-        # Write new line and add whitespace without inverted colours
-        [System.Console]::Write("`r" + $cfgPrefix)
-        # Invert colours if selected
-        if ($lineHighlight) { Set-Color -Inverted }
-        # Write page entry
-        [System.Console]::Write("".PadLeft($cfgPadding) + $pageEntry + "".PadRight($cfgPadding))
-        # Restore colours if selected
-        if ($lineHighlight) { Set-Color }
-        # Entry suffix
-        [System.Console]::Write($cfgSuffix + "`n")
-    }
-
-    <#
-        Update-Entry
-    #>
-
-    function Update-Entry ([int16]$Index) {
-        # Reset current entry
-        [System.Console]::CursorTop = ($lineTop + $lineSelected)
-        Write-Entry $lineSelected -Update
-
-        # Write updated entry
-        $script:lineSelected = $Index
-        [System.Console]::CursorTop = ($lineTop + $Index)
-        Write-Entry $lineSelected
-
-        # Move cursor to first entry on page
-        [System.Console]::CursorTop = $lineTop
-    }
-
-    <#
-        Update-Header
-    #>
-
-    function Update-Header {
-        # Set corrected page numbers
-        $pCurrent = ($pageCurrent + 1)
-        $pTotal = ($pageTotal + 1)
-
-        # Calculate offset
-        $pOffset = ($pTotal.ToString()).Length
-
-        # Build string, use offset and padding to right align current page number
-        $script:pageNumber = "{0,-$pOffset}{1,0}" -f "$("$pCurrent".PadLeft($pOffset))","/$pTotal"
-
-        # Move cursor to title
-        [System.Console]::CursorTop = $lineTitle
-        # Move cursor to the right
-        [System.Console]::CursorLeft = ($pageWidth - ($pOffset * 2) - 1)
-        # Write page indicator
-        [System.Console]::WriteLine("$pageNumber")
-    }
-
-    <#
-        Initialisation
-    #>
-
-    # Get menu
-    Get-Menu $Entries
-
-    # Get page
-    Get-Page
-
-    # Declare hashtable for nested entries
-    $menuNested = [ordered]@{}
-
-    <#
-        User Input
-    #>
-
-    # Loop through user input until valid key has been pressed
-    do { $inputLoop = $true
-
-        # Move cursor to first entry and beginning of line
-        [System.Console]::CursorTop = $lineTop
-        [System.Console]::Write("`r")
-
-        # Get pressed key
-        $menuInput = [System.Console]::ReadKey($false)
-
-        # Define selected entry
-        $entrySelected = $menuEntries[($pageEntryFirst + $lineSelected)]
-
-        # Check if key has function attached to it
-        switch ($menuInput.Key) {
-            # Exit / Return
-            { $_ -in 'Escape', 'Backspace' } {
-                # Return to parent if current menu is nested
-                if ($menuNested.Count -ne 0) {
-                    $pageCurrent = 0
-                    $Title = $($menuNested.GetEnumerator())[$menuNested.Count - 1].Name
-                    Get-Menu $($menuNested.GetEnumerator())[$menuNested.Count - 1].Value
-                    Get-Page
-                    $menuNested.RemoveAt($menuNested.Count - 1) | Out-Null
-                # Otherwise exit and return $null
-                } else {
-                    Clear-Host
-                    $inputLoop = $false
-                    [System.Console]::CursorVisible = $true
-                    return $null
-                }; break
-            }
-
-            # Next entry
-            'DownArrow' {
-                if ($lineSelected -lt ($pageEntryTotal - 1)) { # Check if entry isn't last on page
-                    Update-Entry ($lineSelected + 1)
-                } elseif ($pageCurrent -ne $pageTotal) { # Switch if not on last page
-                    $pageCurrent++
-                    Get-Page
-                }; break
-            }
-
-            # Previous entry
-            'UpArrow' {
-                if ($lineSelected -gt 0) { # Check if entry isn't first on page
-                    Update-Entry ($lineSelected - 1)
-                } elseif ($pageCurrent -ne 0) { # Switch if not on first page
-                    $pageCurrent--
-                    Get-Page
-                    Update-Entry ($pageEntryTotal - 1)
-                }; break
-            }
-
-            # Select top entry
-            'Home' {
-                if ($lineSelected -ne 0) { # Check if top entry isn't already selected
-                    Update-Entry 0
-                } elseif ($pageCurrent -ne 0) { # Switch if not on first page
-                    $pageCurrent--
-                    Get-Page
-                    Update-Entry ($pageEntryTotal - 1)
-                }; break
-            }
-
-            # Select bottom entry
-            'End' {
-                if ($lineSelected -ne ($pageEntryTotal - 1)) { # Check if bottom entry isn't already selected
-                    Update-Entry ($pageEntryTotal - 1)
-                } elseif ($pageCurrent -ne $pageTotal) { # Switch if not on last page
-                    $pageCurrent++
-                    Get-Page
-                }; break
-            }
-
-            # Next page
-            { $_ -in 'RightArrow','PageDown' } {
-                if ($pageCurrent -lt $pageTotal) { # Check if already on last page
-                    $pageCurrent++
-                    Get-Page
-                }; break
-            }
-
-            # Previous page
-            { $_ -in 'LeftArrow','PageUp' } { # Check if already on first page
-                if ($pageCurrent -gt 0) {
-                    $pageCurrent--
-                    Get-Page
-                }; break
-            }
-
-            # Select/check entry if -MultiSelect is enabled
-            'Spacebar' {
-                if ($MultiSelect) {
-                    switch ($entrySelected.Selected) {
-                        $true { $entrySelected.Selected = $false }
-                        $false { $entrySelected.Selected = $true }
-                    }
-                    Update-Entry ($lineSelected)
-                }; break
-            }
-
-            # Select all if -MultiSelect has been enabled
-            'Insert' {
-                if ($MultiSelect) {
-                    $menuEntries | ForEach-Object {
-                        $_.Selected = $true
-                    }
-                    Get-Page
-                }; break
-            }
-
-            # Select none if -MultiSelect has been enabled
-            'Delete' {
-                if ($MultiSelect) {
-                    $menuEntries | ForEach-Object {
-                        $_.Selected = $false
-                    }
-                    Get-Page
-                }; break
-            }
-
-            # Confirm selection
-            'Enter' {
-                # Check if -MultiSelect has been enabled
-                if ($MultiSelect) {
-                    Clear-Host
-                    # Process checked/selected entries
-                    $menuEntries | ForEach-Object {
-                        # Entry contains command, invoke it
-                        if (($_.Selected) -and ($_.Command -notlike $null) -and ($entrySelected.Command.GetType().Name -ne 'Hashtable')) {
-                            Invoke-Expression -Command $_.Command
-                        # Return name, entry does not contain command
-                        } elseif ($_.Selected) {
-                            return $_.Name
-                        }
-                    }
-                    # Exit and re-enable cursor
-                    $inputLoop = $false
-                    [System.Console]::CursorVisible = $true
-                    break
-                }
-
-                # Use onConfirm to process entry
-                switch ($entrySelected.onConfirm) {
-                    # Return hashtable as nested menu
-                    'Hashtable' {
-                        $menuNested.$Title = $inputEntries
-                        $Title = $entrySelected.Name
-                        Get-Menu $entrySelected.Command
-                        Get-Page
-                        break
-                    }
-
-                    # Invoke attached command and return as nested menu
-                    'Invoke' {
-                        $menuNested.$Title = $inputEntries
-                        $Title = $entrySelected.Name
-                        Get-Menu $(Invoke-Expression -Command $entrySelected.Command.Substring(1))
-                        Get-Page
-                        break
-                    }
-
-                    # Invoke attached command and exit
-                    'Command' {
-                        Clear-Host
-                        Invoke-Expression -Command $entrySelected.Command
-                        $inputLoop = $false
-                        [System.Console]::CursorVisible = $true
-                        break
-                    }
-
-                    # Return name and exit
-                    'Name' {
-                        Clear-Host
-                        return $entrySelected.Name
-                        $inputLoop = $false
-                        [System.Console]::CursorVisible = $true
-                    }
-                }
-            }
-        }
-    } while ($inputLoop)
-}
-
-function Get-IniContent {
-    <#
-    .Synopsis
-        Gets the content of an INI file
-
-    .Description
-        Gets the content of an INI file and returns it as a hashtable
-
-    .Notes
-        Author		: Oliver Lipkau <oliver@lipkau.net>
-		Source		: https://github.com/lipkau/PsIni
-                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
-        Version		: 1.0.0 - 2010/03/12 - OL - Initial release
-                      1.0.1 - 2014/12/11 - OL - Typo (Thx SLDR)
-                                              Typo (Thx Dave Stiff)
-                      1.0.2 - 2015/06/06 - OL - Improvment to switch (Thx Tallandtree)
-                      1.0.3 - 2015/06/18 - OL - Migrate to semantic versioning (GitHub issue#4)
-                      1.0.4 - 2015/06/18 - OL - Remove check for .ini extension (GitHub Issue#6)
-                      1.1.0 - 2015/07/14 - CB - Improve round-tripping and be a bit more liberal (GitHub Pull #7)
-                                           OL - Small Improvments and cleanup
-                      1.1.1 - 2015/07/14 - CB - changed .outputs section to be OrderedDictionary
-                      1.1.2 - 2016/08/18 - SS - Add some more verbose outputs as the ini is parsed,
-                      				            allow non-existent paths for new ini handling,
-                      				            test for variable existence using local scope,
-                      				            added additional debug output.
-
-        #Requires -Version 2.0
-
-    .Inputs
-        System.String
-
-    .Outputs
-        System.Collections.Specialized.OrderedDictionary
-
-    .Example
-        $FileContent = Get-IniContent "C:\myinifile.ini"
-        -----------
-        Description
-        Saves the content of the c:\myinifile.ini in a hashtable called $FileContent
-
-    .Example
-        $inifilepath | $FileContent = Get-IniContent
-        -----------
-        Description
-        Gets the content of the ini file passed through the pipe into a hashtable called $FileContent
-
-    .Example
-        C:\PS>$FileContent = Get-IniContent "c:\settings.ini"
-        C:\PS>$FileContent["Section"]["Key"]
-        -----------
-        Description
-        Returns the key "Key" of the section "Section" from the C:\settings.ini file
-
-    .Link
-        Out-IniFile
-    #>
-
-    [CmdletBinding()]
-    [OutputType(
-        [System.Collections.Specialized.OrderedDictionary]
-    )]
-    Param(
-        # Specifies the path to the input file.
-        [ValidateNotNullOrEmpty()]
-        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
-        [String]
-        $FilePath,
-
-        # Specify what characters should be describe a comment.
-        # Lines starting with the characters provided will be rendered as comments.
-        # Default: ";"
-        [Char[]]
-        $CommentChar = @(";"),
-
-        # Remove lines determined to be comments from the resulting dictionary.
-        [Switch]
-        $IgnoreComments
-    )
-
-    Begin {
-        Write-Debug "PsBoundParameters:"
-        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
-        if ($PSBoundParameters['Debug']) {
-            $DebugPreference = 'Continue'
-        }
-        Write-Debug "DebugPreference: $DebugPreference"
-
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
-
-        $commentRegex = "^\s*([$($CommentChar -join '')].*)$"
-        $sectionRegex = "^\s*\[(.+)\]\s*$"
-        $keyRegex     = "^\s*(.+?)\s*=\s*(['`"]?)(.*)\2\s*$"
-
-        Write-Debug ("commentRegex is {0}." -f $commentRegex)
-    }
-
-    Process {
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Processing file: $Filepath"
-
-        $ini = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-        #$ini = @{}
-
-        if (!(Test-Path $Filepath)) {
-            Write-Verbose ("Warning: `"{0}`" was not found." -f $Filepath)
-            Write-Output $ini
-        }
-
-        $commentCount = 0
-        switch -regex -file $FilePath {
-            $sectionRegex {
-                # Section
-                $section = $matches[1]
-                Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding section : $section"
-                $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-                $CommentCount = 0
-                continue
-            }
-            $commentRegex {
-                # Comment
-                if (!$IgnoreComments) {
-                    if (!(test-path "variable:local:section")) {
-                        $section = $script:NoSection
-                        $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-                    }
-                    $value = $matches[1]
-                    $CommentCount++
-                    Write-Debug ("Incremented CommentCount is now {0}." -f $CommentCount)
-                    $name = "Comment" + $CommentCount
-                    Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding $name with value: $value"
-                    $ini[$section][$name] = $value
-                }
-                else {
-                    Write-Debug ("Ignoring comment {0}." -f $matches[1])
-                }
-
-                continue
-            }
-            $keyRegex {
-                # Key
-                if (!(test-path "variable:local:section")) {
-                    $section = $script:NoSection
-                    $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-                }
-                $name, $value = $matches[1, 3]
-                Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding key $name with value: $value"
-                if (-not $ini[$section][$name]) {
-                    $ini[$section][$name] = $value
-                }
-                else {
-                    if ($ini[$section][$name] -is [string]) {
-                        $ini[$section][$name] = [System.Collections.ArrayList]::new()
-                        $ini[$section][$name].Add($ini[$section][$name]) | Out-Null
-                        $ini[$section][$name].Add($value) | Out-Null
-                    }
-                    else {
-                        $ini[$section][$name].Add($value) | Out-Null
-                    }
-                }
-                continue
-            }
-        }
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Finished Processing file: $FilePath"
-        Write-Output $ini
-    }
-
-    End {
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function ended"
-    }
-}
-
-Set-Alias gic Get-IniContent
-
-Function Out-IniFile {
-    <#
-    .Synopsis
-        Write hash content to INI file
-
-    .Description
-        Write hash content to INI file
-
-    .Notes
-        Author      : Oliver Lipkau <oliver@lipkau.net>
-        Blog        : http://oliver.lipkau.net/blog/
-        Source      : https://github.com/lipkau/PsIni
-                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
-
-        #Requires -Version 2.0
-
-    .Inputs
-        System.String
-        System.Collections.IDictionary
-
-    .Outputs
-        System.IO.FileSystemInfo
-
-    .Example
-        Out-IniFile $IniVar "C:\myinifile.ini"
-        -----------
-        Description
-        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini
-
-    .Example
-        $IniVar | Out-IniFile "C:\myinifile.ini" -Force
-        -----------
-        Description
-        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini and overwrites the file if it is already present
-
-    .Example
-        $file = Out-IniFile $IniVar "C:\myinifile.ini" -PassThru
-        -----------
-        Description
-        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini and saves the file into $file
-
-    .Example
-        $Category1 = @{“Key1”=”Value1”;”Key2”=”Value2”}
-        $Category2 = @{“Key1”=”Value1”;”Key2”=”Value2”}
-        $NewINIContent = @{“Category1”=$Category1;”Category2”=$Category2}
-        Out-IniFile -InputObject $NewINIContent -FilePath "C:\MyNewFile.ini"
-        -----------
-        Description
-        Creating a custom Hashtable and saving it to C:\MyNewFile.ini
-    .Link
-        Get-IniContent
-    #>
-
-    [CmdletBinding()]
-    [OutputType(
-        [System.IO.FileSystemInfo]
-    )]
-    Param(
-        # Adds the output to the end of an existing file, instead of replacing the file contents.
-        [switch]
-        $Append,
-
-        # Specifies the file encoding. The default is UTF8.
-        #
-        # Valid values are:
-        # -- ASCII:  Uses the encoding for the ASCII (7-bit) character set.
-        # -- BigEndianUnicode:  Encodes in UTF-16 format using the big-endian byte order.
-        # -- Byte:   Encodes a set of characters into a sequence of bytes.
-        # -- String:  Uses the encoding type for a string.
-        # -- Unicode:  Encodes in UTF-16 format using the little-endian byte order.
-        # -- UTF7:   Encodes in UTF-7 format.
-        # -- UTF8:  Encodes in UTF-8 format.
-        [ValidateSet("Unicode", "UTF7", "UTF8", "ASCII", "BigEndianUnicode", "Byte", "String")]
-        [Parameter()]
-        [String]
-        $Encoding = "UTF8",
-
-        # Specifies the path to the output file.
-        [ValidateNotNullOrEmpty()]
-        [ValidateScript( {Test-Path $_ -IsValid} )]
-        [Parameter( Position = 0, Mandatory = $true )]
-        [String]
-        $FilePath,
-
-        # Allows the cmdlet to overwrite an existing read-only file. Even using the Force parameter, the cmdlet cannot override security restrictions.
-        [Switch]
-        $Force,
-
-        # Specifies the Hashtable to be written to the file. Enter a variable that contains the objects or type a command or expression that gets the objects.
-        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
-        [System.Collections.IDictionary]
-        $InputObject,
-
-        # Passes an object representing the location to the pipeline. By default, this cmdlet does not generate any output.
-        [Switch]
-        $Passthru,
-
-        # Adds spaces around the equal sign when writing the key = value
-        [Switch]
-        $Loose,
-
-        # Writes the file as "pretty" as possible
-        #
-        # Adds an extra linebreak between Sections
-        [Switch]
-        $Pretty
-    )
-
-    Begin {
-        Write-Debug "PsBoundParameters:"
-        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
-        if ($PSBoundParameters['Debug']) {
-            $DebugPreference = 'Continue'
-        }
-        Write-Debug "DebugPreference: $DebugPreference"
-
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
-
-        function Out-Keys {
-            param(
-                [ValidateNotNullOrEmpty()]
-                [Parameter( Mandatory, ValueFromPipeline )]
-                [System.Collections.IDictionary]
-                $InputObject,
-
-                [ValidateSet("Unicode", "UTF7", "UTF8", "ASCII", "BigEndianUnicode", "Byte", "String")]
-                [Parameter( Mandatory )]
-                [string]
-                $Encoding = "UTF8",
-
-                [ValidateNotNullOrEmpty()]
-                [ValidateScript( {Test-Path $_ -IsValid})]
-                [Parameter( Mandatory, ValueFromPipelineByPropertyName )]
-                [Alias("Path")]
-                [string]
-                $FilePath,
-
-                [Parameter( Mandatory )]
-                $Delimiter,
-
-                [Parameter( Mandatory )]
-                $MyInvocation
-            )
-
-            Process {
-                if (!($InputObject.get_keys())) {
-                    Write-Warning ("No data found in '{0}'." -f $FilePath)
-                }
-                Foreach ($key in $InputObject.get_keys()) {
-                    if ($key -match "^Comment\d+") {
-                        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing comment: $key"
-                        "$($InputObject[$key])" | Out-File -Encoding $Encoding -FilePath $FilePath -Append
-                    }
-                    else {
-                        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing key: $key"
-                        $InputObject[$key] |
-                            ForEach-Object { "$key$delimiter$_" } |
-                            Out-File -Encoding $Encoding -FilePath $FilePath -Append
-                    }
-                }
-            }
-        }
-
-        $delimiter = '='
-        if ($Loose) {
-            $delimiter = ' = '
-        }
-
-        # Splatting Parameters
-        $parameters = @{
-            Encoding = $Encoding;
-            FilePath = $FilePath
-        }
-
-    }
-
-    Process {
-        $extraLF = ""
-
-        if ($Append) {
-            Write-Debug ("Appending to '{0}'." -f $FilePath)
-            $outfile = Get-Item $FilePath
-        }
-        else {
-            Write-Debug ("Creating new file '{0}'." -f $FilePath)
-            $outFile = New-Item -ItemType file -Path $Filepath -Force:$Force
-        }
-
-        if (!(Test-Path $outFile.FullName)) {Throw "Could not create File"}
-
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing to file: $Filepath"
-        foreach ($i in $InputObject.get_keys()) {
-            if (!($InputObject[$i].GetType().GetInterface('IDictionary'))) {
-                #Key value pair
-                Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing key: $i"
-                "$i$delimiter$($InputObject[$i])" | Out-File -Append @parameters
-
-            }
-            elseif ($i -eq $script:NoSection) {
-                #Key value pair of NoSection
-                Out-Keys $InputObject[$i] `
-                    @parameters `
-                    -Delimiter $delimiter `
-                    -MyInvocation $MyInvocation
-            }
-            else {
-                #Sections
-                Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing Section: [$i]"
-
-                # Only write section, if it is not a dummy ($script:NoSection)
-                if ($i -ne $script:NoSection) { "$extraLF[$i]"  | Out-File -Append @parameters }
-                if ($Pretty) {
-                    $extraLF = "`r`n"
-                }
-
-                if ( $InputObject[$i].Count) {
-                    Out-Keys $InputObject[$i] `
-                        @parameters `
-                        -Delimiter $delimiter `
-                        -MyInvocation $MyInvocation
-                }
-
-            }
-        }
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Finished Writing to file: $FilePath"
-    }
-
-    End {
-        if ($PassThru) {
-            Write-Debug ("Returning file due to PassThru argument.")
-            Write-Output (Get-Item $outFile)
-        }
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function ended"
-    }
-}
-
-Set-Alias oif Out-IniFile
-
-Function ConvertFrom-VDF {
-<# 
-.Synopsis 
-    Reads a Valve Data File (VDF) formatted string into a custom object.
-
-.Description 
-    The ConvertFrom-VDF cmdlet converts a VDF-formatted string to a custom object (PSCustomObject) that has a property for each field in the VDF string. VDF is used as a textual data format for Valve software applications, such as Steam.
-
-.Parameter InputObject
-    Specifies the VDF strings to convert to PSObjects. Enter a variable that contains the string, or type a command or expression that gets the string. 
-
-.Example 
-    $vdf = ConvertFrom-VDF -InputObject (Get-Content ".\SharedConfig.vdf")
-
-    Description 
-    ----------- 
-    Gets the content of a VDF file named "SharedConfig.vdf" in the current location and converts it to a PSObject named $vdf
-
-.Inputs 
-    System.String
-
-.Outputs 
-    PSCustomObject
-
-
-#>
-    param
-    (
-        [Parameter(Position=0, Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [String[]]
-        $InputObject
-    )
-
-    $root = New-Object -TypeName PSObject
-    $chain = [ordered]@{}
-    $depth = 0
-    $parent = $root
-    $element = $null
-
-    #Magic PowerShell Switch Enumrates Arrays
-    switch -Regex ($InputObject) {
-        #Case: ValueKey
-        '^\t*"(\S+)"\t\t"(.+)"$' {
-            Add-Member -InputObject $element -MemberType NoteProperty -Name $Matches[1] -Value $Matches[2]
-            continue
-        }
-        #Case: ParentKey
-        '^\t*"(\S+)"$' { 
-            $element = New-Object -TypeName PSObject
-            Add-Member -InputObject $parent -MemberType NoteProperty -Name $Matches[1] -Value $element
-            continue
-        }
-        #Case: Opening ParentKey Scope
-        '^\t*{$' {
-            $parent = $element
-            $chain.Add($depth, $element)
-            $depth++
-            continue
-        }
-        #Case: Closing ParentKey Scope
-        '^\t*}$' {
-            $depth--
-            $parent = $chain.($depth - 1)
-            $element = $parent
-            $chain.Remove($depth)
-            continue
-        }
-        #Case: Comments or unsupported lines
-        Default {
-            Write-Debug "Ignored line: $_"
-            continue
-        }
-    }
-
-    return $root
-}
-
-Function ConvertTo-VDF
-{
-<# 
-.Synopsis 
-    Converts a custom object into a Valve Data File (VDF) formatted string.
-
-.Description 
-    The ConvertTo-VDF cmdlet converts any object to a string in Valve Data File (VDF) format. The properties are converted to field names, the field values are converted to property values, and the methods are removed.
-
-.Parameter InputObject
-    Specifies PSObject to be converted into VDF strings.  Enter a variable that contains the object. You can also pipe an object to ConvertTo-Json.
-
-.Example 
-    ConvertTo-VDF -InputObject $VDFObject | Out-File ".\SharedConfig.vdf"
-
-    Description 
-    ----------- 
-    Converts the PS object to VDF format and pipes it into "SharedConfig.vdf" in the current directory
-
-.Inputs 
-    PSCustomObject
-
-.Outputs 
-    System.String
-
-
-#>
-    param
-    (
-        [Parameter(Position=0, Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [PSObject]
-        $InputObject,
-
-        [Parameter(Position=1, Mandatory=$false)]
-        [int]
-        $Depth = 0
-    )
-    $output = [string]::Empty
-    
-    foreach ( $property in ($InputObject.psobject.Properties) ) {
-        switch ($property.TypeNameOfValue) {
-            "System.String" { 
-                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`t`t`"" + $property.Value + "`"`n"
-                break
-            }
-            "System.Management.Automation.PSCustomObject" {
-                $element = $property.Value
-                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`n"
-                $output += ("`t" * $Depth) + "{`n"
-                $output += ConvertTo-VDF -InputObject $element -Depth ($Depth + 1)
-                $output += ("`t" * $Depth) + "}`n"
-                break
-            }
-            Default {
-                Write-Error ("Unsupported Property of type {0}" -f $_) -ErrorAction Stop
-                break
-            }
-        }
-    }
-
-    return $output
-}
-
-function Get-SteamGameInstallDir (
-    [Parameter(Mandatory = $true)][string]$Game, 
-    [array]$LibraryFolders = (Get-SteamLibraryFolders)) {
-
-    # Get the installation directory of a Steam game.
-    foreach ($LibraryFolder in $LibraryFolders) {
-        $GameInstallDir = "$LibraryFolder\steamapps\common\$Game"
-        if (Test-Path "$($GameInstallDir.ToLower())") {
-            return "$GameInstallDir"
-        }
-    }
-}
-Function Get-SteamLibraryFolders()
-{
-<#
-.Synopsis 
-	Retrieves library folder paths from .\SteamApps\libraryfolders.vdf
-.Description
-	Reads .\SteamApps\libraryfolders.vdf to find the paths of all the library folders set up in steam
-.Example 
-	$libraryFolders = Get-LibraryFolders
-	Description 
-	----------- 
-	Retrieves a list of the library folders set up in steam
-#>
-	$steamPath = Get-SteamPath
-	
-	$vdfPath = "$($steamPath)\SteamApps\libraryfolders.vdf"
-	
-	[array]$libraryFolderPaths = @()
-	
-	if (Test-Path $vdfPath)
-	{
-		$libraryFolders = ConvertFrom-VDF (Get-Content $vdfPath -Encoding UTF8) | Select-Object -ExpandProperty libraryfolders
-		
-		$libraryFolderIds = $libraryFolders | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
-		
-		ForEach ($libraryId in $libraryFolderIds)
-		{
-			$libraryFolder = $libraryFolders.($libraryId)
-			
-			$libraryFolderPaths += $libraryFolder.path.Replace('\\','\')
-		}
-	}
-	
-	return $libraryFolderPaths
-}
-
-
-function Get-SteamPath {
-    # Get the Steam installation directory.
-
-    $MUICache = "Registry::HKCR\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
-    $Protocol = "Registry::HKCR\steam\Shell\Open\Command"
-    $Steam = Get-ItemPropertyValue "Registry::HKCU\Software\Valve\Steam" -Name "SteamPath" -ErrorAction SilentlyContinue
-    
-    # MUICache
-    if (!$Steam) {
-        $Steam = Split-Path (((Get-Item "$MUICache").Property | Where-Object { $PSItem -Like "*Steam*" } |
-                Where-Object { (Get-ItemPropertyValue "$MUICache" -Name $PSItem) -eq "Steam" }).TrimEnd(".FriendlyAppName"))
-    }
-
-    # Steam Browser Protocol
-    if (!$Steam) {
-        $Steam = Split-Path (((Get-ItemPropertyValue "$Protocol" -Name "(Default)" -ErrorAction SilentlyContinue) -Split "--", 2, "SimpleMatch")[0]).Trim('"')
-    }
-
-    return $Steam.ToLower()
 }
 Export-ModuleMember * -Alias *
 })) | Import-Module -DisableNameChecking -Global
