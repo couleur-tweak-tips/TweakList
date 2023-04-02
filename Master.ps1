@@ -1,624 +1,9 @@
-# This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
+# This file is automatically built at every push to combine every function into a single file
 
-using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 315
-$FuncsCount = 67
-function Get-IniContent {
-    <#
-    .Synopsis
-        Gets the content of an INI file
+using namespace System.Management.Automation # Required by Invoke-NGENpsosh
+Remove-Module TweakList -ErrorAction Ignore
+New-Module TweakList ([ScriptBlock]::Create({
 
-    .Description
-        Gets the content of an INI file and returns it as a hashtable
-
-    .Notes
-        Author		: Oliver Lipkau <oliver@lipkau.net>
-		Source		: https://github.com/lipkau/PsIni
-                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
-        Version		: 1.0.0 - 2010/03/12 - OL - Initial release
-                      1.0.1 - 2014/12/11 - OL - Typo (Thx SLDR)
-                                              Typo (Thx Dave Stiff)
-                      1.0.2 - 2015/06/06 - OL - Improvment to switch (Thx Tallandtree)
-                      1.0.3 - 2015/06/18 - OL - Migrate to semantic versioning (GitHub issue#4)
-                      1.0.4 - 2015/06/18 - OL - Remove check for .ini extension (GitHub Issue#6)
-                      1.1.0 - 2015/07/14 - CB - Improve round-tripping and be a bit more liberal (GitHub Pull #7)
-                                           OL - Small Improvments and cleanup
-                      1.1.1 - 2015/07/14 - CB - changed .outputs section to be OrderedDictionary
-                      1.1.2 - 2016/08/18 - SS - Add some more verbose outputs as the ini is parsed,
-                      				            allow non-existent paths for new ini handling,
-                      				            test for variable existence using local scope,
-                      				            added additional debug output.
-
-        #Requires -Version 2.0
-
-    .Inputs
-        System.String
-
-    .Outputs
-        System.Collections.Specialized.OrderedDictionary
-
-    .Example
-        $FileContent = Get-IniContent "C:\myinifile.ini"
-        -----------
-        Description
-        Saves the content of the c:\myinifile.ini in a hashtable called $FileContent
-
-    .Example
-        $inifilepath | $FileContent = Get-IniContent
-        -----------
-        Description
-        Gets the content of the ini file passed through the pipe into a hashtable called $FileContent
-
-    .Example
-        C:\PS>$FileContent = Get-IniContent "c:\settings.ini"
-        C:\PS>$FileContent["Section"]["Key"]
-        -----------
-        Description
-        Returns the key "Key" of the section "Section" from the C:\settings.ini file
-
-    .Link
-        Out-IniFile
-    #>
-
-    [CmdletBinding()]
-    [OutputType(
-        [System.Collections.Specialized.OrderedDictionary]
-    )]
-    Param(
-        # Specifies the path to the input file.
-        [ValidateNotNullOrEmpty()]
-        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
-        [String]
-        $FilePath,
-
-        # Specify what characters should be describe a comment.
-        # Lines starting with the characters provided will be rendered as comments.
-        # Default: ";"
-        [Char[]]
-        $CommentChar = @(";"),
-
-        # Remove lines determined to be comments from the resulting dictionary.
-        [Switch]
-        $IgnoreComments
-    )
-
-    Begin {
-        Write-Debug "PsBoundParameters:"
-        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
-        if ($PSBoundParameters['Debug']) {
-            $DebugPreference = 'Continue'
-        }
-        Write-Debug "DebugPreference: $DebugPreference"
-
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
-
-        $commentRegex = "^\s*([$($CommentChar -join '')].*)$"
-        $sectionRegex = "^\s*\[(.+)\]\s*$"
-        $keyRegex     = "^\s*(.+?)\s*=\s*(['`"]?)(.*)\2\s*$"
-
-        Write-Debug ("commentRegex is {0}." -f $commentRegex)
-    }
-
-    Process {
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Processing file: $Filepath"
-
-        $ini = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-        #$ini = @{}
-
-        if (!(Test-Path $Filepath)) {
-            Write-Verbose ("Warning: `"{0}`" was not found." -f $Filepath)
-            Write-Output $ini
-        }
-
-        $commentCount = 0
-        switch -regex -file $FilePath {
-            $sectionRegex {
-                # Section
-                $section = $matches[1]
-                Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding section : $section"
-                $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-                $CommentCount = 0
-                continue
-            }
-            $commentRegex {
-                # Comment
-                if (!$IgnoreComments) {
-                    if (!(test-path "variable:local:section")) {
-                        $section = $script:NoSection
-                        $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-                    }
-                    $value = $matches[1]
-                    $CommentCount++
-                    Write-Debug ("Incremented CommentCount is now {0}." -f $CommentCount)
-                    $name = "Comment" + $CommentCount
-                    Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding $name with value: $value"
-                    $ini[$section][$name] = $value
-                }
-                else {
-                    Write-Debug ("Ignoring comment {0}." -f $matches[1])
-                }
-
-                continue
-            }
-            $keyRegex {
-                # Key
-                if (!(test-path "variable:local:section")) {
-                    $section = $script:NoSection
-                    $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
-                }
-                $name, $value = $matches[1, 3]
-                Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding key $name with value: $value"
-                if (-not $ini[$section][$name]) {
-                    $ini[$section][$name] = $value
-                }
-                else {
-                    if ($ini[$section][$name] -is [string]) {
-                        $ini[$section][$name] = [System.Collections.ArrayList]::new()
-                        $ini[$section][$name].Add($ini[$section][$name]) | Out-Null
-                        $ini[$section][$name].Add($value) | Out-Null
-                    }
-                    else {
-                        $ini[$section][$name].Add($value) | Out-Null
-                    }
-                }
-                continue
-            }
-        }
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Finished Processing file: $FilePath"
-        Write-Output $ini
-    }
-
-    End {
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function ended"
-    }
-}
-
-Set-Alias gic Get-IniContent
-Function Out-IniFile {
-    <#
-    .Synopsis
-        Write hash content to INI file
-
-    .Description
-        Write hash content to INI file
-
-    .Notes
-        Author      : Oliver Lipkau <oliver@lipkau.net>
-        Blog        : http://oliver.lipkau.net/blog/
-        Source      : https://github.com/lipkau/PsIni
-                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
-
-        #Requires -Version 2.0
-
-    .Inputs
-        System.String
-        System.Collections.IDictionary
-
-    .Outputs
-        System.IO.FileSystemInfo
-
-    .Example
-        Out-IniFile $IniVar "C:\myinifile.ini"
-        -----------
-        Description
-        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini
-
-    .Example
-        $IniVar | Out-IniFile "C:\myinifile.ini" -Force
-        -----------
-        Description
-        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini and overwrites the file if it is already present
-
-    .Example
-        $file = Out-IniFile $IniVar "C:\myinifile.ini" -PassThru
-        -----------
-        Description
-        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini and saves the file into $file
-
-    .Example
-        $Category1 = @{“Key1”=”Value1”;”Key2”=”Value2”}
-        $Category2 = @{“Key1”=”Value1”;”Key2”=”Value2”}
-        $NewINIContent = @{“Category1”=$Category1;”Category2”=$Category2}
-        Out-IniFile -InputObject $NewINIContent -FilePath "C:\MyNewFile.ini"
-        -----------
-        Description
-        Creating a custom Hashtable and saving it to C:\MyNewFile.ini
-    .Link
-        Get-IniContent
-    #>
-
-    [CmdletBinding()]
-    [OutputType(
-        [System.IO.FileSystemInfo]
-    )]
-    Param(
-        # Adds the output to the end of an existing file, instead of replacing the file contents.
-        [switch]
-        $Append,
-
-        # Specifies the file encoding. The default is UTF8.
-        #
-        # Valid values are:
-        # -- ASCII:  Uses the encoding for the ASCII (7-bit) character set.
-        # -- BigEndianUnicode:  Encodes in UTF-16 format using the big-endian byte order.
-        # -- Byte:   Encodes a set of characters into a sequence of bytes.
-        # -- String:  Uses the encoding type for a string.
-        # -- Unicode:  Encodes in UTF-16 format using the little-endian byte order.
-        # -- UTF7:   Encodes in UTF-7 format.
-        # -- UTF8:  Encodes in UTF-8 format.
-        [ValidateSet("Unicode", "UTF7", "UTF8", "ASCII", "BigEndianUnicode", "Byte", "String")]
-        [Parameter()]
-        [String]
-        $Encoding = "UTF8",
-
-        # Specifies the path to the output file.
-        [ValidateNotNullOrEmpty()]
-        [ValidateScript( {Test-Path $_ -IsValid} )]
-        [Parameter( Position = 0, Mandatory = $true )]
-        [String]
-        $FilePath,
-
-        # Allows the cmdlet to overwrite an existing read-only file. Even using the Force parameter, the cmdlet cannot override security restrictions.
-        [Switch]
-        $Force,
-
-        # Specifies the Hashtable to be written to the file. Enter a variable that contains the objects or type a command or expression that gets the objects.
-        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
-        [System.Collections.IDictionary]
-        $InputObject,
-
-        # Passes an object representing the location to the pipeline. By default, this cmdlet does not generate any output.
-        [Switch]
-        $Passthru,
-
-        # Adds spaces around the equal sign when writing the key = value
-        [Switch]
-        $Loose,
-
-        # Writes the file as "pretty" as possible
-        #
-        # Adds an extra linebreak between Sections
-        [Switch]
-        $Pretty
-    )
-
-    Begin {
-        Write-Debug "PsBoundParameters:"
-        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
-        if ($PSBoundParameters['Debug']) {
-            $DebugPreference = 'Continue'
-        }
-        Write-Debug "DebugPreference: $DebugPreference"
-
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
-
-        function Out-Keys {
-            param(
-                [ValidateNotNullOrEmpty()]
-                [Parameter( Mandatory, ValueFromPipeline )]
-                [System.Collections.IDictionary]
-                $InputObject,
-
-                [ValidateSet("Unicode", "UTF7", "UTF8", "ASCII", "BigEndianUnicode", "Byte", "String")]
-                [Parameter( Mandatory )]
-                [string]
-                $Encoding = "UTF8",
-
-                [ValidateNotNullOrEmpty()]
-                [ValidateScript( {Test-Path $_ -IsValid})]
-                [Parameter( Mandatory, ValueFromPipelineByPropertyName )]
-                [Alias("Path")]
-                [string]
-                $FilePath,
-
-                [Parameter( Mandatory )]
-                $Delimiter,
-
-                [Parameter( Mandatory )]
-                $MyInvocation
-            )
-
-            Process {
-                if (!($InputObject.get_keys())) {
-                    Write-Warning ("No data found in '{0}'." -f $FilePath)
-                }
-                Foreach ($key in $InputObject.get_keys()) {
-                    if ($key -match "^Comment\d+") {
-                        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing comment: $key"
-                        "$($InputObject[$key])" | Out-File -Encoding $Encoding -FilePath $FilePath -Append
-                    }
-                    else {
-                        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing key: $key"
-                        $InputObject[$key] |
-                            ForEach-Object { "$key$delimiter$_" } |
-                            Out-File -Encoding $Encoding -FilePath $FilePath -Append
-                    }
-                }
-            }
-        }
-
-        $delimiter = '='
-        if ($Loose) {
-            $delimiter = ' = '
-        }
-
-        # Splatting Parameters
-        $parameters = @{
-            Encoding = $Encoding;
-            FilePath = $FilePath
-        }
-
-    }
-
-    Process {
-        $extraLF = ""
-
-        if ($Append) {
-            Write-Debug ("Appending to '{0}'." -f $FilePath)
-            $outfile = Get-Item $FilePath
-        }
-        else {
-            Write-Debug ("Creating new file '{0}'." -f $FilePath)
-            $outFile = New-Item -ItemType file -Path $Filepath -Force:$Force
-        }
-
-        if (!(Test-Path $outFile.FullName)) {Throw "Could not create File"}
-
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing to file: $Filepath"
-        foreach ($i in $InputObject.get_keys()) {
-            if (!($InputObject[$i].GetType().GetInterface('IDictionary'))) {
-                #Key value pair
-                Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing key: $i"
-                "$i$delimiter$($InputObject[$i])" | Out-File -Append @parameters
-
-            }
-            elseif ($i -eq $script:NoSection) {
-                #Key value pair of NoSection
-                Out-Keys $InputObject[$i] `
-                    @parameters `
-                    -Delimiter $delimiter `
-                    -MyInvocation $MyInvocation
-            }
-            else {
-                #Sections
-                Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing Section: [$i]"
-
-                # Only write section, if it is not a dummy ($script:NoSection)
-                if ($i -ne $script:NoSection) { "$extraLF[$i]"  | Out-File -Append @parameters }
-                if ($Pretty) {
-                    $extraLF = "`r`n"
-                }
-
-                if ( $InputObject[$i].Count) {
-                    Out-Keys $InputObject[$i] `
-                        @parameters `
-                        -Delimiter $delimiter `
-                        -MyInvocation $MyInvocation
-                }
-
-            }
-        }
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Finished Writing to file: $FilePath"
-    }
-
-    End {
-        if ($PassThru) {
-            Write-Debug ("Returning file due to PassThru argument.")
-            Write-Output (Get-Item $outFile)
-        }
-        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function ended"
-    }
-}
-
-Set-Alias oif Out-IniFile
-Function ConvertFrom-VDF {
-<# 
-.Synopsis 
-    Reads a Valve Data File (VDF) formatted string into a custom object.
-
-.Description 
-    The ConvertFrom-VDF cmdlet converts a VDF-formatted string to a custom object (PSCustomObject) that has a property for each field in the VDF string. VDF is used as a textual data format for Valve software applications, such as Steam.
-
-.Parameter InputObject
-    Specifies the VDF strings to convert to PSObjects. Enter a variable that contains the string, or type a command or expression that gets the string. 
-
-.Example 
-    $vdf = ConvertFrom-VDF -InputObject (Get-Content ".\SharedConfig.vdf")
-
-    Description 
-    ----------- 
-    Gets the content of a VDF file named "SharedConfig.vdf" in the current location and converts it to a PSObject named $vdf
-
-.Inputs 
-    System.String
-
-.Outputs 
-    PSCustomObject
-
-
-#>
-    param
-    (
-        [Parameter(Position=0, Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [String[]]
-        $InputObject
-    )
-
-    $root = New-Object -TypeName PSObject
-    $chain = [ordered]@{}
-    $depth = 0
-    $parent = $root
-    $element = $null
-
-    #Magic PowerShell Switch Enumrates Arrays
-    switch -Regex ($InputObject) {
-        #Case: ValueKey
-        '^\t*"(\S+)"\t\t"(.+)"$' {
-            Add-Member -InputObject $element -MemberType NoteProperty -Name $Matches[1] -Value $Matches[2]
-            continue
-        }
-        #Case: ParentKey
-        '^\t*"(\S+)"$' { 
-            $element = New-Object -TypeName PSObject
-            Add-Member -InputObject $parent -MemberType NoteProperty -Name $Matches[1] -Value $element
-            continue
-        }
-        #Case: Opening ParentKey Scope
-        '^\t*{$' {
-            $parent = $element
-            $chain.Add($depth, $element)
-            $depth++
-            continue
-        }
-        #Case: Closing ParentKey Scope
-        '^\t*}$' {
-            $depth--
-            $parent = $chain.($depth - 1)
-            $element = $parent
-            $chain.Remove($depth)
-            continue
-        }
-        #Case: Comments or unsupported lines
-        Default {
-            Write-Debug "Ignored line: $_"
-            continue
-        }
-    }
-
-    return $root
-}
-Function ConvertTo-VDF
-{
-<# 
-.Synopsis 
-    Converts a custom object into a Valve Data File (VDF) formatted string.
-
-.Description 
-    The ConvertTo-VDF cmdlet converts any object to a string in Valve Data File (VDF) format. The properties are converted to field names, the field values are converted to property values, and the methods are removed.
-
-.Parameter InputObject
-    Specifies PSObject to be converted into VDF strings.  Enter a variable that contains the object. You can also pipe an object to ConvertTo-Json.
-
-.Example 
-    ConvertTo-VDF -InputObject $VDFObject | Out-File ".\SharedConfig.vdf"
-
-    Description 
-    ----------- 
-    Converts the PS object to VDF format and pipes it into "SharedConfig.vdf" in the current directory
-
-.Inputs 
-    PSCustomObject
-
-.Outputs 
-    System.String
-
-
-#>
-    param
-    (
-        [Parameter(Position=0, Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [PSObject]
-        $InputObject,
-
-        [Parameter(Position=1, Mandatory=$false)]
-        [int]
-        $Depth = 0
-    )
-    $output = [string]::Empty
-    
-    foreach ( $property in ($InputObject.psobject.Properties) ) {
-        switch ($property.TypeNameOfValue) {
-            "System.String" { 
-                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`t`t`"" + $property.Value + "`"`n"
-                break
-            }
-            "System.Management.Automation.PSCustomObject" {
-                $element = $property.Value
-                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`n"
-                $output += ("`t" * $Depth) + "{`n"
-                $output += ConvertTo-VDF -InputObject $element -Depth ($Depth + 1)
-                $output += ("`t" * $Depth) + "}`n"
-                break
-            }
-            Default {
-                Write-Error ("Unsupported Property of type {0}" -f $_) -ErrorAction Stop
-                break
-            }
-        }
-    }
-
-    return $output
-}
-function Get-SteamGameInstallDir (
-    [Parameter(Mandatory = $true)][string]$Game, 
-    [array]$LibraryFolders = (Get-SteamLibraryFolders)) {
-
-    # Get the installation directory of a Steam game.
-    foreach ($LibraryFolder in $LibraryFolders) {
-        $GameInstallDir = "$LibraryFolder\steamapps\common\$Game"
-        if (Test-Path "$($GameInstallDir.ToLower())") {
-            return "$GameInstallDir"
-        }
-    }
-}
-Function Get-SteamLibraryFolders()
-{
-<#
-.Synopsis 
-	Retrieves library folder paths from .\SteamApps\libraryfolders.vdf
-.Description
-	Reads .\SteamApps\libraryfolders.vdf to find the paths of all the library folders set up in steam
-.Example 
-	$libraryFolders = Get-LibraryFolders
-	Description 
-	----------- 
-	Retrieves a list of the library folders set up in steam
-#>
-	$steamPath = Get-SteamPath
-	
-	$vdfPath = "$($steamPath)\SteamApps\libraryfolders.vdf"
-	
-	[array]$libraryFolderPaths = @()
-	
-	if (Test-Path $vdfPath)
-	{
-		$libraryFolders = ConvertFrom-VDF (Get-Content $vdfPath -Encoding UTF8) | Select-Object -ExpandProperty libraryfolders
-		
-		$libraryFolderIds = $libraryFolders | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
-		
-		ForEach ($libraryId in $libraryFolderIds)
-		{
-			$libraryFolder = $libraryFolders.($libraryId)
-			
-			$libraryFolderPaths += $libraryFolder.path.Replace('\\','\')
-		}
-	}
-	
-	return $libraryFolderPaths
-}
-
-function Get-SteamPath {
-    # Get the Steam installation directory.
-
-    $MUICache = "Registry::HKCR\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
-    $Protocol = "Registry::HKCR\steam\Shell\Open\Command"
-    $Steam = Get-ItemPropertyValue "Registry::HKCU\Software\Valve\Steam" -Name "SteamPath" -ErrorAction SilentlyContinue
-    
-    # MUICache
-    if (!$Steam) {
-        $Steam = Split-Path (((Get-Item "$MUICache").Property | Where-Object { $PSItem -Like "*Steam*" } |
-                Where-Object { (Get-ItemPropertyValue "$MUICache" -Name $PSItem) -eq "Steam" }).TrimEnd(".FriendlyAppName"))
-    }
-
-    # Steam Browser Protocol
-    if (!$Steam) {
-        $Steam = Split-Path (((Get-ItemPropertyValue "$Protocol" -Name "(Default)" -ErrorAction SilentlyContinue) -Split "--", 2, "SimpleMatch")[0]).Trim('"')
-    }
-
-    return $Steam.ToLower()
-}
 function Assert-Choice {
     if (-Not(Get-Command choice.exe -ErrorAction Ignore)){
         Write-Host "[!] Unable to find choice.exe (it comes with Windows, did a little bit of unecessary debloating?)" -ForegroundColor Red
@@ -706,6 +91,7 @@ function Get-7zPath {
     # $7Zip = (Get-ChildItem -Path "$env:HOMEDRIVE\*7z.exe" -Recurse -Force -ErrorAction Ignore).FullName | Select-Object -First 1
 
 }
+
 function Get-Boolean {
     param(
         $Message
@@ -845,6 +231,7 @@ function Get-FunctionContent {
         return $Content
     }
 }
+
 function Get-HeaderSize {
     param(
         $URL,
@@ -1039,6 +426,7 @@ pause
         }
     }
 }
+
 function Install-Scoop {
     param(
         [String]$InstallDir
@@ -1492,6 +880,7 @@ function Write-InfoInColor
 }
 
 
+
 function Invoke-Registry {
     [alias('ireg')]
     param(
@@ -1525,6 +914,7 @@ function Invoke-Registry {
         }
     }
 }
+
 function IsCustomISO {
     switch (
         Get-ItemProperty "REGISTRY::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation"
@@ -1535,6 +925,7 @@ function IsCustomISO {
     }
     return $False
 }
+
 # https://github.com/chrisseroka/ps-menu
 function Menu {
     param ([array]$menuItems, [switch]$ReturnIndex=$false, [switch]$Multiselect)
@@ -1630,6 +1021,7 @@ function Toggle-Selection {
 		}
 	}
 }
+
 
 <#
 $Original = @{
@@ -1803,6 +1195,7 @@ if (!$env:TL_NOPROMPT -and !$TL_NOPROMPT){
             "$CSI`97;7mTL$CSI`m $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) ";
     }
 }
+
 function Set-Choice { # Converts passed string to an array of chars
     param(
         [char[]]$Letters = "YN"
@@ -1821,6 +1214,7 @@ function Set-Title {
     )
     $Host.UI.RawUI.WindowTitle = "TweakList - $Title"
 }
+
 function Set-Verbosity {
     [alias('Verbose','Verb')]
     param (
@@ -1855,6 +1249,7 @@ function Test-Admin {
         return ((id -u) -eq 0)
     }
 }
+
 function Write-Color {
     # Ported to PowerShell from an old version of https://github.com/atzuur/colors
     param(
@@ -1907,6 +1302,7 @@ function Write-Color {
     }
     return $Message + $Presets.'$RESET'
 }
+
 function Write-Diff {
 	param(
 	[String]$Message,
@@ -1936,6 +1332,7 @@ function Write-Diff {
 	Write-Host "  $Gray[$Accent$Sign$Gray]$Reset $Term $Accent$Message"
  
 }
+
 
 function Write-Menu {
     <#
@@ -2527,6 +1924,2287 @@ function Write-Menu {
         }
     } while ($inputLoop)
 }
+
+function Get-IniContent {
+    <#
+    .Synopsis
+        Gets the content of an INI file
+
+    .Description
+        Gets the content of an INI file and returns it as a hashtable
+
+    .Notes
+        Author		: Oliver Lipkau <oliver@lipkau.net>
+		Source		: https://github.com/lipkau/PsIni
+                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
+        Version		: 1.0.0 - 2010/03/12 - OL - Initial release
+                      1.0.1 - 2014/12/11 - OL - Typo (Thx SLDR)
+                                              Typo (Thx Dave Stiff)
+                      1.0.2 - 2015/06/06 - OL - Improvment to switch (Thx Tallandtree)
+                      1.0.3 - 2015/06/18 - OL - Migrate to semantic versioning (GitHub issue#4)
+                      1.0.4 - 2015/06/18 - OL - Remove check for .ini extension (GitHub Issue#6)
+                      1.1.0 - 2015/07/14 - CB - Improve round-tripping and be a bit more liberal (GitHub Pull #7)
+                                           OL - Small Improvments and cleanup
+                      1.1.1 - 2015/07/14 - CB - changed .outputs section to be OrderedDictionary
+                      1.1.2 - 2016/08/18 - SS - Add some more verbose outputs as the ini is parsed,
+                      				            allow non-existent paths for new ini handling,
+                      				            test for variable existence using local scope,
+                      				            added additional debug output.
+
+        #Requires -Version 2.0
+
+    .Inputs
+        System.String
+
+    .Outputs
+        System.Collections.Specialized.OrderedDictionary
+
+    .Example
+        $FileContent = Get-IniContent "C:\myinifile.ini"
+        -----------
+        Description
+        Saves the content of the c:\myinifile.ini in a hashtable called $FileContent
+
+    .Example
+        $inifilepath | $FileContent = Get-IniContent
+        -----------
+        Description
+        Gets the content of the ini file passed through the pipe into a hashtable called $FileContent
+
+    .Example
+        C:\PS>$FileContent = Get-IniContent "c:\settings.ini"
+        C:\PS>$FileContent["Section"]["Key"]
+        -----------
+        Description
+        Returns the key "Key" of the section "Section" from the C:\settings.ini file
+
+    .Link
+        Out-IniFile
+    #>
+
+    [CmdletBinding()]
+    [OutputType(
+        [System.Collections.Specialized.OrderedDictionary]
+    )]
+    Param(
+        # Specifies the path to the input file.
+        [ValidateNotNullOrEmpty()]
+        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
+        [String]
+        $FilePath,
+
+        # Specify what characters should be describe a comment.
+        # Lines starting with the characters provided will be rendered as comments.
+        # Default: ";"
+        [Char[]]
+        $CommentChar = @(";"),
+
+        # Remove lines determined to be comments from the resulting dictionary.
+        [Switch]
+        $IgnoreComments
+    )
+
+    Begin {
+        Write-Debug "PsBoundParameters:"
+        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
+        if ($PSBoundParameters['Debug']) {
+            $DebugPreference = 'Continue'
+        }
+        Write-Debug "DebugPreference: $DebugPreference"
+
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
+
+        $commentRegex = "^\s*([$($CommentChar -join '')].*)$"
+        $sectionRegex = "^\s*\[(.+)\]\s*$"
+        $keyRegex     = "^\s*(.+?)\s*=\s*(['`"]?)(.*)\2\s*$"
+
+        Write-Debug ("commentRegex is {0}." -f $commentRegex)
+    }
+
+    Process {
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Processing file: $Filepath"
+
+        $ini = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
+        #$ini = @{}
+
+        if (!(Test-Path $Filepath)) {
+            Write-Verbose ("Warning: `"{0}`" was not found." -f $Filepath)
+            Write-Output $ini
+        }
+
+        $commentCount = 0
+        switch -regex -file $FilePath {
+            $sectionRegex {
+                # Section
+                $section = $matches[1]
+                Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding section : $section"
+                $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
+                $CommentCount = 0
+                continue
+            }
+            $commentRegex {
+                # Comment
+                if (!$IgnoreComments) {
+                    if (!(test-path "variable:local:section")) {
+                        $section = $script:NoSection
+                        $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
+                    }
+                    $value = $matches[1]
+                    $CommentCount++
+                    Write-Debug ("Incremented CommentCount is now {0}." -f $CommentCount)
+                    $name = "Comment" + $CommentCount
+                    Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding $name with value: $value"
+                    $ini[$section][$name] = $value
+                }
+                else {
+                    Write-Debug ("Ignoring comment {0}." -f $matches[1])
+                }
+
+                continue
+            }
+            $keyRegex {
+                # Key
+                if (!(test-path "variable:local:section")) {
+                    $section = $script:NoSection
+                    $ini[$section] = New-Object System.Collections.Specialized.OrderedDictionary([System.StringComparer]::OrdinalIgnoreCase)
+                }
+                $name, $value = $matches[1, 3]
+                Write-Verbose "$($MyInvocation.MyCommand.Name):: Adding key $name with value: $value"
+                if (-not $ini[$section][$name]) {
+                    $ini[$section][$name] = $value
+                }
+                else {
+                    if ($ini[$section][$name] -is [string]) {
+                        $ini[$section][$name] = [System.Collections.ArrayList]::new()
+                        $ini[$section][$name].Add($ini[$section][$name]) | Out-Null
+                        $ini[$section][$name].Add($value) | Out-Null
+                    }
+                    else {
+                        $ini[$section][$name].Add($value) | Out-Null
+                    }
+                }
+                continue
+            }
+        }
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Finished Processing file: $FilePath"
+        Write-Output $ini
+    }
+
+    End {
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function ended"
+    }
+}
+
+Set-Alias gic Get-IniContent
+
+Function Out-IniFile {
+    <#
+    .Synopsis
+        Write hash content to INI file
+
+    .Description
+        Write hash content to INI file
+
+    .Notes
+        Author      : Oliver Lipkau <oliver@lipkau.net>
+        Blog        : http://oliver.lipkau.net/blog/
+        Source      : https://github.com/lipkau/PsIni
+                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
+
+        #Requires -Version 2.0
+
+    .Inputs
+        System.String
+        System.Collections.IDictionary
+
+    .Outputs
+        System.IO.FileSystemInfo
+
+    .Example
+        Out-IniFile $IniVar "C:\myinifile.ini"
+        -----------
+        Description
+        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini
+
+    .Example
+        $IniVar | Out-IniFile "C:\myinifile.ini" -Force
+        -----------
+        Description
+        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini and overwrites the file if it is already present
+
+    .Example
+        $file = Out-IniFile $IniVar "C:\myinifile.ini" -PassThru
+        -----------
+        Description
+        Saves the content of the $IniVar Hashtable to the INI File c:\myinifile.ini and saves the file into $file
+
+    .Example
+        $Category1 = @{“Key1”=”Value1”;”Key2”=”Value2”}
+        $Category2 = @{“Key1”=”Value1”;”Key2”=”Value2”}
+        $NewINIContent = @{“Category1”=$Category1;”Category2”=$Category2}
+        Out-IniFile -InputObject $NewINIContent -FilePath "C:\MyNewFile.ini"
+        -----------
+        Description
+        Creating a custom Hashtable and saving it to C:\MyNewFile.ini
+    .Link
+        Get-IniContent
+    #>
+
+    [CmdletBinding()]
+    [OutputType(
+        [System.IO.FileSystemInfo]
+    )]
+    Param(
+        # Adds the output to the end of an existing file, instead of replacing the file contents.
+        [switch]
+        $Append,
+
+        # Specifies the file encoding. The default is UTF8.
+        #
+        # Valid values are:
+        # -- ASCII:  Uses the encoding for the ASCII (7-bit) character set.
+        # -- BigEndianUnicode:  Encodes in UTF-16 format using the big-endian byte order.
+        # -- Byte:   Encodes a set of characters into a sequence of bytes.
+        # -- String:  Uses the encoding type for a string.
+        # -- Unicode:  Encodes in UTF-16 format using the little-endian byte order.
+        # -- UTF7:   Encodes in UTF-7 format.
+        # -- UTF8:  Encodes in UTF-8 format.
+        [ValidateSet("Unicode", "UTF7", "UTF8", "ASCII", "BigEndianUnicode", "Byte", "String")]
+        [Parameter()]
+        [String]
+        $Encoding = "UTF8",
+
+        # Specifies the path to the output file.
+        [ValidateNotNullOrEmpty()]
+        [ValidateScript( {Test-Path $_ -IsValid} )]
+        [Parameter( Position = 0, Mandatory = $true )]
+        [String]
+        $FilePath,
+
+        # Allows the cmdlet to overwrite an existing read-only file. Even using the Force parameter, the cmdlet cannot override security restrictions.
+        [Switch]
+        $Force,
+
+        # Specifies the Hashtable to be written to the file. Enter a variable that contains the objects or type a command or expression that gets the objects.
+        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
+        [System.Collections.IDictionary]
+        $InputObject,
+
+        # Passes an object representing the location to the pipeline. By default, this cmdlet does not generate any output.
+        [Switch]
+        $Passthru,
+
+        # Adds spaces around the equal sign when writing the key = value
+        [Switch]
+        $Loose,
+
+        # Writes the file as "pretty" as possible
+        #
+        # Adds an extra linebreak between Sections
+        [Switch]
+        $Pretty
+    )
+
+    Begin {
+        Write-Debug "PsBoundParameters:"
+        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
+        if ($PSBoundParameters['Debug']) {
+            $DebugPreference = 'Continue'
+        }
+        Write-Debug "DebugPreference: $DebugPreference"
+
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
+
+        function Out-Keys {
+            param(
+                [ValidateNotNullOrEmpty()]
+                [Parameter( Mandatory, ValueFromPipeline )]
+                [System.Collections.IDictionary]
+                $InputObject,
+
+                [ValidateSet("Unicode", "UTF7", "UTF8", "ASCII", "BigEndianUnicode", "Byte", "String")]
+                [Parameter( Mandatory )]
+                [string]
+                $Encoding = "UTF8",
+
+                [ValidateNotNullOrEmpty()]
+                [ValidateScript( {Test-Path $_ -IsValid})]
+                [Parameter( Mandatory, ValueFromPipelineByPropertyName )]
+                [Alias("Path")]
+                [string]
+                $FilePath,
+
+                [Parameter( Mandatory )]
+                $Delimiter,
+
+                [Parameter( Mandatory )]
+                $MyInvocation
+            )
+
+            Process {
+                if (!($InputObject.get_keys())) {
+                    Write-Warning ("No data found in '{0}'." -f $FilePath)
+                }
+                Foreach ($key in $InputObject.get_keys()) {
+                    if ($key -match "^Comment\d+") {
+                        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing comment: $key"
+                        "$($InputObject[$key])" | Out-File -Encoding $Encoding -FilePath $FilePath -Append
+                    }
+                    else {
+                        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing key: $key"
+                        $InputObject[$key] |
+                            ForEach-Object { "$key$delimiter$_" } |
+                            Out-File -Encoding $Encoding -FilePath $FilePath -Append
+                    }
+                }
+            }
+        }
+
+        $delimiter = '='
+        if ($Loose) {
+            $delimiter = ' = '
+        }
+
+        # Splatting Parameters
+        $parameters = @{
+            Encoding = $Encoding;
+            FilePath = $FilePath
+        }
+
+    }
+
+    Process {
+        $extraLF = ""
+
+        if ($Append) {
+            Write-Debug ("Appending to '{0}'." -f $FilePath)
+            $outfile = Get-Item $FilePath
+        }
+        else {
+            Write-Debug ("Creating new file '{0}'." -f $FilePath)
+            $outFile = New-Item -ItemType file -Path $Filepath -Force:$Force
+        }
+
+        if (!(Test-Path $outFile.FullName)) {Throw "Could not create File"}
+
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing to file: $Filepath"
+        foreach ($i in $InputObject.get_keys()) {
+            if (!($InputObject[$i].GetType().GetInterface('IDictionary'))) {
+                #Key value pair
+                Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing key: $i"
+                "$i$delimiter$($InputObject[$i])" | Out-File -Append @parameters
+
+            }
+            elseif ($i -eq $script:NoSection) {
+                #Key value pair of NoSection
+                Out-Keys $InputObject[$i] `
+                    @parameters `
+                    -Delimiter $delimiter `
+                    -MyInvocation $MyInvocation
+            }
+            else {
+                #Sections
+                Write-Verbose "$($MyInvocation.MyCommand.Name):: Writing Section: [$i]"
+
+                # Only write section, if it is not a dummy ($script:NoSection)
+                if ($i -ne $script:NoSection) { "$extraLF[$i]"  | Out-File -Append @parameters }
+                if ($Pretty) {
+                    $extraLF = "`r`n"
+                }
+
+                if ( $InputObject[$i].Count) {
+                    Out-Keys $InputObject[$i] `
+                        @parameters `
+                        -Delimiter $delimiter `
+                        -MyInvocation $MyInvocation
+                }
+
+            }
+        }
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Finished Writing to file: $FilePath"
+    }
+
+    End {
+        if ($PassThru) {
+            Write-Debug ("Returning file due to PassThru argument.")
+            Write-Output (Get-Item $outFile)
+        }
+        Write-Verbose "$($MyInvocation.MyCommand.Name):: Function ended"
+    }
+}
+
+Set-Alias oif Out-IniFile
+
+Function ConvertFrom-VDF {
+<# 
+.Synopsis 
+    Reads a Valve Data File (VDF) formatted string into a custom object.
+
+.Description 
+    The ConvertFrom-VDF cmdlet converts a VDF-formatted string to a custom object (PSCustomObject) that has a property for each field in the VDF string. VDF is used as a textual data format for Valve software applications, such as Steam.
+
+.Parameter InputObject
+    Specifies the VDF strings to convert to PSObjects. Enter a variable that contains the string, or type a command or expression that gets the string. 
+
+.Example 
+    $vdf = ConvertFrom-VDF -InputObject (Get-Content ".\SharedConfig.vdf")
+
+    Description 
+    ----------- 
+    Gets the content of a VDF file named "SharedConfig.vdf" in the current location and converts it to a PSObject named $vdf
+
+.Inputs 
+    System.String
+
+.Outputs 
+    PSCustomObject
+
+
+#>
+    param
+    (
+        [Parameter(Position=0, Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [String[]]
+        $InputObject
+    )
+
+    $root = New-Object -TypeName PSObject
+    $chain = [ordered]@{}
+    $depth = 0
+    $parent = $root
+    $element = $null
+
+    #Magic PowerShell Switch Enumrates Arrays
+    switch -Regex ($InputObject) {
+        #Case: ValueKey
+        '^\t*"(\S+)"\t\t"(.+)"$' {
+            Add-Member -InputObject $element -MemberType NoteProperty -Name $Matches[1] -Value $Matches[2]
+            continue
+        }
+        #Case: ParentKey
+        '^\t*"(\S+)"$' { 
+            $element = New-Object -TypeName PSObject
+            Add-Member -InputObject $parent -MemberType NoteProperty -Name $Matches[1] -Value $element
+            continue
+        }
+        #Case: Opening ParentKey Scope
+        '^\t*{$' {
+            $parent = $element
+            $chain.Add($depth, $element)
+            $depth++
+            continue
+        }
+        #Case: Closing ParentKey Scope
+        '^\t*}$' {
+            $depth--
+            $parent = $chain.($depth - 1)
+            $element = $parent
+            $chain.Remove($depth)
+            continue
+        }
+        #Case: Comments or unsupported lines
+        Default {
+            Write-Debug "Ignored line: $_"
+            continue
+        }
+    }
+
+    return $root
+}
+
+Function ConvertTo-VDF
+{
+<# 
+.Synopsis 
+    Converts a custom object into a Valve Data File (VDF) formatted string.
+
+.Description 
+    The ConvertTo-VDF cmdlet converts any object to a string in Valve Data File (VDF) format. The properties are converted to field names, the field values are converted to property values, and the methods are removed.
+
+.Parameter InputObject
+    Specifies PSObject to be converted into VDF strings.  Enter a variable that contains the object. You can also pipe an object to ConvertTo-Json.
+
+.Example 
+    ConvertTo-VDF -InputObject $VDFObject | Out-File ".\SharedConfig.vdf"
+
+    Description 
+    ----------- 
+    Converts the PS object to VDF format and pipes it into "SharedConfig.vdf" in the current directory
+
+.Inputs 
+    PSCustomObject
+
+.Outputs 
+    System.String
+
+
+#>
+    param
+    (
+        [Parameter(Position=0, Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [PSObject]
+        $InputObject,
+
+        [Parameter(Position=1, Mandatory=$false)]
+        [int]
+        $Depth = 0
+    )
+    $output = [string]::Empty
+    
+    foreach ( $property in ($InputObject.psobject.Properties) ) {
+        switch ($property.TypeNameOfValue) {
+            "System.String" { 
+                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`t`t`"" + $property.Value + "`"`n"
+                break
+            }
+            "System.Management.Automation.PSCustomObject" {
+                $element = $property.Value
+                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`n"
+                $output += ("`t" * $Depth) + "{`n"
+                $output += ConvertTo-VDF -InputObject $element -Depth ($Depth + 1)
+                $output += ("`t" * $Depth) + "}`n"
+                break
+            }
+            Default {
+                Write-Error ("Unsupported Property of type {0}" -f $_) -ErrorAction Stop
+                break
+            }
+        }
+    }
+
+    return $output
+}
+
+function Get-SteamGameInstallDir (
+    [Parameter(Mandatory = $true)][string]$Game, 
+    [array]$LibraryFolders = (Get-SteamLibraryFolders)) {
+
+    # Get the installation directory of a Steam game.
+    foreach ($LibraryFolder in $LibraryFolders) {
+        $GameInstallDir = "$LibraryFolder\steamapps\common\$Game"
+        if (Test-Path "$($GameInstallDir.ToLower())") {
+            return "$GameInstallDir"
+        }
+    }
+}
+Function Get-SteamLibraryFolders()
+{
+<#
+.Synopsis 
+	Retrieves library folder paths from .\SteamApps\libraryfolders.vdf
+.Description
+	Reads .\SteamApps\libraryfolders.vdf to find the paths of all the library folders set up in steam
+.Example 
+	$libraryFolders = Get-LibraryFolders
+	Description 
+	----------- 
+	Retrieves a list of the library folders set up in steam
+#>
+	$steamPath = Get-SteamPath
+	
+	$vdfPath = "$($steamPath)\SteamApps\libraryfolders.vdf"
+	
+	[array]$libraryFolderPaths = @()
+	
+	if (Test-Path $vdfPath)
+	{
+		$libraryFolders = ConvertFrom-VDF (Get-Content $vdfPath -Encoding UTF8) | Select-Object -ExpandProperty libraryfolders
+		
+		$libraryFolderIds = $libraryFolders | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
+		
+		ForEach ($libraryId in $libraryFolderIds)
+		{
+			$libraryFolder = $libraryFolders.($libraryId)
+			
+			$libraryFolderPaths += $libraryFolder.path.Replace('\\','\')
+		}
+	}
+	
+	return $libraryFolderPaths
+}
+
+
+function Get-SteamPath {
+    # Get the Steam installation directory.
+
+    $MUICache = "Registry::HKCR\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
+    $Protocol = "Registry::HKCR\steam\Shell\Open\Command"
+    $Steam = Get-ItemPropertyValue "Registry::HKCU\Software\Valve\Steam" -Name "SteamPath" -ErrorAction SilentlyContinue
+    
+    # MUICache
+    if (!$Steam) {
+        $Steam = Split-Path (((Get-Item "$MUICache").Property | Where-Object { $PSItem -Like "*Steam*" } |
+                Where-Object { (Get-ItemPropertyValue "$MUICache" -Name $PSItem) -eq "Steam" }).TrimEnd(".FriendlyAppName"))
+    }
+
+    # Steam Browser Protocol
+    if (!$Steam) {
+        $Steam = Split-Path (((Get-ItemPropertyValue "$Protocol" -Name "(Default)" -ErrorAction SilentlyContinue) -Split "--", 2, "SimpleMatch")[0]).Trim('"')
+    }
+
+    return $Steam.ToLower()
+}
+function Add-ContextMenu {
+    #! TODO https://www.tenforums.com/tutorials/69524-add-remove-drives-send-context-menu-windows-10-a.html
+    param(
+        [ValidateSet(
+            'SendTo',
+            'TakeOwnership',
+            'OpenWithOnBatchFiles',
+            'DrivesInSendTo',
+            'TakeOwnership'
+            )]
+        [Array]$Entries
+    )
+    if (!(Test-Admin)){
+        return 'Changing the context menu / default file extensions requires running as Admin, exitting..'
+
+    }
+
+    if ('SendTo' -in $Entries){
+        New-ItemProperty -Path Registry::HKEY_CLASSES_ROOT\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo -Name "(default)" -PropertyType String -Value "{7BA4C740-9E81-11CF-99D3-00AA004AE837}" -Force
+    }
+
+    if ('DrivesInSendTo' -in $Entries){
+        Set-ItemProperty "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name NoDrivesInSendToMenu -Value 0
+    }
+
+
+    if ('OpenWithOnBatchFiles' -in $Entries){
+        New-Item -Path "Registry::HKEY_CLASSES_ROOT\batfile\shell\Open with\command" -Force
+        New-Item -Path "Registry::HKEY_CLASSES_ROOT\cmdfile\shell\Open with\command" -Force
+        Set-ItemProperty "Registry::HKEY_CLASSES_ROOT\batfile\shell\Open with\command" -Name "(Default)" -Value "{09799AFB-AD67-11d1-ABCD-00C04FC30936}" -Force
+        Set-ItemProperty "Registry::HKEY_CLASSES_ROOT\batfile\shell\Open with\command" -Name "(Default)" -Value "{09799AFB-AD67-11d1-ABCD-00C04FC30936}" -Force
+
+    }
+
+    if ('TakeOwnership' -in $Entries){
+        '*','Directory' | ForEach-Object {
+            New-Item -Path "Registry::HKEY_CLASSES_ROOT\$_\shell\runas"
+            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas" -Name '(Default)' -Value 'Take Ownership'
+            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas" -Name 'NoWorkingDirectory' -Value ''
+            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas" -Name 'HasLUAShield' -Value ''
+            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas" -Name 'Position' -Value 'Middle'
+            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas" -Name 'AppliesTo' -Value "NOT (System.ItemPathDisplay:=`"$env:HOMEDRIVE\`")"
+
+            New-Item -Path "Registry::HKEY_CLASSES_ROOT\$_\shell\runas\command"
+            $Command = 'cmd.exe /c title Taking ownership.. & mode con:lines=30 cols=150 & takeown /f "%1" && icacls "%1" /grant administrators:F & timeout 2 >nul'
+            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas\command" -Name '(Default)' -Value $Command
+            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas\command" -Name 'IsolatedCommand' -Value $Command
+
+        }
+    }
+
+}
+function Block-RazerSynapse {
+    Try {
+        Remove-Item "C:\Windows\Installer\Razer" -Force -Recurse
+    } Catch {
+        "Failed to remove Razer installer folder"
+        $_.Exception.Message
+    }
+    New-Item -ItemType File -Path "C:\Windows\Installer\Razer" -Force -ErrorAction Stop
+    Write-Host "An empty file called 'Razer' in C:\Windows\Installer has been put to block Razer Synapse's auto installation"
+}
+function Check-XMP {
+    Write-Host "Checking RAM.." -NoNewline
+    $PhysicalMemory = Get-CimInstance -ClassName Win32_PhysicalMemory
+    $RamSpeed = $PhysicalMemory.Speed | Select-Object -First 1 # In MHz
+    $IsDesktop = $null -eq (Get-CimInstance -ClassName Win32_Battery) # No battery = not a laptop (in some very rare cases that may fail but whatever it's accurate enough)
+    $IsDDR4 = ($PhysicalMemory.SMBIOSMemoryType | Select-Object -First 1) -eq 26 # DDR4 = 26, DDR3 = 24
+    switch((Get-CimInstance -ClassName CIM_Processor).Manufacturer){
+        {$PSItem -Like "*AMD*" -or $PSItem -Like "*Advanced Micro*"}{$RamOCType = 'DOCP'}
+        default{$RamOCType = 'XMP'} # Whatever else it is, it's preferably XMP
+    }
+    if (($RamSpeed -eq 2133) -and $IsDesktop -and $IsDDR4){
+        Write-Output @"
+`rYour RAM is running at the default DDR4 RAM speed of 2133 MHz.
+Check if your RAM allows running at a higher speed, and if yes, turn on $RamOCType in the BIOS
+"@
+    }else{
+        Write-Output "`rCould not determine the need for XMP/DOCP"
+    }
+    if ($RamSpeed){"- Your RAM speed is $RamSpeed MHz"}
+    if ($null -ne $IsDesktop){"- You're on a desktop: $IsDesktop"}
+    if ($null -ne $IsDDR4){"- Your RAM is DDR4: $IsDDR4"}
+}
+
+
+<#
+	.SYNOPSIS
+	Scraps the latest version of Sophia edition weither you have W10/11/LTSC/PS7,
+	changes all function scopes to global and invokes it, as if it were importing it as a module
+
+	You can find farag's dobonhonkerosly big Sophia Script at https://github.com/farag2/Sophia-Script-for-Windows
+	And if you'd like using it as a GUI, try out SophiApp:  https://github.com/Sophia-Community/SophiApp
+	
+	Using the -Write parameter returns the script instead of piping it to Invoke-Expression
+	.EXAMPLE
+	Import-Sophia
+	# Or for short:
+	ipso
+#>
+function Import-Sophia {
+	[alias('ipso')]
+	[CmdletBinding()]
+	param(
+		[switch]
+        $Write,
+
+		[string]
+        [ValidateSet(
+            'de-DE',
+            'en-US',
+            'es-ES',
+            'fr-FR',
+            'hu-HU',
+            'it-IT',
+            'pt-BR',
+            'ru-RU',
+            'tr-TR',
+            'uk-UA',
+            'zh-CN'
+        )]
+        $OverrideLang
+	)
+
+	function Get-SophiaVersion {
+
+		switch ((Get-CimInstance -ClassName Win32_OperatingSystem).BuildNumber){
+	
+			"17763" {
+		
+				"Windows_10_LTSC_2019"
+				break
+			}
+			{($_ -ge 19044) -and ($_ -le 19048)}{
+		
+				if ($PSVersionTable.PSVersion.Major -eq 5){
+		
+					# Check if Windows 10 is an LTSC 2021
+					if ((Get-ItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -Name ProductName) -eq "Windows 10 Enterprise LTSC 2021"){
+		
+						"Windows_10_LTSC_2021"
+					}
+					else{
+						"Windows_10"
+					}
+				}
+				else{
+					"Windows_10_PowerShell_7"
+				}
+			}
+			{$_ -ge 22000}
+			{
+				if ($PSVersionTable.PSVersion.Major -eq 5){
+					"Windows_11"
+				}
+				else{
+					"Windows_11_PowerShell_7"
+				}
+			}
+		}
+	}
+	
+	$SophiaVer = "Sophia_Script_for_" + (Get-SophiaVersion)
+
+
+
+	$SupportedLanguages = @(
+		'de-DE',
+		'en-US',
+		'es-ES',
+		'fr-FR',
+		'hu-HU',
+		'it-IT',
+		'pt-BR',
+		'ru-RU',
+		'tr-TR',
+		'uk-UA',
+		'zh-CN'
+	)
+
+	if($OverrideLang){
+		if ($OverrideLang -NotIn $SupportedLanguages){
+			Write-Warning "Language $OverrideLang may not be supported."
+		}
+		$Lang = $OverrideLang
+	}
+	elseif((Get-UICulture).Name -in $SupportedLanguages){
+		$Lang = (Get-UICulture).Name
+	}
+	elseif((Get-UICulture).Name -eq "en-GB"){
+		$Lang = 'en-US'
+	}
+	else{
+		$Lang = 'en-US'
+	}
+
+	$Lang = (Get-UICulture).Name
+	if ($OverrideLang){$Lang = $OverrideLang}
+
+	if ($Lang -NotIn $SupportedLanguages){
+		$Lang = 'en-US'
+	}
+	Try{
+		$URL = "https://raw.githubusercontent.com/farag2/Sophia-Script-for-Windows/master/src/$SophiaVer/Localizations/$Lang/Sophia.psd1"
+		$Hashtable = Invoke-RestMethod $URL -ErrorAction Stop
+	} Catch {
+		Write-Warning "Failed to get Localizations with lang $Lang`nand URL: $URL"
+		$_
+		return
+	}
+	While ($Hashtable[0] -ne 'C'){
+		$Hashtable = $Hashtable.Substring(1) # BOM ((
+	}
+	$global:Localizations = $global:Localization = Invoke-Expression $HashTable
+
+	Write-Verbose "Getting $($SophiaVer -replace '_', ' ')"
+
+	$RawURL = "https://raw.githubusercontent.com/farag2/Sophia-Script-for-Windows/master/src/$SophiaVer/Module/Sophia.psm1"
+	Write-Verbose $RawURL
+
+	$SophiaFunctions = (Invoke-RestMethod $RawURL -ErrorAction Stop)
+
+	While ($SophiaFunctions[0] -ne '<'){
+		$SophiaFunctions = $SophiaFunctions.Substring(1) # BOM ((
+	}
+
+	if ($Write){
+		return $SophiaFunctions
+	}else{
+		New-Module -Name "Sophia Script (TL)" -ScriptBlock ([ScriptBlock]::Create($SophiaFunctions)) | Import-Module -Global
+	}
+
+}
+function Invoke-GitHubScript {
+    [alias('igs')]
+    param(
+        [ValidateSet(
+            'ChrisTitusTechToolbox',
+            'OldChrisTitusTechToolbox',
+            'Fido',
+            'SophiaScript'
+        )]
+        $Repository,
+        $RawURL
+    )
+    if ($RawURL){
+        Invoke-RestMethod $URL | Invoke-Expression
+        return
+    }
+    function Invoke-URL ($Link) {
+        $Response = Invoke-RestMethod $Link
+        While ($Response[0] -NotIn '<','#'){ # Byte Order Mark (BOM) removal
+            $Response = $Response.Substring(1)
+        }
+        Invoke-Expression $Response
+    }
+    switch ($Repository){
+        'ChrisTitusTechToolbox'{Invoke-URL https://raw.githubusercontent.com/ChrisTitusTech/winutil/main/winutil.ps1}
+        'OldChrisTitusTechToolbox'{Invoke-Expression (Invoke-RestMethod https://raw.githubusercontent.com/ChrisTitusTech/win10script/master/win10debloat.ps1)}
+        'Fido'{Invoke-URL https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1}
+        'SophiaScript'{Import-Sophia}
+    }
+}
+
+function New-ContextMenu {
+    param(
+        [Parameter(Mandatory = $true)]
+        [String]$Text,
+        [Parameter(Mandatory = $true)]
+        [Array]$Extensions,
+        [Parameter(Mandatory = $true)]
+        [String]$Command,
+        
+        [String]$Icon
+    ) # Text Extensions Command are all mandatory, though Icon is not and must be an existing .ico path
+
+    if (!(Test-Admin)){
+        return "Admin priviledges required (touching root class registry keys)"
+    }
+
+    ForEach($Extension in $Extensions){
+        
+        $shellpath = "REGISTRY::HKEY_CLASSES_ROOT\SystemFileAssociations\$Extension\shell"
+
+        if (-Not(Test-Path $shellpath)){
+            New-Item -Item Directory $shellpath -ErrorAction Stop | Out-Null
+            $Item = "item0"
+        }else{
+            $Items = ((Get-ChildItem "$shellpath").PSChildName | 
+            Where-Object {$PSItem -Like "Item*"}) -replace 'Item',''
+            if ($items){
+                $Item = "item" + ([int]$Items+1)
+            } else{$Item = "item0"}
+            Write-Host "Item is $item since there items: $items"
+        }
+        if (-Not(Test-Path "$shellpath\$Item")){
+            New-Item -Item Directory "$shellpath\$Item" -ErrorAction Stop | Out-Null
+        }
+        Set-ItemProperty -Path "$shellpath\$Item" -Name "MUIVerb" -Value $Text
+        if ($icon){
+            Set-ItemProperty -Path "$shellpath\$Item" -Name "Icon" -Value "$icon"
+        }
+
+        if (-Not(Test-Path "$shellpath\$Item\command")){
+            New-Item -Item Directory "$shellpath\$Item\command" -ErrorAction Stop | Out-Null
+        }
+        Set-Item -Path "$shellpath\$Item\command" -Value "$command `"%L`""
+    }
+}
+<#!TODO:
+    Scan windows defender
+    Git Bash
+    Rotate pictures
+    Open with code
+    Open with visual studio
+    Add to favorites
+#>
+
+function Remove-ContextMenu {
+    [alias('rcm')]
+    <#
+    https://www.tenforums.com
+    https://winaero.com
+    https://majorgeeks.com
+    https://github.com/farag2/Sophia-Script-for-Windows
+    #>
+    param(
+        [ValidateSet(
+            'PinToQuickAccess',
+            'RestorePreviousVersions',
+            'Print',
+            'GiveAccessTo',
+            'EditWithPaint3D',
+            'IncludeInLibrary',
+            'AddToWindowsMediaPlayerList',
+            'CastToDevice',
+            'EditWithPaint3D',
+            'EditWithPhotos',
+            'Share',
+            'TakeOwnerShip',
+            '7Zip',
+            'WinRAR',
+            'Notepad++',
+            'OpenWithOnBatchFiles',
+            'SendTo',
+            'DrivesInSendTo',
+            'VLC'
+            )]
+        [Array]$Entries
+    )
+
+    if (!(Test-Admin)){
+        return 'Changing the context menu / default file extensions requires running as Admin, exitting..'
+
+    }
+
+
+    $CurrentPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Ignore'
+    $Blocked = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked"
+
+    if (-Not (Test-Path -Path $Blocked)){
+        New-Item -Path $Blocked -Force
+    }
+
+    if ('RestorePreviousVersions' -in $Entries){
+        New-ItemProperty -Path "$Blocked" -Name "{596AB062-B4D2-4215-9F74-E9109B0A8153}"
+    }
+
+    if ('PinToQuickAccess'){
+        @('HKEY_CLASSES_ROOT','HKEY_LOCAL_MACHINE\SOFTWARE\Classes') |
+        ForEach-Object { Remove-Item "Registry::$_\Folder\shell\pintohome" -Force -Recurse}
+    }
+
+    if ('Print' -in $Entries){
+        @(
+            'SystemFileAssociations\image',
+            'batfile','cmdfile','docxfil','fonfile','htmlfil','inffile','inifile','VBSFile','WSFFile',
+            'JSEFile','otffile','pfmfile','regfile','rtffile','ttcfile','ttffile','txtfile','VBEFile'
+        ) | ForEach-Object {Set-ItemProperty "Registry::HKEY_CLASSES_ROOT\$_\shell\print" -Name "ProgrammaticAccessOnly" -Value ''}
+    }
+
+    if ('GiveAccessTo' -in $Entries) {
+        @('*','Directory\Background','Directory','Drive','LibraryFolder\background','UserLibraryFolder') |
+        ForEach-Object {Remove-Item -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shellex\ContextMenuHandlers\Sharing" -Recurse -Force}
+    }
+
+    if ('IncludeInLibrary' -in $Entries){
+        @('HKEY_LOCAL_MACHINE\SOFTWARE\Classes','HKEY_CLASSES_ROOT') |
+        ForEach-Object {Remove-Item "Registry::$_\Folder\ShellEx\ContextMenuHandlers\Library Location" -Force}
+    }
+
+    if ('AddToWindowsMediaPlayerList' -in $Entries){
+        @(
+            '3G2','3GP','ADTS','AIFF','ASF','ASX','AU','AVI','FLAC','M2TS','m3u','M4A','MIDI','MK3D',
+            'MKA','MKV','MOV','MP3','MP4','MPEG','TTS','WAV','WAX','WMA','WMV','WPL','WVX'
+        ) | ForEach-Object { Remove-Item "Registry::HKEY_CLASSES_ROOT\WMP11.AssocFile.$_\shell\Enqueue" -Force -Recurse }
+
+        @(
+            'MediaCenter.WTVFile','Stack.Audio','Stack.Image','SystemFileAssociations\audio','WMP.WTVFile',
+            'SystemFileAssociations\Directory.Audio','SystemFileAssociations\Directory.Image','WMP.DVR-MSFile','WMP.DVRMSFile'
+        ) | ForEach-Object { Remove-Item "Registry::HKEY_CLASSES_ROOT\$_\shell\Enqueue" -Force -Recurse}
+    }
+
+    if ('CastToDevice' -in $Entries){
+        New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked" -Name "{7AD84985-87B4-4a16-BE58-8B72A5B390F7}" -PropertyType String -Value "Play to menu" -Force
+    }
+
+    if ('EditWithPaint3D' -in $Entries){
+        @('.3mf','.bmp','.fbx','.gif','.jfif','.jpe','.jpeg','.jpg','.png','.tif','.tiff') | 
+        ForEach-Object { Remove-Item "Registry::HKEY_CLASSES_ROOT\SystemFileAssociations\$_\Shell\3D Edit" -Force -Recurse}
+    }
+
+    if ('EditWithPhotos' -in $Entries){
+        Set-ItemProperty "Registry::HKEY_CLASSES_ROOT\AppX43hnxtbyyps62jhe9sqpdzxn1790zetc\Shell\ShellEdit" -Name 'ProgrammaticAccessOnly' -Value ''
+    }
+
+    if ('Share' -in $Entries){
+        New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked" -Name "{E2BF9676-5F8F-435C-97EB-11607A5BEDF7}" -PropertyType String -Value "" -Force
+    }
+
+    if ('TakeOwnerShip' -in $Entries){
+        @(
+        'HKEY_CLASSES_ROOT\*\shell\runas'
+        'HKEY_CLASSES_ROOT\Directory\shell\runas'
+        'HKEY_CLASSES_ROOT\*\shell\TakeOwnership'
+        'HKEY_CLASSES_ROOT\Directory\shell\TakeOwnership'
+        'HKEY_LOCAL_MACHINE\SOFTWARE\Classes\*\shell\TakeOwnership'
+        'HKEY_LOCAL_MACHINE\SOFTWARE\Classes\*\shell\TakeOwnership'
+        'HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Directory\shell\TakeOwnership'
+        ) | ForEach-Object {
+            Remove-Item -LiteralPath "Registry::$_" -Recurse -Force
+        }
+    }
+
+    if ('SendTo' -in $Entries){
+        $DefaultSendTo = (
+        'Bluetooth File Transfer',
+        'Compressed (zipped) Folder',
+        'Desktop (create shortcut)',
+        'Documents',
+        'Fax Recipient',
+        'Mail Recipient'
+        )
+        $NonDefaultSendTo = Get-ChildItem ([System.Environment]::GetFolderPath('SendTo')) | Where-Object BaseName -NotIn $DefaultSendTo
+        if ($NonDefaultSendTo) {
+            $NonDefaultSendTo.Name
+            if(Get-Boolean "Are you sure you wish to lose access the following files/scripts?"){
+                New-ItemProperty -Path Registry::HKEY_CLASSES_ROOT\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo -Name "(default)" -PropertyType String -Value "-{7BA4C740-9E81-11CF-99D3-00AA004AE837}" -Force
+            }
+        }else{
+            New-ItemProperty -Path Registry::HKEY_CLASSES_ROOT\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo -Name "(default)" -PropertyType String -Value "-{7BA4C740-9E81-11CF-99D3-00AA004AE837}" -Force
+        }
+    }
+
+    if ('DrivesInSendTo' -in $Entries){
+        Set-ItemProperty "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name NoDrivesInSendToMenu -Value 1
+    }
+    
+    if ('OpenWithOnBatchFiles' -in $Entries){
+        foreach ($Ext in 'bat','cmd'){
+            Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\$($Ext)file\shell\Open with\command" -Force -Recurse
+        }
+    }
+
+    if ('7Zip' -in $Entries){
+        @(
+            'Classes\CLSID\{23170F69-40C1-278A-1000-000100020000}',
+            'Classes\CLSID\{23170F69-40C1-278A-1000-000100020000}\InprocServer32',
+            'Classes\*\shellex\ContextMenuHandlers\7-Zip',
+            'Classes\Directory\shellex\ContextMenuHandlers\7-Zip',
+            'Classes\Folder\shellex\ContextMenuHandlers\7-Zip',
+            '7-Zip\Options'
+        ) | ForEach-Object {Remove-Item -LiteralPath "REGISTRY::HKEY_CURRENT_USER\Software\$_" -Recurse -Force}
+    }
+    
+    if ('WinRAR' -in $Entries){ # This hides (adds to Blocked) instead of deleting
+        @('{B41DB860-64E4-11D2-9906-E49FADC173CA}','{B41DB860-8EE4-11D2-9906-E49FADC173CA}') |
+        ForEach-Object {New-ItemProperty -Path $Blocked -Name $_ -Value ''}
+    }
+
+    if ('Notepad++' -in $Entries){
+        @(
+            '*\shell\Open with &Notepad++',
+            '*\shell\Open with &Notepad++\command',
+            'Directory\shell\Open with &Notepad++',
+            'Directory\shell\Open with &Notepad++\command',
+            'Directory\Background\shell\Open with &Notepad++',
+            'Directory\Background\shell\Open with &Notepad++\command'
+        ) | ForEach-Object {
+            Remove-Item -LiteralPath "Registry::HKEY_CURRENT_USER\Software\Classes\$_" -Recurse -Force
+        }
+
+    }
+
+    if ('VLC' -in $Entries){
+
+        @(
+            'Directory\shell\PlayWithVLC'
+            'Directory\shell\AddtoPlaylistVLC'
+            
+        ) | ForEach-Object {
+            if (Test-Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\$_"){
+                Remove-Item -LiteralPath "Registry::HKEY_CLASSES_ROOT\Directory\shell\$PSItem" -Recurse -Force
+            }
+        }
+        ForEach($Context in ('PlayWithVLC','AddtoPlaylistVLC')){
+            @(
+                '3g2', '3ga', '3gp', '3gp2', '3gpp', '669', 'a52', 'aac', 'ac3', 'adt', 'adts', 'aif', 'aifc', 'aiff',
+                'amr', 'amv', 'aob', 'ape', 'asf', 'asx', 'au', 'avi', 'b4s', 'bik', 'Bluray', 'caf', 'cda', 'CDAudio',
+                'cue', 'dav', 'divx', 'drc', 'dts', 'dv', 'DVDMovie', 'dvr-ms', 'evo', 'f4v', 'flac', 'flv', 'gvi', 'gxf',
+                'ifo', 'iso', 'it', 'm1v', 'm2t', 'm2ts', 'm2v', 'm3u', 'm3u8', 'm4a', 'm4p', 'm4v', 'mid', 'mka', 'mkv',
+                'mlp', 'mod', 'mov', 'mp1', 'mp2', 'mp2v', 'mp3', 'mp4', 'mp4v', 'mpa', 'mpc', 'mpe', 'mpeg', 'mpeg1',
+                'mpeg2', 'mpeg4', 'mpg', 'mpga', 'mpv2', 'mts', 'mtv', 'mxf', 'nsv', 'nuv', 'oga', 'ogg', 'ogm', 'ogv',
+                'ogx', 'oma', 'OPENFolder', 'opus', 'pls', 'qcp', 'ra', 'ram', 'rar', 'rec', 'rm', 'rmi', 'rmvb', 'rpl',
+                's3m', 'sdp', 'snd', 'spx', 'SVCDMovie', 'thp', 'tod', 'tp', 'ts', 'tta', 'tts', 'VCDMovie', 'vlc', 'vlt',
+                'vob', 'voc', 'vqf', 'vro', 'w64', 'wav', 'webm', 'wma', 'wmv', 'wpl', 'wsz', 'wtv', 'wv', 'wvx', 'xa', 'xesc',
+                'xm', 'xspf', 'zip', 'zpl','3g2','3ga','3gp','3gp2','3gpp'
+
+            ) | ForEach-Object {
+                $Key = "Registry::HKEY_CLASSES_ROOT\VLC.$PSItem\shell\$Context"
+                if (Test-Path $Key){
+                    Remove-Item -LiteralPath $Key -Recurse -Force
+                }
+            }
+        }
+    }
+    
+    $ErrorActionPreference = $CurrentPreference
+}
+
+function Remove-FromThisPC {
+    param(
+        [ValidateSet('Remove','Restore')]
+        [String]
+        $Action = 'Remove',
+
+        [ValidateSet(
+            'Desktop',
+            'Documents',
+            'Downloads',
+            'Music',
+            'Pictures',
+            'Videos'
+            )]
+        $Entries,
+        [Switch]$All
+
+    )
+    if ($All){$Entries = 'Desktop','Documents','Downloads','Music','Pictures','Videos'}
+    function Modify-Entry ($GUID){
+        if ($Action -eq 'Remove'){
+            Remove-Item -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{$GUID}"
+            Remove-Item -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{$GUID}"    
+        }else{
+            New-Item -ItemType -Directory -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{$GUID}" | Out-Null
+            New-Item -ItemType -Directory -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{$GUID}" | Out-Null
+        }
+        
+    }
+    ForEach($Entry in $Entries){
+        Switch($Entry){
+            'Desktop'{
+                Modify-Entry B4BFCC3A-DB2C-424C-B029-7FE99A87C641
+            }
+            'Documents'{
+                Modify-Entry A8CDFF1C-4878-43be-B5FD-F8091C1C60D0
+                Modify-Entry d3162b92-9365-467a-956b-92703aca08af
+            }
+            'Downloads'{
+                Modify-Entry 374DE290-123F-4565-9164-39C4925E467B
+                Modify-Entry 088e3905-0323-4b02-9826-5d99428e115f
+            }
+            'Music'{
+                Modify-Entry 1CF1260C-4DD0-4ebb-811F-33C572699FDE
+                Modify-Entry 3dfdf296-dbec-4fb4-81d1-6a3438bcf4de
+            }
+            'Pictures'{
+                Modify-Entry 3ADD1653-EB32-4cb0-BBD7-DFA0ABB5ACCA
+                Modify-Entry 24ad3ad4-a569-4530-98e1-ab02f9417aa8
+            }
+            'Videos'{
+                Modify-Entry A0953C92-50DC-43bf-BE83-3742FED03C9C
+                Modify-Entry f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a
+            }
+
+        }
+    }
+}
+function RemovePackBangs {
+    # Removes the exclamation bangs and spaces from all your !   PackName.zip
+    param(
+        [ValidateScript({
+            Test-Path $_ -PathType Container
+        })]
+        [String]$PackFolderPath = $(if ($IsLinux){"$env:HOME/.minecraft/resourcepacks"} else {"$env:APPDATA\.minecraft\resourcepacks"})
+    )
+
+    Get-ChildItem $PackFolderPath  | ForEach-Object {
+
+        $NewName = $_.Name.TrimStart("! ")
+
+        if ($_.Name -ne $NewName){
+            if (Test-Path -LiteralPath (Join-Path $PackFolderPath $NewName)){
+
+                Write-Warning "Skipping renaming [$($_.Name)], copy exists with no bangs"
+
+            } else{
+                Write-Host "Renaming to $NewName" -ForegroundColor Green
+                Rename-Item -Path $PSItem -NewName $NewName -Verbose
+            }
+        }
+    } 
+}
+
+function Set-CompatibilitySettings {
+    [alias('scs')]
+    param(
+        [Parameter(Mandatory = $true)]
+        [String]$Path,
+
+        [Switch]$DisableFullScreenOptimizations,
+        [Switch]$RunAsAdmin
+    )
+
+    if (!$RunAsAdmin -and !$DisableFullScreenOptimizations){
+        return "No compatibility settings were set, returning."
+    }
+
+    if ($FilePath.Extension -eq '.lnk'){
+        $FilePath = Get-Item (Get-ShortcutTarget $FilePath) -ErrorAction Stop
+    }else{
+        $FilePath = Get-Item $Path -ErrorAction Stop
+    }
+
+    $Data = '~'
+    if ($DisableFullScreenOptimizations){$Data += " DISABLEDXMAXIMIZEDWINDOWEDMODE"}
+    if ($RunAsAdmin){$Data += " RUNASADMIN"}
+
+    New-Item -ItemType Directory -Path "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" -ErrorAction Ignore
+    New-ItemProperty -Path "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" `
+    -Name $FilePath.FullName -PropertyType String -Value $Data -Force | Out-Null
+
+}
+# Default is 400(ms)
+function Set-MenuShowDelay {
+    param(
+        [Int]$DelayInMs
+    )
+    
+    Set-ItemProperty -Path "Registry::HKEY_CURRENT_USER\Control Panel\Desktop" -Name MenuShowDelay -PropertyType String -Value $DelayInMs -Force
+}
+function TweakList {
+    [alias('tl')]
+    [CmdletBinding()]
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [System.Collections.Arraylist]
+        $Arguments
+    )
+    $shortcuts = @{
+        repo = {Start-Process https://github.com/couleur-tweak-tips/TweakList}
+        ui   = {Start-Process https://couleur-tweak-tips.github.io/TweakList-UI}
+    }
+    if ($Arguments){
+        if ($Arguments[0] -in [String[]]$shortcuts.Keys){
+            & $shortcuts.($Arguments[0])
+        }else {
+            Write-Host "Available shortcuts:"
+            $shortcuts
+        }
+        return
+    }
+
+return @"
+Welcome to TweakList! If you're seeing this in your terminal, then you're
+already able to start calling all your functions. You can learn how to use
+TweakList on: https://github.com/couleur-tweak-tips/TweakList/tree/master/docs
+
+If you're curious what a function actually does, use 'gfc' (aka Get-FunctionContent)
+with the name of the function you want to see. Example:
+
+PS X:\> Get-FunctionContent Import-Sophia
+
+All functions have aliases, if you're using TL a lot: learn em all!
+
+You can use the TweakList function (AKA tl) to do the following:
+
+tl repo opens TweakList's repo
+tl ui opens the UI
+
+
+"@
+}
+function 4K-Notifier {
+    param(
+        [Parameter(Mandatory)]
+        [String]$Video,
+        [int]$Timeout = 30
+    )
+    if (!$Video){
+        $Video = Read-Host "Pleaste paste in the URL of the video you'd like to wait for until it hits 4K"
+    }
+if (Get-Command yt-dlp -Ea 0){
+    $ytdl = (Get-Command yt-dlp).Source
+}elseif(Get-Command youtube-dl -Ea 0){
+    $ytdl = (Get-Command youtube-dl).Source
+}else{
+    return @"
+Nor YouTube-DL or yt-dlp are installed or added to the path, please run the following command to install it:
+iex(irm tl.ctt.cx);Get-ScoopApp main/yt-dlp
+"@
+}
+''
+$Finished = $null
+$Attempt = 0
+While (!$Finished){
+    $Attempt++
+    $Response = & $ytdl -F $Video
+    if ($Response | Where-Object {$PSItem -Like "*3840x2160*"}){
+        $Finished = $True
+    }else{
+        Write-Host "`rYour video has not been encoded to 4K, trying again (attempt no.$attempt) in $Timeout seconds.." -NoNewLine 
+        Start-Sleep -Seconds $Timeout
+        Write-Host "`rTrying again..                                                       " -NoNewLine -ForegroundColor Red
+        continue
+    }
+}
+Set-Clipboard -Value $Video
+Write-Host @"
+
+YouTubed finished processing your video, it's URL has been copied to your clipboard:
+$Video
+"@ -ForegroundColor Green
+1..3 | ForEach-Object{
+    [Console]::Beep(500,300)
+    Start-Sleep -Milliseconds 100
+}
+}
+
+function Moony2 {
+    param(
+        [Switch]$NoIntro,
+        [Int]$McProcessID
+    )
+    $LaunchParameters = @{} # Fresh hashtable that will be splat with Start-Process
+
+    if (!$NoIntro){
+    Write-Host @'
+If you're used to the original Moony, this works a little differently,
+
+What you just runned lets you create a batchfile from your current running game
+that you can launch via a single click or even faster: via Run (Windows +R)
+
+Please launch your Minecraft (any client/version) and press ENTER on your keyboard
+once you're ready for it to create the batchfile
+'@
+    Pause
+    }
+
+    # java? is regex for either java or javaw
+    if (-Not(Get-Process java?)){
+        Write-Host "There was no processes with the name java or javaw"
+        pause
+        Moony -NoIntro
+        return
+    }else{
+        $ProcList = Get-Process -Name java?
+        if ($ProcList[1]){ # If $Procs isn't the only running java process
+                $Selected = Menu $ProcList.MainWindowTitle
+                $Proc = Get-Process | Where-Object {$_.MainWindowTitle -eq ($Selected)} # Crappy passthru
+                if ($Proc[1]){ # unlikely but w/e gotta handle it
+                    Write-Host "Sorry my code is bad and you have multiple processes with the name $($Proc.MainWindowTitle), GG!"
+                }
+        }else{$Proc = $ProcList} # lmk if theres a smarter way
+    }
+    $WinProcess = Get-CimInstance -ClassName Win32_Process | Where-Object ProcessId -eq $Proc.Id
+    $JRE = $WinProcess.ExecutablePath
+    $Arguments = $WinProcess.CommandLine.Replace($WinProcess.ExecutablePath,'')
+    if (Test-Path "$HOME\.lunarclient\offline\multiver"){
+        $WorkingDirectory = "$HOME\.lunarclient\offline\multiver"
+
+    }else{
+            # This cumbersome parse has been split in 3 lines, it just gets the right version from the args
+        $PlayedVersion = $Arguments.split(' ') |
+        Where-Object {$PSItem -Like "1.*"} |
+        Where-Object {$PSITem -NotLike "1.*.*"} |
+        Select-Object -Last 1
+        $WorkingDirectory = "$HOME\.lunarclient\offline\$PlayedVersion"
+    }
+    if ($Arguments -NotLike "* -server *"){
+        Write-Host @"
+Would you like this script to join a specific server right after it launches?
+
+If so, type the IP, otherwise just leave it blank and press ENTER
+"@  
+        $ServerIP = Read-Host "Server IP"
+        if ($ServerIP -NotIn '',$null){
+            $Arguments += " -server $ServerIP"
+        }
+    }
+
+    $InstanceName = Read-Host "Give a name to your Lunar Client instance, I recommend making it short without spaces"
+    if ($InstanceName -Like "* *"){
+        $InstanceName = Read-Host "Since there's a space in your name, you won't be able to call it from Run (Windows+R), type it again if you are sure"
+    }
+
+    Set-Content "$env:LOCALAPPDATA\Microsoft\WindowsApps\$InstanceName.cmd" @"
+@echo off
+cd /D "$WorkingDirectory"
+start "$JRE" $Arguments
+if %ERRORLEVEL% == 0 (exit) else (pause)
+"@
+    Write-Host "Your $InstanceName instance should be good to go, try typing it's name in the Run window (Windows+R)" -ForegroundColor Green
+    return
+
+}
+function Get-GraalVM {
+    param(
+        [Switch]$Reinstall
+    )
+
+    if ((Test-Path "$env:ProgramData\GraalVM") -and !$Reinstall){
+        return "GraalVM is already installed, run with -Reinstall to force reinstallation"
+    }
+    if (-Not(Get-Command curl.exe -ErrorAction Ignore)){
+        return "curl is not found (comes with windows per default?)"
+    }
+    Remove-Item "$env:ProgramData\GraalVM" -ErrorAction Ignore -Force -Recurse
+
+    $URL = 'https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-21.2.0/graalvm-ce-java16-windows-amd64-21.2.0.zip'
+    $SHA256 = 'DAE2511ABFF8EAD3EBC90CD9FC81A8E84B762FC91462B198C3EDDF28F81A937E'
+    $Zip = "$env:TMP\GraalVM.zip"
+
+
+    if (-Not(Test-Path $Zip)){
+        Write-Host "Downloading GraalVM ($(Get-HeaderSize $URL)`MB).." -ForegroundColor Green
+        curl.exe -# -L $URL -o"$Zip"
+    }
+
+    if ((Get-FileHash $Zip).Hash -ne $SHA256){
+        Remove-Item "$env:TMP\GraalVM.zip"
+        return "Failed to download GraalVM (SHA256 checksum mismatch, not the expected file)"
+        
+    }
+
+    if (Get-Command 7z -ErrorAction Ignore){
+
+        Invoke-Expression "& `"7z`" x -bso0 -bsp1 -bse1 -aoa `"$env:TMP\GraalVM.zip`" -o`"$env:ProgramData\GraalVM`""
+    } else {
+        Expand-Archive -Path $Zip -Destination "$env:ProgramData\GraalVM"
+    }
+    Move-Item -Path "$env:ProgramData\GraalVM\graalvm-?e*\*" "C:\ProgramData\GraalVM"
+}
+function Get-TLShell {
+    param(
+        [switch]$Offline,
+        [switch]$DontOpen
+        )
+    
+    $WR = "$env:LOCALAPPDATA\Microsoft\WindowsApps" # I've had the habit of calling this folder WR
+                                                    # because it's the only folder I know that is added to path
+                                                    # that you don't need perms to access.
+
+if ($Offline){
+    
+    try {
+        $Master = Invoke-RestMethod -UseBasicParsing https://raw.githubusercontent.com/couleur-tweak-tips/TweakList/master/Master.ps1
+    } catch {
+        Write-Host "Failed to get Master.ps1 from TweakList GitHub" -ForegroundColor DarkRed
+        Write-Output "Error: $($Error[0].ToString())"
+        return
+    }
+    Set-Content "$WR/TLSOff.cmd" -Value @'
+<# : batch portion
+@echo off
+powershell.exe -noexit -noprofile -noexit -command "iex (${%~f0} | out-string)"
+: end batch / begin powershell #>
+Write-Host "TweakList Shell " -Foregroundcolor White -NoNewLine
+Write-Host "(Offline)" -Foregroundcolor DarkGray -NoNewLine
+Write-Host " - dsc.gg/CTT" -Foregroundcolor White -NoNewLine
+
+'@
+    $Batch = Get-Item  "$WR/TLSOff.cmd"
+    Add-Content $Batch -Value $Master
+    if (!$DontOpen){
+        explorer.exe /select,`"$($Batch.FullName)`"
+    }
+
+}else{
+
+
+    
+    if ($WR -NotIn $env:PATH.Split(';')){
+        Write-Error "`"$env:LOCALAPPDATA\Microsoft\WindowsApps`" is not added to path, did you mess with Windows?"
+        return
+    }else{
+        $TLS = "$WR\TLS.CMD"
+        Set-Content -Path $TLS -Value @'
+@echo off
+title TweakList Shell
+if /I "%1" == "wr" (explorer "%~dp0" & exit)
+if /I "%1" == "so" (set sophiaflag=Write-Host 'Importing Sophia Script..' -NoNewLine -ForegroundColor DarkGray;Import-Sophia)
+
+fltmc >nul 2>&1 || (
+    echo Elevating to admin..
+    PowerShell.exe -NoProfile Start-Process -Verb RunAs ' %0' 2> nul || (
+        echo Failed to elevate to admin, launch CMD as Admin and type in "TL"
+        pause & exit 1
+    )
+    exit 0
+)
+
+powershell.exe -NoProfile -NoLogo -NoExit -Command ^
+"if ($PWD.Path -eq \"$env:WINDIR\system32\"){cd $HOME} ;^
+[System.Net.ServicePointManager]::SecurityProtocol='Tls12' ;^
+Write-Host 'Invoking TweakList.. ' -NoNewLine -ForegroundColor DarkGray;^
+iex(irm tl.ctt.cx);^
+%SOPHIAFLAG%;^
+Write-Host \"`rTweakList Shell - dsc.gg/CTT                  `n\" -Foregroundcolor White"
+'@ -Force
+    }
+    $ShortcutPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\TweakList Shell.lnk"
+    $WScriptShell = New-Object -ComObject WScript.Shell
+    $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
+    $Shortcut.IconLocation = (Get-Command powershell.exe).Source + ",0"
+    $Shortcut.TargetPath = "$WR\TLS.CMD"
+    $Shortcut.Save()
+
+    # Got this from my old list of snippets, originally found this on StackOverflow, forgot link
+    $bytes = [System.IO.File]::ReadAllBytes($ShortCutPath)
+    $bytes[0x15] = $bytes[0x15] -bor 0x20 # Set byte 21 (0x15) bit 6 (0x20) ON
+    [System.IO.File]::WriteAllBytes($ShortcutPath, $bytes)
+
+    Write-Host "You can now type 'TLS' in Run (Windows+R) to launch it, or from your start menu"
+    if (!$DontOpen){
+        & explorer.exe /select,`"$("$WR\TLS.CMD")`"
+    }
+    
+    
+}
+}
+
+# This function centralizes most of what you can download/install on CTT
+# Anything it doesn't find in that switch ($App){ statement is passed to scoop
+$global:SendTo = [System.Environment]::GetFolderPath('SendTo')
+function Get {
+    [alias('g')] # minimalism at it's finest
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [Array]$Apps,
+        [Switch]$DryRun
+    )
+
+    $FailedToInstall = $null # Reset that variable for later
+    if ($Apps.Count -eq 1 -and (($Apps[0] -Split '\r?\n') -gt 1)){
+        $Apps = $Apps[0] -Split '\r?\n'
+    }
+    if ($DryRun){
+        ForEach($App in $Apps){
+            "Installing $app."
+        }
+        return
+    }
+
+    ForEach($App in $Apps){ # Scoop exits when it throws
+
+        switch ($App){
+            'nvddl'{Get-ScoopApp utils/nvddl}
+            {$_ -in 'Remux','Remuxer'}{
+                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
+                Out-File "$SendTo\Remux.bat"
+
+            }
+            {$_ -in 'RemuxAVI','AVIRemuxer'}{
+                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
+                Out-File "$SendTo\Remux - AVI.bat"
+                $Content = (Get-Content "$SendTo\Remux - AVI.bat") -replace 'set container=mp4','set container=avi'
+                Set-Content "$SendTo\Remux - AVI.bat" $Content
+            }
+            {$_ -in 'Voukoder','vk'}{Install-Voukoder }
+            'Upscaler'{
+
+                Install-FFmpeg 
+                Invoke-RestMethod 'https://github.com/couleur-tweak-tips/utils/raw/main/Miscellaneous/CTT%20Upscaler.cmd' |
+                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'CTT Upscaler.cmd') -Encoding ASCII -Force
+                Write-Host @"
+CTT Upscaler has been installed! Find it in the options when right clicking a video file -> Send To -> CTT Upscaler.cmd
+"@ -ForegroundColor Green
+
+            }
+            {$_ -In 'QualityMuncher','qm'}{
+                Install-FFmpeg 
+
+                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/Quality%20Muncher.bat' |
+                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'Quality Muncher.bat') -Encoding ASCII -Force
+
+                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/!!qualitymuncher%20multiqueue.bat' |
+                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) '!!qualitymuncher multiqueue.bat') -Encoding ASCII -Force
+
+            }
+
+            'Scoop'{Install-Scoop }
+            'FFmpeg'{Install-FFmpeg }
+
+            {$_ -in 'zl','ZetaLoader'}{Install-ZetaLoader}
+            {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
+            {$_ -in 'wt','windowsterminal','windows-terminal'}{Get-ScoopApp extras/windows-terminal}
+            {$_ -in 'np++','Notepad++','notepadplusplus'}{Get-ScoopApp extras/notepadplusplus}
+            {$_ -in 'DDU','DisplayDriverUninstaller'}{Get-ScoopApp extras/ddu}
+            {$_ -in 'Afterburner','MSIAfterburner'}{Get-ScoopApp utils/msiafterburner}
+            {$_ -in 'Everything','Everything-Alpha','Everything-Beta'}{Get-ScoopApp extras/everything-alpha}
+            {$_ -In '7-Zip','7z','7Zip'}{Get-ScoopApp 7zip}
+            {$_ -In 'Smoothie','sm'}{Install-FFmpeg ;Get-ScoopApp utils/Smoothie}
+            {$_ -In 'OBS','OBSstudio','OBS-Studio'}{Get-ScoopApp extras/obs-studio}
+            {$_ -In 'UTVideo'}{Get-ScoopApp utils/utvideo}
+            {$_ -In 'Nmkoder'}{Get-ScoopApp utils/nmkoder}
+            {$_ -In 'Librewolf'}{Get-ScoopApp extras/librewolf}
+            {$_ -In 'ffmpeg-nightly'}{Get-ScoopApp versions/ffmpeg-nightly}
+            {$_ -In 'Graal','GraalVM'}{Get-ScoopApp utils/GraalVM}
+            {$_ -In 'DiscordCompressor','dc'}{Install-FFmpeg ;Get-ScoopApp utils/discordcompressor}
+            {$_ -In 'Moony','mn'}{if (-Not(Test-Path "$HOME\.lunarclient")){Write-Warning "You NEED Lunar Client to launch it with Moony"};Get-ScoopApp utils/Moony}
+            {$_ -In 'TLShell','TLS'}{Get-TLShell }
+            default{Get-ScoopApp $App}
+        }
+        Write-Verbose "Finished installing $app"
+
+    }
+    if ($FailedToInstall){
+        
+        Write-Host "[!] The following apps failed to install (scroll up for details):" -ForegroundColor Red
+        $FailedToInstall
+    }
+}
+function Install-MPVProtocol {
+    param(
+        [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
+        $VideoPlayerFilePath
+    )
+
+if (!(Test-Admin)){
+    "PowerShell NEEDS to run as Adminisrator in order to create the protocol handler"
+    return
+}
+
+
+if ((Get-Command mpv -Ea 0) -and (Get-Command mpvnet -Ea 0)){
+    "Would you like mpv:// links to open with MPV or MPV.net?"
+    $Answer = Read-Host "Answer"
+    while ($answer -notin 'mpv','mpv.net','mpvnet','exit'){
+        "Answer must be mpv / mpvnet, type exit to quit"
+    }
+    switch ($Answer) {
+        'exit'{return}
+        {$_ -in 'mpvnet','mpv.net'}{$MPV = (Get-Command mpvnet.exe).Source}
+        'mpv'{$MPV = (Get-Command mpv.exe).Source}
+    }
+}elseif(Get-Command mpv -Ea 0){
+    "Using default MPV"
+    $MPV = (Get-Command mpv.exe).Source
+}elseif(Get-Command mpvnet -Ea 0){
+    Write-Warning "Using MPV.net since MPV was not found (not added to path?)"
+    $MPV = (Get-Command mpvnet.exe).Source
+}else{
+    return "MPV or MPV.net couldn't be found, please install MPV / MPV.net"
+}
+
+New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT -ea SilentlyContinue | Out-Null
+New-Item -Path "HKCR:" -Name "mpv" -Force | Out-Null
+Set-ItemProperty -Path "HKCR:\mpv" -Name "(Default)" -Value '"URL:mpv Protocol"' | Out-Null
+Set-ItemProperty -Path "HKCR:\mpv" -Name "URL Protocol" -Value '""' | Out-Null
+New-Item -Path "HKCR:\mpv" -Name "shell" -Force | Out-Null
+New-Item -Path "HKCR:\mpv\shell" -Name "open" -Force | Out-Null
+New-Item -Path "HKCR:\mpv\shell\open" -Name "command" -Force | Out-Null
+#Old command: "C:\ProgramData\CTT\mpv-protocol\mpv-protocol-wrapper.cmd" "%1"
+$Command = "cmd /c title MPV && powershell -ep bypass -NoProfile `"& \`"$MPV\`" ('%1' -replace 'mpv://https//','https://')`""
+Set-ItemProperty -Path "HKCR:\mpv\shell\open\command" -Name "(Default)" -Value  $Command | Out-Null
+
+Write-Output "Added the registry keys to handle mpv protocol and redirect to wrapper!"
+
+}
+function Install-Voukoder {
+    [CmdletBinding()]
+    [alias('isvk')]
+    param(
+        [Switch]$GetTemplates
+            # Skip Voukoder installation and just get to the template selector
+    )
+
+    function Get-VoukoderProgram ($Name){
+        # Parses the registry manually instead of using PackageManagement's Get-Package
+
+        $Programs = @(
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+            'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+            'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+
+        ) | Where-Object {Test-path $_} |
+
+        Get-ItemProperty |  Where-Object Publisher -eq 'Daniel Stankewitz' |
+            Sort-Object DisplayName |
+                Select-Object -Property @{n='Name';     e='DisplayName'   },
+                                        @{n='Version';  e='DisplayVersion'},
+                                        @{n='UninstallString'; e='UninstallString'}
+        
+        return $Programs | Where-Object Name -Like $Name
+    }
+
+    if (!$GetTemplates){
+    
+        $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases/latest)[0]
+            # get the latest release manifest from GitHub's API
+
+        if (($tag = $LatestCore.tag_name) -NotLike "*.*"){
+            $tag += ".0" # E.g "12" will not convert to a version type, "12.0" will
+        }
+        [Version]$LatestCoreVersion = $tag
+
+        $Core = Get-VoukoderProgram -Name "Voukoder*" -ErrorAction Ignore | # Find all programs starting with Voukoder
+            Where-Object Name -NotLike "*Connector*" # Exclude connectors
+
+        if ($Core){
+
+            if ($Core.Length -gt 1){
+                $Core
+                Write-Host "Multiple Voukoder Cores detected (or bad parsing?)" -ForegroundColor Red
+                return
+            }
+
+            $CurrentVersion = [Version]$Core.Version
+            if ($LatestCoreVersion -gt $CurrentVersion){ # then an upgrade is needed
+                "Updating Voukoder Core from version $CurrentVersion to $LatestCoreVersion"
+                Start-Process -FilePath msiexec -ArgumentList "/qb /x {$($Core.TagId)}" -Wait -NoNewWindow
+                    # Uses msiexec to uninstall the program
+                $Upgraded = $True
+            }
+        }
+
+        if (!$Core -or $Upgraded){
+
+            $DriverVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}_Display.Driver" -ErrorAction Ignore).DisplayVersion
+            if ($DriverVersion -and $DriverVersion -lt 520.00){ # Oldest NVIDIA version capable
+                Write-Warning "Outdated NVIDIA Drivers detected ($DriverVersion), you may not be able to encode (render) using NVENC util you update them."
+                pause
+            }
+
+            "Downloading and installing Voukoder Core.."
+            $CoreURL = $LatestCore[0].assets[0].browser_download_url
+            curl.exe -# -L $CoreURL -o"$env:TMP\Voukoder-Core.msi"
+            msiexec /i "$env:TMP\Voukoder-Core.msi" /passive    
+        }
+
+        filter ConnectorVer {$_.Trim('.msi').Trim('.zip').Split('-') | Select-Object -Last 1}
+            # .zip for Resolve's
+
+
+        # Following block generates a hashtable of all of the latest connectors
+
+        $Tree = (Invoke-RestMethod 'https://api.github.com/repos/Vouk/voukoder-connectors/git/trees/master?recursive=1').Tree
+            # Gets all files from the connectors repo, which contain all filepaths
+        $Connectors = [Ordered]@{}
+        ForEach($NLE in 'vegas','vegas18','vegas19','vegas20','aftereffects','premiere','resolve'){
+            # 'vegas' is for older versions
+            switch ($NLE){
+                vegas{
+                    $Pattern = "*vegas-connector-*"
+                    break # needs to stop here, otherwise it would overwrite it the next match
+                }
+                {$_ -Like "vegas*"}{
+                    $Pattern = "*connector-$_*"
+                }
+                default {
+                    $Pattern = "*$NLE-connector*"
+                }
+            }
+
+            $LCV = $Tree.path | # Short for LatestConnectorVersion
+            Where-Object {$_ -Like $Pattern} | # Find all versions of all matching connectors
+            ForEach-Object {[Version]($_ | ConnectorVer)} | # Parse it's version using the filter
+            Sort-Object -Descending | Select-Object -First 1 # Sort then select only the latest
+
+            $Path = $Tree.path | Where-Object {$_ -Like "$Pattern*$LCV*.*"} # get the absolute path with the latest version
+            $Connectors += @{$NLE = "https://github.com/Vouk/voukoder-connectors/raw/master/$Path"}
+            Remove-Variable -Name NLE
+        }
+
+        $Processes = @(
+            'vegas*'
+            'Adobe Premiere Pro'
+            'AfterFX'
+            'Resolve'
+        )
+
+        $Found = { Get-Process $Processes -ErrorAction Ignore }
+
+        if (-not (. $Found)){ # If $Found scriptblock returns nothing
+            Write-Host "[!] Open your video editor" -ForegroundColor Red
+            Write-Host "Voukoder supports: VEGAS 12-20, Premiere, After Effects, DaVinci Resolve (ONLY PAID `"Studio `"VERSION)" -ForeGroundColor Green
+            Write-Host "Looking for processes: $($Processes -join ', ')" -ForegroundColor DarkGray
+            While(-not (. $Found)){
+                Start-Sleep -Seconds 1
+            }
+        }
+        Write-Host @(
+            "`nDetected the following video editor(s):`n`n"
+            $(. $Found | Select-Object MainWindowTitle, Path, FileVersion | Out-String)
+            )
+
+        function Get-Connector ($PackageName, $Key, $NLEDir, $InnoFlag){
+            # Key is to get the right connector URL in $Connector hashtable
+            
+            function Install-Connector {
+                $msiPath = "$env:TMP\Voukoder Connector-$Key.msi"
+                curl.exe -# -L $Connectors.$Key -o"$msiPath"
+                Write-Verbose "Installing $msiPath at $InnoFlag=$NLEDir" -Verbose
+                msiexec /i "$msiPath" /qb "$InnoFlag=`"$NLEDir`""
+            }
+
+            $CurrentConnector = (Get-VoukoderProgram -Name $PackageName)
+            if ($CurrentConnector){
+                [Version]$CurrentConnectorVersion = $CurrentConnector.Version
+                [Version]$LatestConnector = $Connectors.$Key | ConnectorVer # Parse connector version
+                if ($LatestConnector -gt $CurrentConnectorVersion){
+
+                    Write-Host "Upgrading $PackageName from $CurrentConnectorVersion to $LatestConnector"
+                    Start-Process -FilePath msiexec -ArgumentList "/qb /x {$($CurrentConnector.TagId)}" -Wait -NoNewWindow
+                    Install-Connector
+                }
+            } else {
+
+                Install-Connector
+            }
+        }
+        $NLEs = Get-Process $Processes -ErrorAction Ignore
+        ForEach($NLE in $NLEs){
+
+            switch ($NLE){
+
+                {(Split-Path $_.Path -Leaf) -in 'vegas180.exe', 'vegas190.exe','vegas200.exe'} {
+                    Write-Verbose "Using newer VEGAS"
+
+                    $VegVer = (Split-Path $_.Path -Leaf) -replace 'vegas' -replace '0\.exe'
+
+                    Get-Connector -PackageName "Voukoder connector for VEGAS Pro $VegVer" -Key "vegas$VegVer" -NLEDir (Split-Path $_.Path -Parent) -InnoFlag VEGASDIR
+                    
+                    continue # Needs to loop over the next switch, which would've matched and also thought it needed to install an older Version
+                }
+
+
+                {(Split-Path $_.Path -Leaf) -Like 'vegas*.exe'}{
+                    Write-Host "/!\ Old-VEGAS connector installation may fail if you already have a connector for newer VEGAS versions" -ForegroundColor Red
+                    Get-Connector -PackageName "Voukoder connector for VEGAS" -Key vegas -NLEDir (Split-Path $_.Path -Parent) -InnoFlag VEGASDIR
+                }
+
+
+                {(Split-Path $_.Path -Leaf) -eq 'afterfx.exe'} {
+                    Get-Connector -PackageName 'Voukoder Connector for Adobe After Effects' -Key aftereffects -NLEDir "$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore" -InnoFlag INSTALLDIR
+                }
+
+
+                {(Split-Path $_.Path -Leaf) -eq 'Adobe Premiere Pro.exe'}{
+                    Get-Connector -PackageName 'Voukoder connector for Premiere' -Key premiere -NLEDir "$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore" -InnoFlag TGDir
+                }
+
+
+                {(Split-Path $_.Path -Leaf) -eq 'Resolve.exe'}{
+                    Write-Warning "Voukoder's connector for Resolve is ONLY FOR IT'S PAID `"Studio`" VERSION"
+                    pause
+                    
+                    $IOPlugins = "$env:ProgramData\Blackmagic Design\DaVinci Resolve\Support\IOPlugins"
+                    $dvcpBundle = "$IOPlugins\voukoder_plugin.dvcp.bundle"
+
+                    if (-Not(Test-Path $IOPlugins)){
+                        New-Item -ItemType Directory -Path $IOPlugins
+                    }
+                    elseif (Test-Path $dvcpBundle){
+                        if (-Not(Get-Boolean "Would you like to reinstall/update the Voukoder Resolve plugin? (Y/N)")){continue}
+                        Remove-Item $dvcpBundle -Force -Recurse
+                    }
+
+                    $Zip = "$env:TMP\Voukoder-Connector-Resolve.zip"
+                    curl.exe -# -L $Connectors.Resolve -o"$Zip"
+
+                    $ExtractDir = "$env:TMP\Voukoder-Connector-Resolve"
+                    Remove-Item $ExtractDir -Recurse -Force -ErrorAction Ignore
+                    Expand-Archive $Zip -Destination $ExtractDir
+
+                    Copy-Item "$ExtractDir\voukoder_plugin.dvcp.bundle" $IOPlugins
+                    
+                    Write-Warning "If connection failed you should find instructions in $ExtractDir\README.txt"
+                }
+            }
+        }
+        $NLEBin = $NLE.Path
+    }else{
+        $AvailableNLETemplates = @{
+            "Vegas Pro" = "vegas200.exe"
+            "Premiere Pro" = "Adobe Premiere Pro.exe"
+            "After Effects" = "AfterFX.exe"
+        }
+        $NLE = Menu -menuItems $AvailableNLETemplates.Keys
+        $NLEBin = $AvailableNLETemplates.$NLE
+    }
+
+        # Converts 
+        # https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2
+        # To hashtable with key "HEVC NVENC + Upscale" and val the URL
+
+    filter File2Display {
+        [IO.Path]::GetFileNameWithoutExtension($_) -replace '_',' ' -replace " Upscale", " + Upscale" -replace '  ',' '
+    }
+
+    $VegasTemplates = @(
+
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904873517106/HEVC_NVENC_Upscale.sft2'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599905175502929/HEVC_NVENC.sft2'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904609288255/HEVC_NVENC__Upscale.sft2'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904353419284/H264_NVENC.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541639346225264/x265_Upscale.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541639560163348/x265.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541638943596574/x264_Upscale.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541639128129576/x264.sft2'
+        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2'
+        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638733885470/HEVC_NVENC.sft2'
+        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541639744688198/H264_NVENC_Upscale.sft2'
+        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638356389918/H264_NVENC.sft2'
+        ) | ForEach-Object {
+        [Ordered]@{($_ | File2Display) = $_}
+    }
+
+    $PremiereTemplates = @(
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690025369690/HEVC_NVENC__Upscale.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690369298432/HEVC_NVENC.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691992498218/H264_NVENC__Upscale.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609692277706902/H264_NVENC.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690688061490/x264__Upscale.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690964893706/x264.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691380125827/x265__Upscale.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691682111548/x265.epr'
+    ) | ForEach-Object {
+        [Ordered]@{($_ | File2Display) = $_}
+    }
+
+    switch($NLEBin){
+
+        {($NLEBin | Split-Path -Leaf).StartsWith('vegas')}{
+
+            $NLETerm = "Vegas"
+            $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
+
+            if (-Not(Test-Path $TemplatesFolder)){
+                New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
+            }
+
+            $SelectedTemplates =  Invoke-Checkbox -Items $VegasTemplates.Keys -Title "Select VEGAS render templates to install"
+
+            ForEach ($Template in $SelectedTemplates){
+                if (Test-Path ($TPPath = "$TemplatesFolder\$Template.sft2")){
+                    Remove-Item $TPPath -Force
+                }
+                curl.exe -# -sSL $VegasTemplates.$Template -o"$TPPath"
+            }
+        }
+
+
+
+        {($NLEBin | Split-Path -Leaf).StartsWith('Adobe Premiere Pro.exe')}{
+            
+            $NLETerm = 'Premiere Pro'
+            $TemplatesFolder = "$env:USERPROFILE\Documents\Adobe\Adobe Media Encoder\12.0\Presets"
+
+            if (-Not(Test-Path $TemplatesFolder)){
+                New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
+            }
+
+            $SelectedTemplates =  Invoke-Checkbox -Items $PremiereTemplates.Keys -Title "Select render templates to install"
+
+            ForEach ($Template in $SelectedTemplates){
+                if (Test-Path ($TPPath = "$TemplatesFolder\$Template.epr")){
+                    Remove-Item $TPPath -Force
+                }
+                curl.exe -# -sSL $PremiereTemplates.$Template -o"$TPPath"
+            }
+        
+        }
+
+
+
+
+        {($NLEBin | Split-Path -Leaf).StartsWith('AfterFX.exe')}{
+            $NLETerm = 'After Effects'
+
+            "Opening a tutorial in your browser and downloading the AE templates file.."
+            Start-Sleep -Seconds 2
+            if (-Not(Test-Path ($TPDir = "$env:TMP\AE_Templates"))){
+                New-Item -ItemType Directory -Path $TPDir -Force | Out-Null
+            }
+            curl.exe -# -sSL https://cdn.discordapp.com/attachments/1039599872703213648/1039614649638858772/CTT_AE_VOUKODER_TEMPLATES.aom -o"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom"
+
+            Start-Process -FilePath explorer.exe -ArgumentList "/select,`"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom`""
+            $Tutorial = 'https://i.imgur.com/XCaJGoV.mp4'
+            try {
+                Start-Process $Tutorial
+            } catch { # If the user does not have any browser
+                "Tutorial URL: $Tutorial" 
+            }
+        }
+
+
+
+        default{
+            Write-Host "Your video editor ($($NLEBin)) does not have any pre-made templates for me to propose you" -ForegroundColor Red
+            $NLETerm = "your video editor"
+        }
+    }
+    Write-Host "Installation script finished, follow instructions (if any)"
+    Write-Host "Then restart $NLETerm to make sure Voukoder render templates have loaded." -ForegroundColor Red
+
+}
+
+function Install-ZetaLoader {
+    $GameInstallDir = Get-SteamGameInstallDir "Halo Infinite"
+    $ZetaLoader = "$((Invoke-RestMethod "https://api.github.com/repos/Aetopia/ZetaLoader/releases/latest").assets[0].browser_download_url)"
+    if (!$GameInstallDir) {
+        Write-Error "Halo Infinite hasn't been installed via Steam."
+        exit 1
+    }
+    Write-Output "Installing ZetaLoader..."
+    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\dinput8.dll"
+    Write-Output "ZetaLoader has been installed."
+}
+
+function Invoke-SmoothiePost {
+    param(
+        [String]
+        [ValidateScript({
+            Test-Path -Path (Get-Item $_) -PathType Container -ErrorAction Stop
+        })]
+        $CustomDir
+    )
+    # DIR is the variable used by Scoop, hence why I'm using a separate name
+    if ($CustomDir -and !$DIR){
+        if (!(Test-Path "$CustomDir\Smoothie") -And !(Test-Path "$CustomDir\VapourSynth")){
+            Write-Host "The folder you gave needs to contain the folders 'Smoothie' and 'VapourSynth', try the right path"
+        }else{
+            $DIR = (Get-Item $CustomDir).FullName
+        }
+    }
+    if (!$DIR){return "This script is suppose to be ran by Scoop after it's intallation, not manually"}
+
+    $rc = (Get-Content "$DIR\Smoothie\settings\recipe.yaml" -ErrorAction Stop) -replace ('H264 CPU',(Get-EncodingArgs -EzEncArgs))
+
+    if ($valid_args -like "H* CPU"){$rc = $rc -replace ('gpu: true','gpu: false')}
+
+    Set-Content "$DIR\Smoothie\settings\recipe.ini" -Value $rc
+
+    $term = Get-Path conhost.exe
+
+    Get Scoop
+
+    $SendTo = [System.Environment]::GetFolderPath('SendTo')
+    $Scoop = Get-Command Scoop | Split-Path | Split-Path
+    $SA = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs', 'Scoop Apps')
+
+    if (-Not(Test-Path $SA)){ # If not using Scoop
+        $SA = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs')
+    }
+
+    Set-Content "$Scoop\shims\sm.shim" -Value @"
+path = "$DIR\VapourSynth\python.exe"
+args = "$DIR\Smoothie\src\main.py"
+"@
+    if (-Not(Test-Path "$Scoop\shims\sm.exe")){
+        Copy-Item "$Scoop\shims\7z.exe" "$Scoop\shims\sm.exe"
+    }
+
+
+    $Parameters = @{
+        Overwrite = $True
+        LnkPath = "$Scoop\shims\rc.lnk"
+        TargetPath = "$DIR\Smoothie\settings\recipe.yaml"
+    }
+    New-Shortcut @Parameters
+
+
+    $Parameters = @{
+        Overwrite = $True
+        LnkPath = "$SA\Smoothie Recipe.lnk"
+        TargetPath = "$DIR\Smoothie\settings\recipe.yaml"
+    }
+    New-Shortcut @Parameters
+
+    $Parameters = @{
+        Overwrite = $True
+        LnkPath = "$SA\Smoothie.lnk"
+        TargetPath = $term
+        Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui"
+        Icon = "$DIR\Smoothie\src\sm.ico"
+    }
+    New-Shortcut @Parameters
+    
+    $Parameters = @{
+        Overwrite = $True
+        LnkPath = "$SendTo\Smoothie.lnk"
+        TargetPath = $term
+        Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui -input"
+        Icon = "$DIR\Smoothie\src\sm.ico"
+
+    }
+    New-Shortcut @Parameters
+
+}
+
+function Launch{
+	[alias('l')]
+	param(
+		[ValidateSet(
+			'DisplayDriverUninstaller',
+			'NVCleanstall',
+			'NvidiaProfileInspector',
+			'MSIUtilityV3',
+			'Rufus',
+			'AutoRuns',
+			'Procmon',
+			'CustomResolutionUtility',
+			'NotepadReplacer',
+			'privacy.sexy',
+			'ReShade'
+			#! TODO: NVProfileInspector, MSIUtility, CRU, Notepadreplacer, BulkCrapUninstaller, https://www.bill2-software.com/processmanager/exe/BPM-Setup.exe
+		)]
+		[Array]$Apps,
+		[Switch]$DontLaunch, # Just keep them tidy in the Downloads folder))
+		# This is the non hardcoded Downloads folder path s/o @farag2
+		[String]$OutDir = (Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -Name "{374DE290-123F-4565-9164-39C4925E467B}")
+	)
+
+	Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+	function Invoke-Download{
+		param(
+			[String]$URL, # Parses mediafire
+			[String]$AppName,
+			[Switch]$Scoop, # Scoop 'bucket/manifest' name
+			[String]$PathToBinary, # In the zip
+			[String]$Checksum,
+			[String]$SelfExtracting7z # e.g for DDU
+		)
+
+		if (-Not(Test-Path $env:TMP)){
+			throw "TMP environment variable not found [$env:TMP]"
+		}
+
+		if($Scoop){
+			$Bucket, $Manifest = $URL -split '/'
+
+			$Repos = @{
+
+				main = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
+				extras = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
+				utils = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
+				nirsoft = @{org = 'kodybrown';repo = 'scoop-nirsoft';branch = 'master'}
+				games = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
+				'nerd-fonts' = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
+				versions = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
+				java = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
+			}
+			$repo = $Repos.$Bucket
+			$URL = "https://raw.githubusercontent.com/$($repo.org)/$($repo.repo)/$($repo.branch)/bucket/$Manifest.json"
+			$URL, $Version = Invoke-RestMethod $URL | ForEach-Object {$PSItem.URL, $PSItem.Version}
+		}elseif($URL -Like "*mediafire.com*"){
+			$URL = (Invoke-WebRequest -UseBasicParsing $URL).Links.href | Where-Object {$PSItem -Like "http*://download*.mediafire.com/*"}
+		}
+
+		if ($AppName){
+			$FileName = $AppName
+		}else{
+			$FileName = $Manifest
+		}
+		
+		if ($Version){$FileName += " $Version"}
+
+		$Extension = [io.path]::GetExtension((($URL -replace '#/dl.7z') | Split-Path -Leaf))
+
+		$OutFile = "$env:TMP\$FileName$Extension"
+		if (-Not(Test-Path $OutFile)){
+			curl.exe -#L -A "Scoop" $URL -o"$OutFile"
+		}
+
+		if($Checksum){
+			$Parameters = @{
+				Path = $OutFile
+			}
+			if ($Checksum -Like "*:*"){ # Contains a :
+				$Algo, $Checksum = $Checksum -Split ':' # To split hash and algo, eg md5:8424509737CEDBDE4BA9E9A780D5CE96
+				$Parameters += @{
+					Algorithm = $Algo 
+				}
+			}
+			if ($Checksum -ne (Get-FileHash @Parameters).Hash){
+				throw "Hash provided $Checksum does not match $OutFile"
+			}
+		}
+
+		if ($Extension -eq '.zip'){
+			$OutDir = "$env:TMP\$FileName\"
+			if (-Not(Test-Path $OutDir)){
+				[System.IO.Compression.ZipFile]::ExtractToDirectory($OutFile, $OutDir)
+			}
+
+			if ($PathToBinary){
+				$OutDir = Join-Path $OutDir $PathToBinary
+			}
+			$OutFile = $OutDir # To not have to check for the following statement twice
+		}elseif($SelfExtracting7z){
+			Start-Process -FilePath $OutFile -ArgumentList "-y" -Wait
+			$SelfExtracting7z = $SelfExtracting7z -replace "%VER%", $Version
+			if (-Not(Test-Path "$env:TMP\$SelfExtracting7z" -PathType Container)){
+				throw "Self extracting 7-Zip got wrong path: $SelfExtracting7z"
+			}
+			$OutDir = $SelfExtracting7z
+		}
+
+		if (-Not(Test-Path $OutFile)){
+			throw "$OutFile could not be found"
+		}
+
+		return $OutFile
+
+	}
+
+	$Paths = @()
+
+	$Apps | ForEach-Object { # Cycles through given apps
+		Write-Host "getting $PSItem"
+		$Paths += switch ($PSItem){
+			DisplayDriverUninstaller{ Invoke-Download -URL extras/ddu -Scoop -PathToBinary "Display Driver Uninstaller.exe" -SelfExtracting7z "DDU v%VER%" -AppName DDU }
+			NVCleanstall{ Invoke-Download -URL extras/nvcleanstall -Scoop -AppName NVCleanstall -PathToBinary "NVCleanstall.exe" }
+			NvidiaProfileInspector{ Invoke-Download -URL extras/nvidia-profile-inspector -Scoop -AppName NvidiaProfileInspector -PathToBinary 'nvidiaProfileInspector.exe' }
+			MSIUtilityV3{
+				Write-Warning "MSI mode is already applied by default on NVIDIA 1600/2000/3000 GPUs and AMD cards"
+				Invoke-Download -URL https://www.mediafire.com/file/ewpy1p0rr132thk/MSI_util_v3.zip/file -AppName "MSIUtilV3" -PathToBinary "MSI_util_v3.exe" -Checksum "md5:8424509737CEDBDE4BA9E9A780D5CE96"
+			}
+			Rufus{ Invoke-Download -URL extras/rufus -Scoop -AppName rufus}
+			AutoRuns{ Invoke-Download -URL https://download.sysinternals.com/files/Autoruns.zip -AppName AutoRuns -PathToBinary Autoruns64.exe }
+			Procmon{ Invoke-Download -URL https://download.sysinternals.com/files/ProcessMonitor.zip -AppName Procmon -PathToBinary Procmon64.exe }
+			CustomResolutionUtility { Invoke-Download -URL extras/cru -Scoop -AppName CRU -PathToBinary CRU.exe}
+			NotepadReplacer { Invoke-Download -URL utils/notepadreplacer -Scoop -AppName NotepadReplacer}
+			privacy.sexy { Invoke-Download -URL utils/privacysexy -Scoop -AppName privacysexy}
+			ReShade{
+				$Website = "https://reshade.me/"
+				$DLLink = (Invoke-WebRequest "$Website#download").Links.Href | Where-Object {$_ -Like "*.exe"} | Where-Object {$_ -NotLike "*_Addon.exe"}
+				$URL = $Website + $DLLink
+				Invoke-Download -URL $URL -AppName ReShade
+			}
+		}
+	}
+	return $Paths
+}
 function CB-CleanTaskbar {
 	if (-Not(Get-Module -Name "Sophia Script (TL)" -Ea 0)){
 		Import-Sophia
@@ -2540,6 +4218,140 @@ function CB-CleanTaskbar {
 	# Remove "Meet now" from the taskbar, s/o privacy.sexy
 	Set-ItemProperty -Path "Registry::HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "HideSCAMeetNow" -Value 1
 }
+<#
+
+List of commonly used Appx packages:
+
+Windows.PrintDialog
+Microsoft.WindowsCalculator
+Microsoft.ZuneVideo
+Microsoft.Windows.Photos
+
+I did not add them, but you can opt in by calling the function, e.g:
+
+    Remove-KnownAppxPackages -Add @('Windows.PrintDialog','Microsoft.WindowsCalculator')
+
+Don't forget to surround them by a ' so PowerShell considers them as a string
+
+#>
+
+function Remove-KnownAppxPackages ([array]$Add,[array]$Exclude) {
+
+    $AppxPackages = @(
+        "Microsoft.Windows.NarratorQuickStart"
+        "Microsoft.Wallet"
+        "3DBuilder"
+        "Microsoft.Microsoft3DViewer"
+        "WindowsAlarms"
+        "BingSports"
+        "WindowsCommunicationsapps"
+        "WindowsCamera"
+        "Feedback"
+        "Microsoft.GetHelp"
+        "GetStarted"
+        "ZuneMusic"
+        "WindowsMaps"
+        "Microsoft.Messaging"
+        "Microsoft.MixedReality.Portal"
+        "Microsoft.OneConnect"
+        "BingFinance"
+        "Microsoft.MSPaint"
+        "People"
+        "WindowsPhone"
+        "Microsoft.YourPhone"
+        "Microsoft.Print3D"
+        "Microsoft.ScreenSketch"
+        "Microsoft.MicrosoftStickyNotes"
+        "SoundRecorder"
+        
+        ) | Where-Object { $_ -notin $Exclude }
+
+        $AppxPackages += $Add # Appends the Appx packages given by the user (if any)
+
+        if (-Not($KeepXboxPackages)){
+            $AppxPackages += @(
+                "XboxApp"
+                "Microsoft.XboxGameOverlay"
+                "Microsoft.XboxGamingOverlay"
+                "Microsoft.XboxSpeechToTextOverlay"
+                "Microsoft.XboxIdentityProvider"
+                "Microsoft.XboxGameCallableUI"
+            )
+        }
+
+
+        ForEach ($Package in $AppxPackages){
+        
+        if ($PSVersionTable.PSEdition -eq 'Core'){ # Newer PowerShell versions don't have Appx cmdlets, manually calling PowerShell to 
+        
+            powershell.exe -command "Get-AppxPackage `"*$Package*`" | Remove-AppxPackage"
+        
+        }else{
+            Get-AppxPackage "*$Package*" | Remove-AppxPackage
+        }
+        
+        }
+
+}
+
+
+function Remove-UselessFiles {
+    
+    @(
+        "$env:TEMP"
+        "$env:WINDIR\TEMP"
+        "$env:HOMEDRIVE\TEMP"
+    ) | ForEach-Object { Remove-Item (Convert-Path $_\*) -Force -ErrorAction SilentlyContinue }
+
+}
+function Set-PowerPlan {
+    param (
+        [string]$URL,
+        [switch]$Ultimate
+        )
+
+    if ($Ultimate){
+        powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
+        powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61
+    }elseif($URL){
+        if ($URL -Like "http*://cdn.discordapp.com/attachments/*.pow"){
+            $DotPow = "$env:TMP\{0}" -f (Split-Path $URL -Leaf)
+        }else{
+            $DotPow = "$env:TMP\Powerplan $(Get-Random).pow"
+        }
+        Invoke-WebRequest -Uri $PowURL -OutFile $DotPow
+        powercfg -duplicatescheme $DotPow
+        powercfg /s $DotPow
+    }
+}
+
+function Set-Win32PrioritySeparation {
+    param(
+        [int]$DWord
+    )
+
+    $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
+    $current = (Get-ItemProperty $Path).Win32PrioritySeparation
+
+    Set-ItemProperty -Path ($Path).Win32PrioritySeparation -Value $Value -Type DWord -Force -ErrorAction Inquire
+
+    Write-Verbose "Set-Win32ProritySeparation: Changed from $current to $((Get-ItemProperty $Path).Win32PrioritySeparation)"
+
+}
+
+
+function Remove-DesktopShortcuts {
+    param(
+        [Switch]$ConfirmEach
+    )
+    
+    if($ConfirmEach){
+        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
+    }else{
+        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item
+    }
+}
+
 function Optimize-LunarClient {
     <#
     .SYNOPSIS
@@ -3380,1783 +5192,5 @@ $Hash.maxFPS = 260
 Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force
 
 }
-function Get-GraalVM {
-    param(
-        [Switch]$Reinstall
-    )
-
-    if ((Test-Path "$env:ProgramData\GraalVM") -and !$Reinstall){
-        return "GraalVM is already installed, run with -Reinstall to force reinstallation"
-    }
-    if (-Not(Get-Command curl.exe -ErrorAction Ignore)){
-        return "curl is not found (comes with windows per default?)"
-    }
-    Remove-Item "$env:ProgramData\GraalVM" -ErrorAction Ignore -Force -Recurse
-
-    $URL = 'https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-21.2.0/graalvm-ce-java16-windows-amd64-21.2.0.zip'
-    $SHA256 = 'DAE2511ABFF8EAD3EBC90CD9FC81A8E84B762FC91462B198C3EDDF28F81A937E'
-    $Zip = "$env:TMP\GraalVM.zip"
-
-
-    if (-Not(Test-Path $Zip)){
-        Write-Host "Downloading GraalVM ($(Get-HeaderSize $URL)`MB).." -ForegroundColor Green
-        curl.exe -# -L $URL -o"$Zip"
-    }
-
-    if ((Get-FileHash $Zip).Hash -ne $SHA256){
-        Remove-Item "$env:TMP\GraalVM.zip"
-        return "Failed to download GraalVM (SHA256 checksum mismatch, not the expected file)"
-        
-    }
-
-    if (Get-Command 7z -ErrorAction Ignore){
-
-        Invoke-Expression "& `"7z`" x -bso0 -bsp1 -bse1 -aoa `"$env:TMP\GraalVM.zip`" -o`"$env:ProgramData\GraalVM`""
-    } else {
-        Expand-Archive -Path $Zip -Destination "$env:ProgramData\GraalVM"
-    }
-    Move-Item -Path "$env:ProgramData\GraalVM\graalvm-?e*\*" "C:\ProgramData\GraalVM"
-}
-function Get-TLShell {
-    param(
-        [switch]$Offline,
-        [switch]$DontOpen
-        )
-    
-    $WR = "$env:LOCALAPPDATA\Microsoft\WindowsApps" # I've had the habit of calling this folder WR
-                                                    # because it's the only folder I know that is added to path
-                                                    # that you don't need perms to access.
-
-if ($Offline){
-    
-    try {
-        $Master = Invoke-RestMethod -UseBasicParsing https://raw.githubusercontent.com/couleur-tweak-tips/TweakList/master/Master.ps1
-    } catch {
-        Write-Host "Failed to get Master.ps1 from TweakList GitHub" -ForegroundColor DarkRed
-        Write-Output "Error: $($Error[0].ToString())"
-        return
-    }
-    Set-Content "$WR/TLSOff.cmd" -Value @'
-<# : batch portion
-@echo off
-powershell.exe -noexit -noprofile -noexit -command "iex (${%~f0} | out-string)"
-: end batch / begin powershell #>
-Write-Host "TweakList Shell " -Foregroundcolor White -NoNewLine
-Write-Host "(Offline)" -Foregroundcolor DarkGray -NoNewLine
-Write-Host " - dsc.gg/CTT" -Foregroundcolor White -NoNewLine
-
-'@
-    $Batch = Get-Item  "$WR/TLSOff.cmd"
-    Add-Content $Batch -Value $Master
-    if (!$DontOpen){
-        explorer.exe /select,`"$($Batch.FullName)`"
-    }
-
-}else{
-
-
-    
-    if ($WR -NotIn $env:PATH.Split(';')){
-        Write-Error "`"$env:LOCALAPPDATA\Microsoft\WindowsApps`" is not added to path, did you mess with Windows?"
-        return
-    }else{
-        $TLS = "$WR\TLS.CMD"
-        Set-Content -Path $TLS -Value @'
-@echo off
-title TweakList Shell
-if /I "%1" == "wr" (explorer "%~dp0" & exit)
-if /I "%1" == "so" (set sophiaflag=Write-Host 'Importing Sophia Script..' -NoNewLine -ForegroundColor DarkGray;Import-Sophia)
-
-fltmc >nul 2>&1 || (
-    echo Elevating to admin..
-    PowerShell.exe -NoProfile Start-Process -Verb RunAs ' %0' 2> nul || (
-        echo Failed to elevate to admin, launch CMD as Admin and type in "TL"
-        pause & exit 1
-    )
-    exit 0
-)
-
-powershell.exe -NoProfile -NoLogo -NoExit -Command ^
-"if ($PWD.Path -eq \"$env:WINDIR\system32\"){cd $HOME} ;^
-[System.Net.ServicePointManager]::SecurityProtocol='Tls12' ;^
-Write-Host 'Invoking TweakList.. ' -NoNewLine -ForegroundColor DarkGray;^
-iex(irm tl.ctt.cx);^
-%SOPHIAFLAG%;^
-Write-Host \"`rTweakList Shell - dsc.gg/CTT                  `n\" -Foregroundcolor White"
-'@ -Force
-    }
-    $ShortcutPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\TweakList Shell.lnk"
-    $WScriptShell = New-Object -ComObject WScript.Shell
-    $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
-    $Shortcut.IconLocation = (Get-Command powershell.exe).Source + ",0"
-    $Shortcut.TargetPath = "$WR\TLS.CMD"
-    $Shortcut.Save()
-
-    # Got this from my old list of snippets, originally found this on StackOverflow, forgot link
-    $bytes = [System.IO.File]::ReadAllBytes($ShortCutPath)
-    $bytes[0x15] = $bytes[0x15] -bor 0x20 # Set byte 21 (0x15) bit 6 (0x20) ON
-    [System.IO.File]::WriteAllBytes($ShortcutPath, $bytes)
-
-    Write-Host "You can now type 'TLS' in Run (Windows+R) to launch it, or from your start menu"
-    if (!$DontOpen){
-        & explorer.exe /select,`"$("$WR\TLS.CMD")`"
-    }
-    
-    
-}
-}
-# This function centralizes most of what you can download/install on CTT
-# Anything it doesn't find in that switch ($App){ statement is passed to scoop
-$global:SendTo = [System.Environment]::GetFolderPath('SendTo')
-function Get {
-    [alias('g')] # minimalism at it's finest
-    param(
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [Array]$Apps,
-        [Switch]$DryRun
-    )
-
-    $FailedToInstall = $null # Reset that variable for later
-    if ($Apps.Count -eq 1 -and (($Apps[0] -Split '\r?\n') -gt 1)){
-        $Apps = $Apps[0] -Split '\r?\n'
-    }
-    if ($DryRun){
-        ForEach($App in $Apps){
-            "Installing $app."
-        }
-        return
-    }
-
-    ForEach($App in $Apps){ # Scoop exits when it throws
-
-        switch ($App){
-            'nvddl'{Get-ScoopApp utils/nvddl}
-            {$_ -in 'Remux','Remuxer'}{
-                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
-                Out-File "$SendTo\Remux.bat"
-
-            }
-            {$_ -in 'RemuxAVI','AVIRemuxer'}{
-                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
-                Out-File "$SendTo\Remux - AVI.bat"
-                $Content = (Get-Content "$SendTo\Remux - AVI.bat") -replace 'set container=mp4','set container=avi'
-                Set-Content "$SendTo\Remux - AVI.bat" $Content
-            }
-            {$_ -in 'Voukoder','vk'}{Install-Voukoder }
-            'Upscaler'{
-
-                Install-FFmpeg 
-                Invoke-RestMethod 'https://github.com/couleur-tweak-tips/utils/raw/main/Miscellaneous/CTT%20Upscaler.cmd' |
-                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'CTT Upscaler.cmd') -Encoding ASCII -Force
-                Write-Host @"
-CTT Upscaler has been installed! Find it in the options when right clicking a video file -> Send To -> CTT Upscaler.cmd
-"@ -ForegroundColor Green
-
-            }
-            {$_ -In 'QualityMuncher','qm'}{
-                Install-FFmpeg 
-
-                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/Quality%20Muncher.bat' |
-                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'Quality Muncher.bat') -Encoding ASCII -Force
-
-                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/!!qualitymuncher%20multiqueue.bat' |
-                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) '!!qualitymuncher multiqueue.bat') -Encoding ASCII -Force
-
-            }
-
-            'Scoop'{Install-Scoop }
-            'FFmpeg'{Install-FFmpeg }
-
-            {$_ -in 'zl','ZetaLoader'}{Install-ZetaLoader}
-            {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
-            {$_ -in 'wt','windowsterminal','windows-terminal'}{Get-ScoopApp extras/windows-terminal}
-            {$_ -in 'np++','Notepad++','notepadplusplus'}{Get-ScoopApp extras/notepadplusplus}
-            {$_ -in 'DDU','DisplayDriverUninstaller'}{Get-ScoopApp extras/ddu}
-            {$_ -in 'Afterburner','MSIAfterburner'}{Get-ScoopApp utils/msiafterburner}
-            {$_ -in 'Everything','Everything-Alpha','Everything-Beta'}{Get-ScoopApp extras/everything-alpha}
-            {$_ -In '7-Zip','7z','7Zip'}{Get-ScoopApp 7zip}
-            {$_ -In 'Smoothie','sm'}{Install-FFmpeg ;Get-ScoopApp utils/Smoothie}
-            {$_ -In 'OBS','OBSstudio','OBS-Studio'}{Get-ScoopApp extras/obs-studio}
-            {$_ -In 'UTVideo'}{Get-ScoopApp utils/utvideo}
-            {$_ -In 'Nmkoder'}{Get-ScoopApp utils/nmkoder}
-            {$_ -In 'Librewolf'}{Get-ScoopApp extras/librewolf}
-            {$_ -In 'ffmpeg-nightly'}{Get-ScoopApp versions/ffmpeg-nightly}
-            {$_ -In 'Graal','GraalVM'}{Get-ScoopApp utils/GraalVM}
-            {$_ -In 'DiscordCompressor','dc'}{Install-FFmpeg ;Get-ScoopApp utils/discordcompressor}
-            {$_ -In 'Moony','mn'}{if (-Not(Test-Path "$HOME\.lunarclient")){Write-Warning "You NEED Lunar Client to launch it with Moony"};Get-ScoopApp utils/Moony}
-            {$_ -In 'TLShell','TLS'}{Get-TLShell }
-            default{Get-ScoopApp $App}
-        }
-        Write-Verbose "Finished installing $app"
-
-    }
-    if ($FailedToInstall){
-        
-        Write-Host "[!] The following apps failed to install (scroll up for details):" -ForegroundColor Red
-        $FailedToInstall
-    }
-}
-function Install-MPVProtocol {
-    param(
-        [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
-        $VideoPlayerFilePath
-    )
-
-if (!(Test-Admin)){
-    "PowerShell NEEDS to run as Adminisrator in order to create the protocol handler"
-    return
-}
-
-
-if ((Get-Command mpv -Ea 0) -and (Get-Command mpvnet -Ea 0)){
-    "Would you like mpv:// links to open with MPV or MPV.net?"
-    $Answer = Read-Host "Answer"
-    while ($answer -notin 'mpv','mpv.net','mpvnet','exit'){
-        "Answer must be mpv / mpvnet, type exit to quit"
-    }
-    switch ($Answer) {
-        'exit'{return}
-        {$_ -in 'mpvnet','mpv.net'}{$MPV = (Get-Command mpvnet.exe).Source}
-        'mpv'{$MPV = (Get-Command mpv.exe).Source}
-    }
-}elseif(Get-Command mpv -Ea 0){
-    "Using default MPV"
-    $MPV = (Get-Command mpv.exe).Source
-}elseif(Get-Command mpvnet -Ea 0){
-    Write-Warning "Using MPV.net since MPV was not found (not added to path?)"
-    $MPV = (Get-Command mpvnet.exe).Source
-}else{
-    return "MPV or MPV.net couldn't be found, please install MPV / MPV.net"
-}
-
-New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT -ea SilentlyContinue | Out-Null
-New-Item -Path "HKCR:" -Name "mpv" -Force | Out-Null
-Set-ItemProperty -Path "HKCR:\mpv" -Name "(Default)" -Value '"URL:mpv Protocol"' | Out-Null
-Set-ItemProperty -Path "HKCR:\mpv" -Name "URL Protocol" -Value '""' | Out-Null
-New-Item -Path "HKCR:\mpv" -Name "shell" -Force | Out-Null
-New-Item -Path "HKCR:\mpv\shell" -Name "open" -Force | Out-Null
-New-Item -Path "HKCR:\mpv\shell\open" -Name "command" -Force | Out-Null
-#Old command: "C:\ProgramData\CTT\mpv-protocol\mpv-protocol-wrapper.cmd" "%1"
-$Command = "cmd /c title MPV && powershell -ep bypass -NoProfile `"& \`"$MPV\`" ('%1' -replace 'mpv://https//','https://')`""
-Set-ItemProperty -Path "HKCR:\mpv\shell\open\command" -Name "(Default)" -Value  $Command | Out-Null
-
-Write-Output "Added the registry keys to handle mpv protocol and redirect to wrapper!"
-
-}
-function Install-Voukoder {
-    [CmdletBinding()]
-    [alias('isvk')]
-    param(
-        [Switch]$GetTemplates
-            # Skip Voukoder installation and just get to the template selector
-    )
-
-    function Get-VoukoderProgram ($Name){
-        # Parses the registry manually instead of using PackageManagement's Get-Package
-
-        $Programs = @(
-            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
-            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
-            'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
-            'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
-
-        ) | Where-Object {Test-path $_} |
-
-        Get-ItemProperty |  Where-Object Publisher -eq 'Daniel Stankewitz' |
-            Sort-Object DisplayName |
-                Select-Object -Property @{n='Name';     e='DisplayName'   },
-                                        @{n='Version';  e='DisplayVersion'},
-                                        @{n='UninstallString'; e='UninstallString'}
-        
-        return $Programs | Where-Object Name -Like $Name
-    }
-
-    if (!$GetTemplates){
-    
-        $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases/latest)[0]
-            # get the latest release manifest from GitHub's API
-
-        if (($tag = $LatestCore.tag_name) -NotLike "*.*"){
-            $tag += ".0" # E.g "12" will not convert to a version type, "12.0" will
-        }
-        [Version]$LatestCoreVersion = $tag
-
-        $Core = Get-VoukoderProgram -Name "Voukoder*" -ErrorAction Ignore | # Find all programs starting with Voukoder
-            Where-Object Name -NotLike "*Connector*" # Exclude connectors
-
-        if ($Core){
-
-            if ($Core.Length -gt 1){
-                $Core
-                Write-Host "Multiple Voukoder Cores detected (or bad parsing?)" -ForegroundColor Red
-                return
-            }
-
-            $CurrentVersion = [Version]$Core.Version
-            if ($LatestCoreVersion -gt $CurrentVersion){ # then an upgrade is needed
-                "Updating Voukoder Core from version $CurrentVersion to $LatestCoreVersion"
-                Start-Process -FilePath msiexec -ArgumentList "/qb /x {$($Core.TagId)}" -Wait -NoNewWindow
-                    # Uses msiexec to uninstall the program
-                $Upgraded = $True
-            }
-        }
-
-        if (!$Core -or $Upgraded){
-
-            $DriverVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}_Display.Driver" -ErrorAction Ignore).DisplayVersion
-            if ($DriverVersion -and $DriverVersion -lt 520.00){ # Oldest NVIDIA version capable
-                Write-Warning "Outdated NVIDIA Drivers detected ($DriverVersion), you may not be able to encode (render) using NVENC util you update them."
-                pause
-            }
-
-            "Downloading and installing Voukoder Core.."
-            $CoreURL = $LatestCore[0].assets[0].browser_download_url
-            curl.exe -# -L $CoreURL -o"$env:TMP\Voukoder-Core.msi"
-            msiexec /i "$env:TMP\Voukoder-Core.msi" /passive    
-        }
-
-        filter ConnectorVer {$_.Trim('.msi').Trim('.zip').Split('-') | Select-Object -Last 1}
-            # .zip for Resolve's
-
-
-        # Following block generates a hashtable of all of the latest connectors
-
-        $Tree = (Invoke-RestMethod 'https://api.github.com/repos/Vouk/voukoder-connectors/git/trees/master?recursive=1').Tree
-            # Gets all files from the connectors repo, which contain all filepaths
-        $Connectors = [Ordered]@{}
-        ForEach($NLE in 'vegas','vegas18','vegas19','vegas20','aftereffects','premiere','resolve'){
-            # 'vegas' is for older versions
-            switch ($NLE){
-                vegas{
-                    $Pattern = "*vegas-connector-*"
-                    break # needs to stop here, otherwise it would overwrite it the next match
-                }
-                {$_ -Like "vegas*"}{
-                    $Pattern = "*connector-$_*"
-                }
-                default {
-                    $Pattern = "*$NLE-connector*"
-                }
-            }
-
-            $LCV = $Tree.path | # Short for LatestConnectorVersion
-            Where-Object {$_ -Like $Pattern} | # Find all versions of all matching connectors
-            ForEach-Object {[Version]($_ | ConnectorVer)} | # Parse it's version using the filter
-            Sort-Object -Descending | Select-Object -First 1 # Sort then select only the latest
-
-            $Path = $Tree.path | Where-Object {$_ -Like "$Pattern*$LCV*.*"} # get the absolute path with the latest version
-            $Connectors += @{$NLE = "https://github.com/Vouk/voukoder-connectors/raw/master/$Path"}
-            Remove-Variable -Name NLE
-        }
-
-        $Processes = @(
-            'vegas*'
-            'Adobe Premiere Pro'
-            'AfterFX'
-            'Resolve'
-        )
-
-        $Found = { Get-Process $Processes -ErrorAction Ignore }
-
-        if (-not (. $Found)){ # If $Found scriptblock returns nothing
-            Write-Host "[!] Open your video editor" -ForegroundColor Red
-            Write-Host "Voukoder supports: VEGAS 12-20, Premiere, After Effects, DaVinci Resolve (ONLY PAID `"Studio `"VERSION)" -ForeGroundColor Green
-            Write-Host "Looking for processes: $($Processes -join ', ')" -ForegroundColor DarkGray
-            While(-not (. $Found)){
-                Start-Sleep -Seconds 1
-            }
-        }
-        Write-Host @(
-            "`nDetected the following video editor(s):`n`n"
-            $(. $Found | Select-Object MainWindowTitle, Path, FileVersion | Out-String)
-            )
-
-        function Get-Connector ($PackageName, $Key, $NLEDir, $InnoFlag){
-            # Key is to get the right connector URL in $Connector hashtable
-            
-            function Install-Connector {
-                $msiPath = "$env:TMP\Voukoder Connector-$Key.msi"
-                curl.exe -# -L $Connectors.$Key -o"$msiPath"
-                Write-Verbose "Installing $msiPath at $InnoFlag=$NLEDir" -Verbose
-                msiexec /i "$msiPath" /qb "$InnoFlag=`"$NLEDir`""
-            }
-
-            $CurrentConnector = (Get-VoukoderProgram -Name $PackageName)
-            if ($CurrentConnector){
-                [Version]$CurrentConnectorVersion = $CurrentConnector.Version
-                [Version]$LatestConnector = $Connectors.$Key | ConnectorVer # Parse connector version
-                if ($LatestConnector -gt $CurrentConnectorVersion){
-
-                    Write-Host "Upgrading $PackageName from $CurrentConnectorVersion to $LatestConnector"
-                    Start-Process -FilePath msiexec -ArgumentList "/qb /x {$($CurrentConnector.TagId)}" -Wait -NoNewWindow
-                    Install-Connector
-                }
-            } else {
-
-                Install-Connector
-            }
-        }
-        $NLEs = Get-Process $Processes -ErrorAction Ignore
-        ForEach($NLE in $NLEs){
-
-            switch ($NLE){
-
-                {(Split-Path $_.Path -Leaf) -in 'vegas180.exe', 'vegas190.exe','vegas200.exe'} {
-                    Write-Verbose "Using newer VEGAS"
-
-                    $VegVer = (Split-Path $_.Path -Leaf) -replace 'vegas' -replace '0\.exe'
-
-                    Get-Connector -PackageName "Voukoder connector for VEGAS Pro $VegVer" -Key "vegas$VegVer" -NLEDir (Split-Path $_.Path -Parent) -InnoFlag VEGASDIR
-                    
-                    continue # Needs to loop over the next switch, which would've matched and also thought it needed to install an older Version
-                }
-
-
-                {(Split-Path $_.Path -Leaf) -Like 'vegas*.exe'}{
-                    Write-Host "/!\ Old-VEGAS connector installation may fail if you already have a connector for newer VEGAS versions" -ForegroundColor Red
-                    Get-Connector -PackageName "Voukoder connector for VEGAS" -Key vegas -NLEDir (Split-Path $_.Path -Parent) -InnoFlag VEGASDIR
-                }
-
-
-                {(Split-Path $_.Path -Leaf) -eq 'afterfx.exe'} {
-                    Get-Connector -PackageName 'Voukoder Connector for Adobe After Effects' -Key aftereffects -NLEDir "$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore" -InnoFlag INSTALLDIR
-                }
-
-
-                {(Split-Path $_.Path -Leaf) -eq 'Adobe Premiere Pro.exe'}{
-                    Get-Connector -PackageName 'Voukoder connector for Premiere' -Key premiere -NLEDir "$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore" -InnoFlag TGDir
-                }
-
-
-                {(Split-Path $_.Path -Leaf) -eq 'Resolve.exe'}{
-                    Write-Warning "Voukoder's connector for Resolve is ONLY FOR IT'S PAID `"Studio`" VERSION"
-                    pause
-                    
-                    $IOPlugins = "$env:ProgramData\Blackmagic Design\DaVinci Resolve\Support\IOPlugins"
-                    $dvcpBundle = "$IOPlugins\voukoder_plugin.dvcp.bundle"
-
-                    if (-Not(Test-Path $IOPlugins)){
-                        New-Item -ItemType Directory -Path $IOPlugins
-                    }
-                    elseif (Test-Path $dvcpBundle){
-                        if (-Not(Get-Boolean "Would you like to reinstall/update the Voukoder Resolve plugin? (Y/N)")){continue}
-                        Remove-Item $dvcpBundle -Force -Recurse
-                    }
-
-                    $Zip = "$env:TMP\Voukoder-Connector-Resolve.zip"
-                    curl.exe -# -L $Connectors.Resolve -o"$Zip"
-
-                    $ExtractDir = "$env:TMP\Voukoder-Connector-Resolve"
-                    Remove-Item $ExtractDir -Recurse -Force -ErrorAction Ignore
-                    Expand-Archive $Zip -Destination $ExtractDir
-
-                    Copy-Item "$ExtractDir\voukoder_plugin.dvcp.bundle" $IOPlugins
-                    
-                    Write-Warning "If connection failed you should find instructions in $ExtractDir\README.txt"
-                }
-            }
-        }
-        $NLEBin = $NLE.Path
-    }else{
-        $AvailableNLETemplates = @{
-            "Vegas Pro" = "vegas200.exe"
-            "Premiere Pro" = "Adobe Premiere Pro.exe"
-            "After Effects" = "AfterFX.exe"
-        }
-        $NLE = Menu -menuItems $AvailableNLETemplates.Keys
-        $NLEBin = $AvailableNLETemplates.$NLE
-    }
-
-        # Converts 
-        # https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2
-        # To hashtable with key "HEVC NVENC + Upscale" and val the URL
-
-    filter File2Display {
-        [IO.Path]::GetFileNameWithoutExtension($_) -replace '_',' ' -replace " Upscale", " + Upscale" -replace '  ',' '
-    }
-
-    $VegasTemplates = @(
-
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904873517106/HEVC_NVENC_Upscale.sft2'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599905175502929/HEVC_NVENC.sft2'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904609288255/HEVC_NVENC__Upscale.sft2'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904353419284/H264_NVENC.sft2'
-        'https://cdn.discordapp.com/attachments/969870701798522901/972541639346225264/x265_Upscale.sft2'
-        'https://cdn.discordapp.com/attachments/969870701798522901/972541639560163348/x265.sft2'
-        'https://cdn.discordapp.com/attachments/969870701798522901/972541638943596574/x264_Upscale.sft2'
-        'https://cdn.discordapp.com/attachments/969870701798522901/972541639128129576/x264.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638733885470/HEVC_NVENC.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541639744688198/H264_NVENC_Upscale.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638356389918/H264_NVENC.sft2'
-        ) | ForEach-Object {
-        [Ordered]@{($_ | File2Display) = $_}
-    }
-
-    $PremiereTemplates = @(
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690025369690/HEVC_NVENC__Upscale.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690369298432/HEVC_NVENC.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691992498218/H264_NVENC__Upscale.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609692277706902/H264_NVENC.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690688061490/x264__Upscale.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690964893706/x264.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691380125827/x265__Upscale.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691682111548/x265.epr'
-    ) | ForEach-Object {
-        [Ordered]@{($_ | File2Display) = $_}
-    }
-
-    switch($NLEBin){
-
-        {($NLEBin | Split-Path -Leaf).StartsWith('vegas')}{
-
-            $NLETerm = "Vegas"
-            $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
-
-            if (-Not(Test-Path $TemplatesFolder)){
-                New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
-            }
-
-            $SelectedTemplates =  Invoke-Checkbox -Items $VegasTemplates.Keys -Title "Select VEGAS render templates to install"
-
-            ForEach ($Template in $SelectedTemplates){
-                if (Test-Path ($TPPath = "$TemplatesFolder\$Template.sft2")){
-                    Remove-Item $TPPath -Force
-                }
-                curl.exe -# -sSL $VegasTemplates.$Template -o"$TPPath"
-            }
-        }
-
-
-
-        {($NLEBin | Split-Path -Leaf).StartsWith('Adobe Premiere Pro.exe')}{
-            
-            $NLETerm = 'Premiere Pro'
-            $TemplatesFolder = "$env:USERPROFILE\Documents\Adobe\Adobe Media Encoder\12.0\Presets"
-
-            if (-Not(Test-Path $TemplatesFolder)){
-                New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
-            }
-
-            $SelectedTemplates =  Invoke-Checkbox -Items $PremiereTemplates.Keys -Title "Select render templates to install"
-
-            ForEach ($Template in $SelectedTemplates){
-                if (Test-Path ($TPPath = "$TemplatesFolder\$Template.epr")){
-                    Remove-Item $TPPath -Force
-                }
-                curl.exe -# -sSL $PremiereTemplates.$Template -o"$TPPath"
-            }
-        
-        }
-
-
-
-
-        {($NLEBin | Split-Path -Leaf).StartsWith('AfterFX.exe')}{
-            $NLETerm = 'After Effects'
-
-            "Opening a tutorial in your browser and downloading the AE templates file.."
-            Start-Sleep -Seconds 2
-            if (-Not(Test-Path ($TPDir = "$env:TMP\AE_Templates"))){
-                New-Item -ItemType Directory -Path $TPDir -Force | Out-Null
-            }
-            curl.exe -# -sSL https://cdn.discordapp.com/attachments/1039599872703213648/1039614649638858772/CTT_AE_VOUKODER_TEMPLATES.aom -o"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom"
-
-            Start-Process -FilePath explorer.exe -ArgumentList "/select,`"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom`""
-            $Tutorial = 'https://i.imgur.com/XCaJGoV.mp4'
-            try {
-                Start-Process $Tutorial
-            } catch { # If the user does not have any browser
-                "Tutorial URL: $Tutorial" 
-            }
-        }
-
-
-
-        default{
-            Write-Host "Your video editor ($($NLEBin)) does not have any pre-made templates for me to propose you" -ForegroundColor Red
-            $NLETerm = "your video editor"
-        }
-    }
-    Write-Host "Installation script finished, follow instructions (if any)"
-    Write-Host "Then restart $NLETerm to make sure Voukoder render templates have loaded." -ForegroundColor Red
-
-}
-function Install-ZetaLoader {
-    $GameInstallDir = Get-SteamGameInstallDir "Halo Infinite"
-    $ZetaLoader = "$((Invoke-RestMethod "https://api.github.com/repos/Aetopia/ZetaLoader/releases/latest").assets[0].browser_download_url)"
-    if (!$GameInstallDir) {
-        Write-Error "Halo Infinite hasn't been installed via Steam."
-        exit 1
-    }
-    Write-Output "Installing ZetaLoader..."
-    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\dinput8.dll"
-    Write-Output "ZetaLoader has been installed."
-}
-function Invoke-SmoothiePost {
-    param(
-        [String]
-        [ValidateScript({
-            Test-Path -Path (Get-Item $_) -PathType Container -ErrorAction Stop
-        })]
-        $CustomDir
-    )
-    # DIR is the variable used by Scoop, hence why I'm using a separate name
-    if ($CustomDir -and !$DIR){
-        if (!(Test-Path "$CustomDir\Smoothie") -And !(Test-Path "$CustomDir\VapourSynth")){
-            Write-Host "The folder you gave needs to contain the folders 'Smoothie' and 'VapourSynth', try the right path"
-        }else{
-            $DIR = (Get-Item $CustomDir).FullName
-        }
-    }
-    if (!$DIR){return "This script is suppose to be ran by Scoop after it's intallation, not manually"}
-
-    $rc = (Get-Content "$DIR\Smoothie\settings\recipe.yaml" -ErrorAction Stop) -replace ('H264 CPU',(Get-EncodingArgs -EzEncArgs))
-
-    if ($valid_args -like "H* CPU"){$rc = $rc -replace ('gpu: true','gpu: false')}
-
-    Set-Content "$DIR\Smoothie\settings\recipe.ini" -Value $rc
-
-    $term = Get-Path conhost.exe
-
-    Get Scoop
-
-    $SendTo = [System.Environment]::GetFolderPath('SendTo')
-    $Scoop = Get-Command Scoop | Split-Path | Split-Path
-    $SA = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs', 'Scoop Apps')
-
-    if (-Not(Test-Path $SA)){ # If not using Scoop
-        $SA = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs')
-    }
-
-    Set-Content "$Scoop\shims\sm.shim" -Value @"
-path = "$DIR\VapourSynth\python.exe"
-args = "$DIR\Smoothie\src\main.py"
-"@
-    if (-Not(Test-Path "$Scoop\shims\sm.exe")){
-        Copy-Item "$Scoop\shims\7z.exe" "$Scoop\shims\sm.exe"
-    }
-
-
-    $Parameters = @{
-        Overwrite = $True
-        LnkPath = "$Scoop\shims\rc.lnk"
-        TargetPath = "$DIR\Smoothie\settings\recipe.yaml"
-    }
-    New-Shortcut @Parameters
-
-
-    $Parameters = @{
-        Overwrite = $True
-        LnkPath = "$SA\Smoothie Recipe.lnk"
-        TargetPath = "$DIR\Smoothie\settings\recipe.yaml"
-    }
-    New-Shortcut @Parameters
-
-    $Parameters = @{
-        Overwrite = $True
-        LnkPath = "$SA\Smoothie.lnk"
-        TargetPath = $term
-        Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui"
-        Icon = "$DIR\Smoothie\src\sm.ico"
-    }
-    New-Shortcut @Parameters
-    
-    $Parameters = @{
-        Overwrite = $True
-        LnkPath = "$SendTo\Smoothie.lnk"
-        TargetPath = $term
-        Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui -input"
-        Icon = "$DIR\Smoothie\src\sm.ico"
-
-    }
-    New-Shortcut @Parameters
-
-}
-function Launch{
-	[alias('l')]
-	param(
-		[ValidateSet(
-			'DisplayDriverUninstaller',
-			'NVCleanstall',
-			'NvidiaProfileInspector',
-			'MSIUtilityV3',
-			'Rufus',
-			'AutoRuns',
-			'Procmon',
-			'CustomResolutionUtility',
-			'NotepadReplacer',
-			'privacy.sexy',
-			'ReShade'
-			#! TODO: NVProfileInspector, MSIUtility, CRU, Notepadreplacer, BulkCrapUninstaller, https://www.bill2-software.com/processmanager/exe/BPM-Setup.exe
-		)]
-		[Array]$Apps,
-		[Switch]$DontLaunch, # Just keep them tidy in the Downloads folder))
-		# This is the non hardcoded Downloads folder path s/o @farag2
-		[String]$OutDir = (Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -Name "{374DE290-123F-4565-9164-39C4925E467B}")
-	)
-
-	Add-Type -AssemblyName System.IO.Compression.FileSystem
-
-	function Invoke-Download{
-		param(
-			[String]$URL, # Parses mediafire
-			[String]$AppName,
-			[Switch]$Scoop, # Scoop 'bucket/manifest' name
-			[String]$PathToBinary, # In the zip
-			[String]$Checksum,
-			[String]$SelfExtracting7z # e.g for DDU
-		)
-
-		if (-Not(Test-Path $env:TMP)){
-			throw "TMP environment variable not found [$env:TMP]"
-		}
-
-		if($Scoop){
-			$Bucket, $Manifest = $URL -split '/'
-
-			$Repos = @{
-
-				main = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
-				extras = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
-				utils = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
-				nirsoft = @{org = 'kodybrown';repo = 'scoop-nirsoft';branch = 'master'}
-				games = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
-				'nerd-fonts' = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
-				versions = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
-				java = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
-			}
-			$repo = $Repos.$Bucket
-			$URL = "https://raw.githubusercontent.com/$($repo.org)/$($repo.repo)/$($repo.branch)/bucket/$Manifest.json"
-			$URL, $Version = Invoke-RestMethod $URL | ForEach-Object {$PSItem.URL, $PSItem.Version}
-		}elseif($URL -Like "*mediafire.com*"){
-			$URL = (Invoke-WebRequest -UseBasicParsing $URL).Links.href | Where-Object {$PSItem -Like "http*://download*.mediafire.com/*"}
-		}
-
-		if ($AppName){
-			$FileName = $AppName
-		}else{
-			$FileName = $Manifest
-		}
-		
-		if ($Version){$FileName += " $Version"}
-
-		$Extension = [io.path]::GetExtension((($URL -replace '#/dl.7z') | Split-Path -Leaf))
-
-		$OutFile = "$env:TMP\$FileName$Extension"
-		if (-Not(Test-Path $OutFile)){
-			curl.exe -#L -A "Scoop" $URL -o"$OutFile"
-		}
-
-		if($Checksum){
-			$Parameters = @{
-				Path = $OutFile
-			}
-			if ($Checksum -Like "*:*"){ # Contains a :
-				$Algo, $Checksum = $Checksum -Split ':' # To split hash and algo, eg md5:8424509737CEDBDE4BA9E9A780D5CE96
-				$Parameters += @{
-					Algorithm = $Algo 
-				}
-			}
-			if ($Checksum -ne (Get-FileHash @Parameters).Hash){
-				throw "Hash provided $Checksum does not match $OutFile"
-			}
-		}
-
-		if ($Extension -eq '.zip'){
-			$OutDir = "$env:TMP\$FileName\"
-			if (-Not(Test-Path $OutDir)){
-				[System.IO.Compression.ZipFile]::ExtractToDirectory($OutFile, $OutDir)
-			}
-
-			if ($PathToBinary){
-				$OutDir = Join-Path $OutDir $PathToBinary
-			}
-			$OutFile = $OutDir # To not have to check for the following statement twice
-		}elseif($SelfExtracting7z){
-			Start-Process -FilePath $OutFile -ArgumentList "-y" -Wait
-			$SelfExtracting7z = $SelfExtracting7z -replace "%VER%", $Version
-			if (-Not(Test-Path "$env:TMP\$SelfExtracting7z" -PathType Container)){
-				throw "Self extracting 7-Zip got wrong path: $SelfExtracting7z"
-			}
-			$OutDir = $SelfExtracting7z
-		}
-
-		if (-Not(Test-Path $OutFile)){
-			throw "$OutFile could not be found"
-		}
-
-		return $OutFile
-
-	}
-
-	$Paths = @()
-
-	$Apps | ForEach-Object { # Cycles through given apps
-		Write-Host "getting $PSItem"
-		$Paths += switch ($PSItem){
-			DisplayDriverUninstaller{ Invoke-Download -URL extras/ddu -Scoop -PathToBinary "Display Driver Uninstaller.exe" -SelfExtracting7z "DDU v%VER%" -AppName DDU }
-			NVCleanstall{ Invoke-Download -URL extras/nvcleanstall -Scoop -AppName NVCleanstall -PathToBinary "NVCleanstall.exe" }
-			NvidiaProfileInspector{ Invoke-Download -URL extras/nvidia-profile-inspector -Scoop -AppName NvidiaProfileInspector -PathToBinary 'nvidiaProfileInspector.exe' }
-			MSIUtilityV3{
-				Write-Warning "MSI mode is already applied by default on NVIDIA 1600/2000/3000 GPUs and AMD cards"
-				Invoke-Download -URL https://www.mediafire.com/file/ewpy1p0rr132thk/MSI_util_v3.zip/file -AppName "MSIUtilV3" -PathToBinary "MSI_util_v3.exe" -Checksum "md5:8424509737CEDBDE4BA9E9A780D5CE96"
-			}
-			Rufus{ Invoke-Download -URL extras/rufus -Scoop -AppName rufus}
-			AutoRuns{ Invoke-Download -URL https://download.sysinternals.com/files/Autoruns.zip -AppName AutoRuns -PathToBinary Autoruns64.exe }
-			Procmon{ Invoke-Download -URL https://download.sysinternals.com/files/ProcessMonitor.zip -AppName Procmon -PathToBinary Procmon64.exe }
-			CustomResolutionUtility { Invoke-Download -URL extras/cru -Scoop -AppName CRU -PathToBinary CRU.exe}
-			NotepadReplacer { Invoke-Download -URL utils/notepadreplacer -Scoop -AppName NotepadReplacer}
-			privacy.sexy { Invoke-Download -URL utils/privacysexy -Scoop -AppName privacysexy}
-			ReShade{
-				$Website = "https://reshade.me/"
-				$DLLink = (Invoke-WebRequest "$Website#download").Links.Href | Where-Object {$_ -Like "*.exe"} | Where-Object {$_ -NotLike "*_Addon.exe"}
-				$URL = $Website + $DLLink
-				Invoke-Download -URL $URL -AppName ReShade
-			}
-		}
-	}
-	return $Paths
-}
-function 4K-Notifier {
-    param(
-        [Parameter(Mandatory)]
-        [String]$Video,
-        [int]$Timeout = 30
-    )
-    if (!$Video){
-        $Video = Read-Host "Pleaste paste in the URL of the video you'd like to wait for until it hits 4K"
-    }
-if (Get-Command yt-dlp -Ea 0){
-    $ytdl = (Get-Command yt-dlp).Source
-}elseif(Get-Command youtube-dl -Ea 0){
-    $ytdl = (Get-Command youtube-dl).Source
-}else{
-    return @"
-Nor YouTube-DL or yt-dlp are installed or added to the path, please run the following command to install it:
-iex(irm tl.ctt.cx);Get-ScoopApp main/yt-dlp
-"@
-}
-''
-$Finished = $null
-$Attempt = 0
-While (!$Finished){
-    $Attempt++
-    $Response = & $ytdl -F $Video
-    if ($Response | Where-Object {$PSItem -Like "*3840x2160*"}){
-        $Finished = $True
-    }else{
-        Write-Host "`rYour video has not been encoded to 4K, trying again (attempt no.$attempt) in $Timeout seconds.." -NoNewLine 
-        Start-Sleep -Seconds $Timeout
-        Write-Host "`rTrying again..                                                       " -NoNewLine -ForegroundColor Red
-        continue
-    }
-}
-Set-Clipboard -Value $Video
-Write-Host @"
-
-YouTubed finished processing your video, it's URL has been copied to your clipboard:
-$Video
-"@ -ForegroundColor Green
-1..3 | ForEach-Object{
-    [Console]::Beep(500,300)
-    Start-Sleep -Milliseconds 100
-}
-}
-function Moony2 {
-    param(
-        [Switch]$NoIntro,
-        [Int]$McProcessID
-    )
-    $LaunchParameters = @{} # Fresh hashtable that will be splat with Start-Process
-
-    if (!$NoIntro){
-    Write-Host @'
-If you're used to the original Moony, this works a little differently,
-
-What you just runned lets you create a batchfile from your current running game
-that you can launch via a single click or even faster: via Run (Windows +R)
-
-Please launch your Minecraft (any client/version) and press ENTER on your keyboard
-once you're ready for it to create the batchfile
-'@
-    Pause
-    }
-
-    # java? is regex for either java or javaw
-    if (-Not(Get-Process java?)){
-        Write-Host "There was no processes with the name java or javaw"
-        pause
-        Moony -NoIntro
-        return
-    }else{
-        $ProcList = Get-Process -Name java?
-        if ($ProcList[1]){ # If $Procs isn't the only running java process
-                $Selected = Menu $ProcList.MainWindowTitle
-                $Proc = Get-Process | Where-Object {$_.MainWindowTitle -eq ($Selected)} # Crappy passthru
-                if ($Proc[1]){ # unlikely but w/e gotta handle it
-                    Write-Host "Sorry my code is bad and you have multiple processes with the name $($Proc.MainWindowTitle), GG!"
-                }
-        }else{$Proc = $ProcList} # lmk if theres a smarter way
-    }
-    $WinProcess = Get-CimInstance -ClassName Win32_Process | Where-Object ProcessId -eq $Proc.Id
-    $JRE = $WinProcess.ExecutablePath
-    $Arguments = $WinProcess.CommandLine.Replace($WinProcess.ExecutablePath,'')
-    if (Test-Path "$HOME\.lunarclient\offline\multiver"){
-        $WorkingDirectory = "$HOME\.lunarclient\offline\multiver"
-
-    }else{
-            # This cumbersome parse has been split in 3 lines, it just gets the right version from the args
-        $PlayedVersion = $Arguments.split(' ') |
-        Where-Object {$PSItem -Like "1.*"} |
-        Where-Object {$PSITem -NotLike "1.*.*"} |
-        Select-Object -Last 1
-        $WorkingDirectory = "$HOME\.lunarclient\offline\$PlayedVersion"
-    }
-    if ($Arguments -NotLike "* -server *"){
-        Write-Host @"
-Would you like this script to join a specific server right after it launches?
-
-If so, type the IP, otherwise just leave it blank and press ENTER
-"@  
-        $ServerIP = Read-Host "Server IP"
-        if ($ServerIP -NotIn '',$null){
-            $Arguments += " -server $ServerIP"
-        }
-    }
-
-    $InstanceName = Read-Host "Give a name to your Lunar Client instance, I recommend making it short without spaces"
-    if ($InstanceName -Like "* *"){
-        $InstanceName = Read-Host "Since there's a space in your name, you won't be able to call it from Run (Windows+R), type it again if you are sure"
-    }
-
-    Set-Content "$env:LOCALAPPDATA\Microsoft\WindowsApps\$InstanceName.cmd" @"
-@echo off
-cd /D "$WorkingDirectory"
-start "$JRE" $Arguments
-if %ERRORLEVEL% == 0 (exit) else (pause)
-"@
-    Write-Host "Your $InstanceName instance should be good to go, try typing it's name in the Run window (Windows+R)" -ForegroundColor Green
-    return
-
-}
-function Remove-DesktopShortcuts {
-    param(
-        [Switch]$ConfirmEach
-    )
-    
-    if($ConfirmEach){
-        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
-    }else{
-        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item
-    }
-}
-<#
-
-List of commonly used Appx packages:
-
-Windows.PrintDialog
-Microsoft.WindowsCalculator
-Microsoft.ZuneVideo
-Microsoft.Windows.Photos
-
-I did not add them, but you can opt in by calling the function, e.g:
-
-    Remove-KnownAppxPackages -Add @('Windows.PrintDialog','Microsoft.WindowsCalculator')
-
-Don't forget to surround them by a ' so PowerShell considers them as a string
-
-#>
-
-function Remove-KnownAppxPackages ([array]$Add,[array]$Exclude) {
-
-    $AppxPackages = @(
-        "Microsoft.Windows.NarratorQuickStart"
-        "Microsoft.Wallet"
-        "3DBuilder"
-        "Microsoft.Microsoft3DViewer"
-        "WindowsAlarms"
-        "BingSports"
-        "WindowsCommunicationsapps"
-        "WindowsCamera"
-        "Feedback"
-        "Microsoft.GetHelp"
-        "GetStarted"
-        "ZuneMusic"
-        "WindowsMaps"
-        "Microsoft.Messaging"
-        "Microsoft.MixedReality.Portal"
-        "Microsoft.OneConnect"
-        "BingFinance"
-        "Microsoft.MSPaint"
-        "People"
-        "WindowsPhone"
-        "Microsoft.YourPhone"
-        "Microsoft.Print3D"
-        "Microsoft.ScreenSketch"
-        "Microsoft.MicrosoftStickyNotes"
-        "SoundRecorder"
-        
-        ) | Where-Object { $_ -notin $Exclude }
-
-        $AppxPackages += $Add # Appends the Appx packages given by the user (if any)
-
-        if (-Not($KeepXboxPackages)){
-            $AppxPackages += @(
-                "XboxApp"
-                "Microsoft.XboxGameOverlay"
-                "Microsoft.XboxGamingOverlay"
-                "Microsoft.XboxSpeechToTextOverlay"
-                "Microsoft.XboxIdentityProvider"
-                "Microsoft.XboxGameCallableUI"
-            )
-        }
-
-
-        ForEach ($Package in $AppxPackages){
-        
-        if ($PSVersionTable.PSEdition -eq 'Core'){ # Newer PowerShell versions don't have Appx cmdlets, manually calling PowerShell to 
-        
-            powershell.exe -command "Get-AppxPackage `"*$Package*`" | Remove-AppxPackage"
-        
-        }else{
-            Get-AppxPackage "*$Package*" | Remove-AppxPackage
-        }
-        
-        }
-
-}
-
-function Remove-UselessFiles {
-    
-    @(
-        "$env:TEMP"
-        "$env:WINDIR\TEMP"
-        "$env:HOMEDRIVE\TEMP"
-    ) | ForEach-Object { Remove-Item (Convert-Path $_\*) -Force -ErrorAction SilentlyContinue }
-
-}
-function Set-PowerPlan {
-    param (
-        [string]$URL,
-        [switch]$Ultimate
-        )
-
-    if ($Ultimate){
-        powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
-        powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61
-    }elseif($URL){
-        if ($URL -Like "http*://cdn.discordapp.com/attachments/*.pow"){
-            $DotPow = "$env:TMP\{0}" -f (Split-Path $URL -Leaf)
-        }else{
-            $DotPow = "$env:TMP\Powerplan $(Get-Random).pow"
-        }
-        Invoke-WebRequest -Uri $PowURL -OutFile $DotPow
-        powercfg -duplicatescheme $DotPow
-        powercfg /s $DotPow
-    }
-}
-function Set-Win32PrioritySeparation {
-    param(
-        [int]$DWord
-    )
-
-    $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
-    $current = (Get-ItemProperty $Path).Win32PrioritySeparation
-
-    Set-ItemProperty -Path ($Path).Win32PrioritySeparation -Value $Value -Type DWord -Force -ErrorAction Inquire
-
-    Write-Verbose "Set-Win32ProritySeparation: Changed from $current to $((Get-ItemProperty $Path).Win32PrioritySeparation)"
-
-}
-
-function Add-ContextMenu {
-    #! TODO https://www.tenforums.com/tutorials/69524-add-remove-drives-send-context-menu-windows-10-a.html
-    param(
-        [ValidateSet(
-            'SendTo',
-            'TakeOwnership',
-            'OpenWithOnBatchFiles',
-            'DrivesInSendTo',
-            'TakeOwnership'
-            )]
-        [Array]$Entries
-    )
-    if (!(Test-Admin)){
-        return 'Changing the context menu / default file extensions requires running as Admin, exitting..'
-
-    }
-
-    if ('SendTo' -in $Entries){
-        New-ItemProperty -Path Registry::HKEY_CLASSES_ROOT\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo -Name "(default)" -PropertyType String -Value "{7BA4C740-9E81-11CF-99D3-00AA004AE837}" -Force
-    }
-
-    if ('DrivesInSendTo' -in $Entries){
-        Set-ItemProperty "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name NoDrivesInSendToMenu -Value 0
-    }
-
-
-    if ('OpenWithOnBatchFiles' -in $Entries){
-        New-Item -Path "Registry::HKEY_CLASSES_ROOT\batfile\shell\Open with\command" -Force
-        New-Item -Path "Registry::HKEY_CLASSES_ROOT\cmdfile\shell\Open with\command" -Force
-        Set-ItemProperty "Registry::HKEY_CLASSES_ROOT\batfile\shell\Open with\command" -Name "(Default)" -Value "{09799AFB-AD67-11d1-ABCD-00C04FC30936}" -Force
-        Set-ItemProperty "Registry::HKEY_CLASSES_ROOT\batfile\shell\Open with\command" -Name "(Default)" -Value "{09799AFB-AD67-11d1-ABCD-00C04FC30936}" -Force
-
-    }
-
-    if ('TakeOwnership' -in $Entries){
-        '*','Directory' | ForEach-Object {
-            New-Item -Path "Registry::HKEY_CLASSES_ROOT\$_\shell\runas"
-            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas" -Name '(Default)' -Value 'Take Ownership'
-            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas" -Name 'NoWorkingDirectory' -Value ''
-            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas" -Name 'HasLUAShield' -Value ''
-            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas" -Name 'Position' -Value 'Middle'
-            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas" -Name 'AppliesTo' -Value "NOT (System.ItemPathDisplay:=`"$env:HOMEDRIVE\`")"
-
-            New-Item -Path "Registry::HKEY_CLASSES_ROOT\$_\shell\runas\command"
-            $Command = 'cmd.exe /c title Taking ownership.. & mode con:lines=30 cols=150 & takeown /f "%1" && icacls "%1" /grant administrators:F & timeout 2 >nul'
-            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas\command" -Name '(Default)' -Value $Command
-            New-ItemProperty -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shell\runas\command" -Name 'IsolatedCommand' -Value $Command
-
-        }
-    }
-
-}
-function Block-RazerSynapse {
-    Try {
-        Remove-Item "C:\Windows\Installer\Razer" -Force -Recurse
-    } Catch {
-        "Failed to remove Razer installer folder"
-        $_.Exception.Message
-    }
-    New-Item -ItemType File -Path "C:\Windows\Installer\Razer" -Force -ErrorAction Stop
-    Write-Host "An empty file called 'Razer' in C:\Windows\Installer has been put to block Razer Synapse's auto installation"
-}
-function Check-XMP {
-    Write-Host "Checking RAM.." -NoNewline
-    $PhysicalMemory = Get-CimInstance -ClassName Win32_PhysicalMemory
-    $RamSpeed = $PhysicalMemory.Speed | Select-Object -First 1 # In MHz
-    $IsDesktop = $null -eq (Get-CimInstance -ClassName Win32_Battery) # No battery = not a laptop (in some very rare cases that may fail but whatever it's accurate enough)
-    $IsDDR4 = ($PhysicalMemory.SMBIOSMemoryType | Select-Object -First 1) -eq 26 # DDR4 = 26, DDR3 = 24
-    switch((Get-CimInstance -ClassName CIM_Processor).Manufacturer){
-        {$PSItem -Like "*AMD*" -or $PSItem -Like "*Advanced Micro*"}{$RamOCType = 'DOCP'}
-        default{$RamOCType = 'XMP'} # Whatever else it is, it's preferably XMP
-    }
-    if (($RamSpeed -eq 2133) -and $IsDesktop -and $IsDDR4){
-        Write-Output @"
-`rYour RAM is running at the default DDR4 RAM speed of 2133 MHz.
-Check if your RAM allows running at a higher speed, and if yes, turn on $RamOCType in the BIOS
-"@
-    }else{
-        Write-Output "`rCould not determine the need for XMP/DOCP"
-    }
-    if ($RamSpeed){"- Your RAM speed is $RamSpeed MHz"}
-    if ($null -ne $IsDesktop){"- You're on a desktop: $IsDesktop"}
-    if ($null -ne $IsDDR4){"- Your RAM is DDR4: $IsDDR4"}
-}
-
-<#
-	.SYNOPSIS
-	Scraps the latest version of Sophia edition weither you have W10/11/LTSC/PS7,
-	changes all function scopes to global and invokes it, as if it were importing it as a module
-
-	You can find farag's dobonhonkerosly big Sophia Script at https://github.com/farag2/Sophia-Script-for-Windows
-	And if you'd like using it as a GUI, try out SophiApp:  https://github.com/Sophia-Community/SophiApp
-	
-	Using the -Write parameter returns the script instead of piping it to Invoke-Expression
-	.EXAMPLE
-	Import-Sophia
-	# Or for short:
-	ipso
-#>
-function Import-Sophia {
-	[alias('ipso')]
-	[CmdletBinding()]
-	param(
-		[switch]
-        $Write,
-
-		[string]
-        [ValidateSet(
-            'de-DE',
-            'en-US',
-            'es-ES',
-            'fr-FR',
-            'hu-HU',
-            'it-IT',
-            'pt-BR',
-            'ru-RU',
-            'tr-TR',
-            'uk-UA',
-            'zh-CN'
-        )]
-        $OverrideLang
-	)
-
-	function Get-SophiaVersion {
-
-		switch ((Get-CimInstance -ClassName Win32_OperatingSystem).BuildNumber){
-	
-			"17763" {
-		
-				"Windows_10_LTSC_2019"
-				break
-			}
-			{($_ -ge 19044) -and ($_ -le 19048)}{
-		
-				if ($PSVersionTable.PSVersion.Major -eq 5){
-		
-					# Check if Windows 10 is an LTSC 2021
-					if ((Get-ItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -Name ProductName) -eq "Windows 10 Enterprise LTSC 2021"){
-		
-						"Windows_10_LTSC_2021"
-					}
-					else{
-						"Windows_10"
-					}
-				}
-				else{
-					"Windows_10_PowerShell_7"
-				}
-			}
-			{$_ -ge 22000}
-			{
-				if ($PSVersionTable.PSVersion.Major -eq 5){
-					"Windows_11"
-				}
-				else{
-					"Windows_11_PowerShell_7"
-				}
-			}
-		}
-	}
-	
-	$SophiaVer = "Sophia_Script_for_" + (Get-SophiaVersion)
-
-
-
-	$SupportedLanguages = @(
-		'de-DE',
-		'en-US',
-		'es-ES',
-		'fr-FR',
-		'hu-HU',
-		'it-IT',
-		'pt-BR',
-		'ru-RU',
-		'tr-TR',
-		'uk-UA',
-		'zh-CN'
-	)
-
-	if($OverrideLang){
-		if ($OverrideLang -NotIn $SupportedLanguages){
-			Write-Warning "Language $OverrideLang may not be supported."
-		}
-		$Lang = $OverrideLang
-	}
-	elseif((Get-UICulture).Name -in $SupportedLanguages){
-		$Lang = (Get-UICulture).Name
-	}
-	elseif((Get-UICulture).Name -eq "en-GB"){
-		$Lang = 'en-US'
-	}
-	else{
-		$Lang = 'en-US'
-	}
-
-	$Lang = (Get-UICulture).Name
-	if ($OverrideLang){$Lang = $OverrideLang}
-
-	if ($Lang -NotIn $SupportedLanguages){
-		$Lang = 'en-US'
-	}
-	Try{
-		$URL = "https://raw.githubusercontent.com/farag2/Sophia-Script-for-Windows/master/src/$SophiaVer/Localizations/$Lang/Sophia.psd1"
-		$Hashtable = Invoke-RestMethod $URL -ErrorAction Stop
-	} Catch {
-		Write-Warning "Failed to get Localizations with lang $Lang`nand URL: $URL"
-		$_
-		return
-	}
-	While ($Hashtable[0] -ne 'C'){
-		$Hashtable = $Hashtable.Substring(1) # BOM ((
-	}
-	$global:Localizations = $global:Localization = Invoke-Expression $HashTable
-
-	Write-Verbose "Getting $($SophiaVer -replace '_', ' ')"
-
-	$RawURL = "https://raw.githubusercontent.com/farag2/Sophia-Script-for-Windows/master/src/$SophiaVer/Module/Sophia.psm1"
-	Write-Verbose $RawURL
-
-	$SophiaFunctions = (Invoke-RestMethod $RawURL -ErrorAction Stop)
-
-	While ($SophiaFunctions[0] -ne '<'){
-		$SophiaFunctions = $SophiaFunctions.Substring(1) # BOM ((
-	}
-
-	if ($Write){
-		return $SophiaFunctions
-	}else{
-		New-Module -Name "Sophia Script (TL)" -ScriptBlock ([ScriptBlock]::Create($SophiaFunctions)) | Import-Module -Global
-	}
-
-}
-function Invoke-GitHubScript {
-    [alias('igs')]
-    param(
-        [ValidateSet(
-            'ChrisTitusTechToolbox',
-            'OldChrisTitusTechToolbox',
-            'Fido',
-            'SophiaScript'
-        )]
-        $Repository,
-        $RawURL
-    )
-    if ($RawURL){
-        Invoke-RestMethod $URL | Invoke-Expression
-        return
-    }
-    function Invoke-URL ($Link) {
-        $Response = Invoke-RestMethod $Link
-        While ($Response[0] -NotIn '<','#'){ # Byte Order Mark (BOM) removal
-            $Response = $Response.Substring(1)
-        }
-        Invoke-Expression $Response
-    }
-    switch ($Repository){
-        'ChrisTitusTechToolbox'{Invoke-URL https://raw.githubusercontent.com/ChrisTitusTech/winutil/main/winutil.ps1}
-        'OldChrisTitusTechToolbox'{Invoke-Expression (Invoke-RestMethod https://raw.githubusercontent.com/ChrisTitusTech/win10script/master/win10debloat.ps1)}
-        'Fido'{Invoke-URL https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1}
-        'SophiaScript'{Import-Sophia}
-    }
-}
-function New-ContextMenu {
-    param(
-        [Parameter(Mandatory = $true)]
-        [String]$Text,
-        [Parameter(Mandatory = $true)]
-        [Array]$Extensions,
-        [Parameter(Mandatory = $true)]
-        [String]$Command,
-        
-        [String]$Icon
-    ) # Text Extensions Command are all mandatory, though Icon is not and must be an existing .ico path
-
-    if (!(Test-Admin)){
-        return "Admin priviledges required (touching root class registry keys)"
-    }
-
-    ForEach($Extension in $Extensions){
-        
-        $shellpath = "REGISTRY::HKEY_CLASSES_ROOT\SystemFileAssociations\$Extension\shell"
-
-        if (-Not(Test-Path $shellpath)){
-            New-Item -Item Directory $shellpath -ErrorAction Stop | Out-Null
-            $Item = "item0"
-        }else{
-            $Items = ((Get-ChildItem "$shellpath").PSChildName | 
-            Where-Object {$PSItem -Like "Item*"}) -replace 'Item',''
-            if ($items){
-                $Item = "item" + ([int]$Items+1)
-            } else{$Item = "item0"}
-            Write-Host "Item is $item since there items: $items"
-        }
-        if (-Not(Test-Path "$shellpath\$Item")){
-            New-Item -Item Directory "$shellpath\$Item" -ErrorAction Stop | Out-Null
-        }
-        Set-ItemProperty -Path "$shellpath\$Item" -Name "MUIVerb" -Value $Text
-        if ($icon){
-            Set-ItemProperty -Path "$shellpath\$Item" -Name "Icon" -Value "$icon"
-        }
-
-        if (-Not(Test-Path "$shellpath\$Item\command")){
-            New-Item -Item Directory "$shellpath\$Item\command" -ErrorAction Stop | Out-Null
-        }
-        Set-Item -Path "$shellpath\$Item\command" -Value "$command `"%L`""
-    }
-}
-<#!TODO:
-    Scan windows defender
-    Git Bash
-    Rotate pictures
-    Open with code
-    Open with visual studio
-    Add to favorites
-#>
-
-function Remove-ContextMenu {
-    [alias('rcm')]
-    <#
-    https://www.tenforums.com
-    https://winaero.com
-    https://majorgeeks.com
-    https://github.com/farag2/Sophia-Script-for-Windows
-    #>
-    param(
-        [ValidateSet(
-            'PinToQuickAccess',
-            'RestorePreviousVersions',
-            'Print',
-            'GiveAccessTo',
-            'EditWithPaint3D',
-            'IncludeInLibrary',
-            'AddToWindowsMediaPlayerList',
-            'CastToDevice',
-            'EditWithPaint3D',
-            'EditWithPhotos',
-            'Share',
-            'TakeOwnerShip',
-            '7Zip',
-            'WinRAR',
-            'Notepad++',
-            'OpenWithOnBatchFiles',
-            'SendTo',
-            'DrivesInSendTo',
-            'VLC'
-            )]
-        [Array]$Entries
-    )
-
-    if (!(Test-Admin)){
-        return 'Changing the context menu / default file extensions requires running as Admin, exitting..'
-
-    }
-
-
-    $CurrentPreference = $ErrorActionPreference
-    $ErrorActionPreference = 'Ignore'
-    $Blocked = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked"
-
-    if (-Not (Test-Path -Path $Blocked)){
-        New-Item -Path $Blocked -Force
-    }
-
-    if ('RestorePreviousVersions' -in $Entries){
-        New-ItemProperty -Path "$Blocked" -Name "{596AB062-B4D2-4215-9F74-E9109B0A8153}"
-    }
-
-    if ('PinToQuickAccess'){
-        @('HKEY_CLASSES_ROOT','HKEY_LOCAL_MACHINE\SOFTWARE\Classes') |
-        ForEach-Object { Remove-Item "Registry::$_\Folder\shell\pintohome" -Force -Recurse}
-    }
-
-    if ('Print' -in $Entries){
-        @(
-            'SystemFileAssociations\image',
-            'batfile','cmdfile','docxfil','fonfile','htmlfil','inffile','inifile','VBSFile','WSFFile',
-            'JSEFile','otffile','pfmfile','regfile','rtffile','ttcfile','ttffile','txtfile','VBEFile'
-        ) | ForEach-Object {Set-ItemProperty "Registry::HKEY_CLASSES_ROOT\$_\shell\print" -Name "ProgrammaticAccessOnly" -Value ''}
-    }
-
-    if ('GiveAccessTo' -in $Entries) {
-        @('*','Directory\Background','Directory','Drive','LibraryFolder\background','UserLibraryFolder') |
-        ForEach-Object {Remove-Item -LiteralPath "Registry::HKEY_CLASSES_ROOT\$_\shellex\ContextMenuHandlers\Sharing" -Recurse -Force}
-    }
-
-    if ('IncludeInLibrary' -in $Entries){
-        @('HKEY_LOCAL_MACHINE\SOFTWARE\Classes','HKEY_CLASSES_ROOT') |
-        ForEach-Object {Remove-Item "Registry::$_\Folder\ShellEx\ContextMenuHandlers\Library Location" -Force}
-    }
-
-    if ('AddToWindowsMediaPlayerList' -in $Entries){
-        @(
-            '3G2','3GP','ADTS','AIFF','ASF','ASX','AU','AVI','FLAC','M2TS','m3u','M4A','MIDI','MK3D',
-            'MKA','MKV','MOV','MP3','MP4','MPEG','TTS','WAV','WAX','WMA','WMV','WPL','WVX'
-        ) | ForEach-Object { Remove-Item "Registry::HKEY_CLASSES_ROOT\WMP11.AssocFile.$_\shell\Enqueue" -Force -Recurse }
-
-        @(
-            'MediaCenter.WTVFile','Stack.Audio','Stack.Image','SystemFileAssociations\audio','WMP.WTVFile',
-            'SystemFileAssociations\Directory.Audio','SystemFileAssociations\Directory.Image','WMP.DVR-MSFile','WMP.DVRMSFile'
-        ) | ForEach-Object { Remove-Item "Registry::HKEY_CLASSES_ROOT\$_\shell\Enqueue" -Force -Recurse}
-    }
-
-    if ('CastToDevice' -in $Entries){
-        New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked" -Name "{7AD84985-87B4-4a16-BE58-8B72A5B390F7}" -PropertyType String -Value "Play to menu" -Force
-    }
-
-    if ('EditWithPaint3D' -in $Entries){
-        @('.3mf','.bmp','.fbx','.gif','.jfif','.jpe','.jpeg','.jpg','.png','.tif','.tiff') | 
-        ForEach-Object { Remove-Item "Registry::HKEY_CLASSES_ROOT\SystemFileAssociations\$_\Shell\3D Edit" -Force -Recurse}
-    }
-
-    if ('EditWithPhotos' -in $Entries){
-        Set-ItemProperty "Registry::HKEY_CLASSES_ROOT\AppX43hnxtbyyps62jhe9sqpdzxn1790zetc\Shell\ShellEdit" -Name 'ProgrammaticAccessOnly' -Value ''
-    }
-
-    if ('Share' -in $Entries){
-        New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked" -Name "{E2BF9676-5F8F-435C-97EB-11607A5BEDF7}" -PropertyType String -Value "" -Force
-    }
-
-    if ('TakeOwnerShip' -in $Entries){
-        @(
-        'HKEY_CLASSES_ROOT\*\shell\runas'
-        'HKEY_CLASSES_ROOT\Directory\shell\runas'
-        'HKEY_CLASSES_ROOT\*\shell\TakeOwnership'
-        'HKEY_CLASSES_ROOT\Directory\shell\TakeOwnership'
-        'HKEY_LOCAL_MACHINE\SOFTWARE\Classes\*\shell\TakeOwnership'
-        'HKEY_LOCAL_MACHINE\SOFTWARE\Classes\*\shell\TakeOwnership'
-        'HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Directory\shell\TakeOwnership'
-        ) | ForEach-Object {
-            Remove-Item -LiteralPath "Registry::$_" -Recurse -Force
-        }
-    }
-
-    if ('SendTo' -in $Entries){
-        $DefaultSendTo = (
-        'Bluetooth File Transfer',
-        'Compressed (zipped) Folder',
-        'Desktop (create shortcut)',
-        'Documents',
-        'Fax Recipient',
-        'Mail Recipient'
-        )
-        $NonDefaultSendTo = Get-ChildItem ([System.Environment]::GetFolderPath('SendTo')) | Where-Object BaseName -NotIn $DefaultSendTo
-        if ($NonDefaultSendTo) {
-            $NonDefaultSendTo.Name
-            if(Get-Boolean "Are you sure you wish to lose access the following files/scripts?"){
-                New-ItemProperty -Path Registry::HKEY_CLASSES_ROOT\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo -Name "(default)" -PropertyType String -Value "-{7BA4C740-9E81-11CF-99D3-00AA004AE837}" -Force
-            }
-        }else{
-            New-ItemProperty -Path Registry::HKEY_CLASSES_ROOT\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo -Name "(default)" -PropertyType String -Value "-{7BA4C740-9E81-11CF-99D3-00AA004AE837}" -Force
-        }
-    }
-
-    if ('DrivesInSendTo' -in $Entries){
-        Set-ItemProperty "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name NoDrivesInSendToMenu -Value 1
-    }
-    
-    if ('OpenWithOnBatchFiles' -in $Entries){
-        foreach ($Ext in 'bat','cmd'){
-            Remove-Item -Path "Registry::HKEY_CLASSES_ROOT\$($Ext)file\shell\Open with\command" -Force -Recurse
-        }
-    }
-
-    if ('7Zip' -in $Entries){
-        @(
-            'Classes\CLSID\{23170F69-40C1-278A-1000-000100020000}',
-            'Classes\CLSID\{23170F69-40C1-278A-1000-000100020000}\InprocServer32',
-            'Classes\*\shellex\ContextMenuHandlers\7-Zip',
-            'Classes\Directory\shellex\ContextMenuHandlers\7-Zip',
-            'Classes\Folder\shellex\ContextMenuHandlers\7-Zip',
-            '7-Zip\Options'
-        ) | ForEach-Object {Remove-Item -LiteralPath "REGISTRY::HKEY_CURRENT_USER\Software\$_" -Recurse -Force}
-    }
-    
-    if ('WinRAR' -in $Entries){ # This hides (adds to Blocked) instead of deleting
-        @('{B41DB860-64E4-11D2-9906-E49FADC173CA}','{B41DB860-8EE4-11D2-9906-E49FADC173CA}') |
-        ForEach-Object {New-ItemProperty -Path $Blocked -Name $_ -Value ''}
-    }
-
-    if ('Notepad++' -in $Entries){
-        @(
-            '*\shell\Open with &Notepad++',
-            '*\shell\Open with &Notepad++\command',
-            'Directory\shell\Open with &Notepad++',
-            'Directory\shell\Open with &Notepad++\command',
-            'Directory\Background\shell\Open with &Notepad++',
-            'Directory\Background\shell\Open with &Notepad++\command'
-        ) | ForEach-Object {
-            Remove-Item -LiteralPath "Registry::HKEY_CURRENT_USER\Software\Classes\$_" -Recurse -Force
-        }
-
-    }
-
-    if ('VLC' -in $Entries){
-
-        @(
-            'Directory\shell\PlayWithVLC'
-            'Directory\shell\AddtoPlaylistVLC'
-            
-        ) | ForEach-Object {
-            if (Test-Path "Registry::HKEY_CLASSES_ROOT\Directory\shell\$_"){
-                Remove-Item -LiteralPath "Registry::HKEY_CLASSES_ROOT\Directory\shell\$PSItem" -Recurse -Force
-            }
-        }
-        ForEach($Context in ('PlayWithVLC','AddtoPlaylistVLC')){
-            @(
-                '3g2', '3ga', '3gp', '3gp2', '3gpp', '669', 'a52', 'aac', 'ac3', 'adt', 'adts', 'aif', 'aifc', 'aiff',
-                'amr', 'amv', 'aob', 'ape', 'asf', 'asx', 'au', 'avi', 'b4s', 'bik', 'Bluray', 'caf', 'cda', 'CDAudio',
-                'cue', 'dav', 'divx', 'drc', 'dts', 'dv', 'DVDMovie', 'dvr-ms', 'evo', 'f4v', 'flac', 'flv', 'gvi', 'gxf',
-                'ifo', 'iso', 'it', 'm1v', 'm2t', 'm2ts', 'm2v', 'm3u', 'm3u8', 'm4a', 'm4p', 'm4v', 'mid', 'mka', 'mkv',
-                'mlp', 'mod', 'mov', 'mp1', 'mp2', 'mp2v', 'mp3', 'mp4', 'mp4v', 'mpa', 'mpc', 'mpe', 'mpeg', 'mpeg1',
-                'mpeg2', 'mpeg4', 'mpg', 'mpga', 'mpv2', 'mts', 'mtv', 'mxf', 'nsv', 'nuv', 'oga', 'ogg', 'ogm', 'ogv',
-                'ogx', 'oma', 'OPENFolder', 'opus', 'pls', 'qcp', 'ra', 'ram', 'rar', 'rec', 'rm', 'rmi', 'rmvb', 'rpl',
-                's3m', 'sdp', 'snd', 'spx', 'SVCDMovie', 'thp', 'tod', 'tp', 'ts', 'tta', 'tts', 'VCDMovie', 'vlc', 'vlt',
-                'vob', 'voc', 'vqf', 'vro', 'w64', 'wav', 'webm', 'wma', 'wmv', 'wpl', 'wsz', 'wtv', 'wv', 'wvx', 'xa', 'xesc',
-                'xm', 'xspf', 'zip', 'zpl','3g2','3ga','3gp','3gp2','3gpp'
-
-            ) | ForEach-Object {
-                $Key = "Registry::HKEY_CLASSES_ROOT\VLC.$PSItem\shell\$Context"
-                if (Test-Path $Key){
-                    Remove-Item -LiteralPath $Key -Recurse -Force
-                }
-            }
-        }
-    }
-    
-    $ErrorActionPreference = $CurrentPreference
-}
-function Remove-FromThisPC {
-    param(
-        [ValidateSet('Remove','Restore')]
-        [String]
-        $Action = 'Remove',
-
-        [ValidateSet(
-            'Desktop',
-            'Documents',
-            'Downloads',
-            'Music',
-            'Pictures',
-            'Videos'
-            )]
-        $Entries,
-        [Switch]$All
-
-    )
-    if ($All){$Entries = 'Desktop','Documents','Downloads','Music','Pictures','Videos'}
-    function Modify-Entry ($GUID){
-        if ($Action -eq 'Remove'){
-            Remove-Item -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{$GUID}"
-            Remove-Item -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{$GUID}"    
-        }else{
-            New-Item -ItemType -Directory -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{$GUID}" | Out-Null
-            New-Item -ItemType -Directory -Path "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Explorer\MyComputer\NameSpace\{$GUID}" | Out-Null
-        }
-        
-    }
-    ForEach($Entry in $Entries){
-        Switch($Entry){
-            'Desktop'{
-                Modify-Entry B4BFCC3A-DB2C-424C-B029-7FE99A87C641
-            }
-            'Documents'{
-                Modify-Entry A8CDFF1C-4878-43be-B5FD-F8091C1C60D0
-                Modify-Entry d3162b92-9365-467a-956b-92703aca08af
-            }
-            'Downloads'{
-                Modify-Entry 374DE290-123F-4565-9164-39C4925E467B
-                Modify-Entry 088e3905-0323-4b02-9826-5d99428e115f
-            }
-            'Music'{
-                Modify-Entry 1CF1260C-4DD0-4ebb-811F-33C572699FDE
-                Modify-Entry 3dfdf296-dbec-4fb4-81d1-6a3438bcf4de
-            }
-            'Pictures'{
-                Modify-Entry 3ADD1653-EB32-4cb0-BBD7-DFA0ABB5ACCA
-                Modify-Entry 24ad3ad4-a569-4530-98e1-ab02f9417aa8
-            }
-            'Videos'{
-                Modify-Entry A0953C92-50DC-43bf-BE83-3742FED03C9C
-                Modify-Entry f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a
-            }
-
-        }
-    }
-}
-function RemovePackBangs {
-    # Removes the exclamation bangs and spaces from all your !   PackName.zip
-    param(
-        [ValidateScript({
-            Test-Path $_ -PathType Container
-        })]
-        [String]$PackFolderPath = $(if ($IsLinux){"$env:HOME/.minecraft/resourcepacks"} else {"$env:APPDATA\.minecraft\resourcepacks"})
-    )
-
-    Get-ChildItem $PackFolderPath  | ForEach-Object {
-
-        $NewName = $_.Name.TrimStart("! ")
-
-        if ($_.Name -ne $NewName){
-            if (Test-Path -LiteralPath (Join-Path $PackFolderPath $NewName)){
-
-                Write-Warning "Skipping renaming [$($_.Name)], copy exists with no bangs"
-
-            } else{
-                Write-Host "Renaming to $NewName" -ForegroundColor Green
-                Rename-Item -Path $PSItem -NewName $NewName -Verbose
-            }
-        }
-    } 
-}
-function Set-CompatibilitySettings {
-    [alias('scs')]
-    param(
-        [Parameter(Mandatory = $true)]
-        [String]$Path,
-
-        [Switch]$DisableFullScreenOptimizations,
-        [Switch]$RunAsAdmin
-    )
-
-    if (!$RunAsAdmin -and !$DisableFullScreenOptimizations){
-        return "No compatibility settings were set, returning."
-    }
-
-    if ($FilePath.Extension -eq '.lnk'){
-        $FilePath = Get-Item (Get-ShortcutTarget $FilePath) -ErrorAction Stop
-    }else{
-        $FilePath = Get-Item $Path -ErrorAction Stop
-    }
-
-    $Data = '~'
-    if ($DisableFullScreenOptimizations){$Data += " DISABLEDXMAXIMIZEDWINDOWEDMODE"}
-    if ($RunAsAdmin){$Data += " RUNASADMIN"}
-
-    New-Item -ItemType Directory -Path "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" -ErrorAction Ignore
-    New-ItemProperty -Path "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" `
-    -Name $FilePath.FullName -PropertyType String -Value $Data -Force | Out-Null
-
-}
-# Default is 400(ms)
-function Set-MenuShowDelay {
-    param(
-        [Int]$DelayInMs
-    )
-    
-    Set-ItemProperty -Path "Registry::HKEY_CURRENT_USER\Control Panel\Desktop" -Name MenuShowDelay -PropertyType String -Value $DelayInMs -Force
-}
-function TweakList {
-    [alias('tl')]
-    [CmdletBinding()]
-    param(
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [System.Collections.Arraylist]
-        $Arguments
-    )
-    $shortcuts = @{
-        repo = {Start-Process https://github.com/couleur-tweak-tips/TweakList}
-        ui   = {Start-Process https://couleur-tweak-tips.github.io/TweakList-UI}
-    }
-    if ($Arguments){
-        if ($Arguments[0] -in [String[]]$shortcuts.Keys){
-            & $shortcuts.($Arguments[0])
-        }else {
-            Write-Host "Available shortcuts:"
-            $shortcuts
-        }
-        return
-    }
-
-return @"
-Welcome to TweakList! If you're seeing this in your terminal, then you're
-already able to start calling all your functions. You can learn how to use
-TweakList on: https://github.com/couleur-tweak-tips/TweakList/tree/master/docs
-
-If you're curious what a function actually does, use 'gfc' (aka Get-FunctionContent)
-with the name of the function you want to see. Example:
-
-PS X:\> Get-FunctionContent Import-Sophia
-
-All functions have aliases, if you're using TL a lot: learn em all!
-
-You can use the TweakList function (AKA tl) to do the following:
-
-tl repo opens TweakList's repo
-tl ui opens the UI
-
-
-"@
-}
+Export-ModuleMember * -Alias *
+})) | Import-Module -DisableNameChecking -Global
