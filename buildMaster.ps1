@@ -15,6 +15,8 @@ else {
 $FunctionCount = 0
 
 $Master = [System.Text.StringBuilder]::new(@"
+# This file is automatically built at every push to combine every function into a single file
+
 using namespace System.Management.Automation # Required by Invoke-NGENpsosh
 Remove-Module TweakList -ErrorAction Ignore
 New-Module TweakList ([ScriptBlock]::Create({
