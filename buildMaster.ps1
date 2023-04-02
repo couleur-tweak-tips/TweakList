@@ -50,8 +50,8 @@ Export-ModuleMember * -Alias *
 $Master = $Master.ToString()
 
 if (!$Write) {
-    Write-Host "Imported $($FunctionCount.Count) functions"
-    Invoke-Expression $Master.To
+    Write-Host "Imported $FunctionCount functions"
+    Invoke-Expression $Master
 }
 else {
     return $Master
