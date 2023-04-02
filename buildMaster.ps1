@@ -45,7 +45,7 @@ $Master.Append(@"
 
 Export-ModuleMember * -Alias *
 })) | Import-Module -DisableNameChecking -Global
-"@)
+"@) | Out-Null
 
 $Master = $Master.ToString()
 
