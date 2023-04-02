@@ -510,7 +510,8 @@ if (!$Items.Description){
 	$Items = $NewItems
 } 
 
-Add-Type -AssemblyName PresentationCore, PresentationFramework
+Add-Type -AssemblyName PresentationCore, PresentationFramework, System.Drawing, System.Windows.Forms, WindowsFormsIntegration
+
 
 # Initialize an array list to store the selected Windows features
 $SelectedFeatures = New-Object -TypeName System.Collections.ArrayList($null)
@@ -598,35 +599,22 @@ function Get-CheckboxClicked
 		$CheckBox
 	)
 
-	$Feature = $Items | Where-Object -FilterScript {$_.DisplayName -eq $CheckBox.Parent.Children[1].Text}
+	$Feature = $Items | Where-Object -FilterScript {$_.DisplayName -eq $CheckBox.Content}
 
-	if ($CheckBox.IsChecked)
-	{
+	if ($CheckBox.IsChecked) {
 		[void]$SelectedFeatures.Add($Feature)
 	}
-	else
-	{
+	else {
 		[void]$SelectedFeatures.Remove($Feature)
 	}
-	if ($SelectedFeatures.Count -gt 0)
-	{
+	if ($SelectedFeatures.Count -gt 0) {
 		$Button.Content = $ButtonName
 		$Button.IsEnabled = $true
 	}
-	else
-	{
+	else {
 		$Button.Content = "Cancel"
 		$Button.IsEnabled = $true
 	}
-}
-
-function DisableButton
-{
-	[void]$Window.Close()
-
-	#$SelectedFeatures | ForEach-Object -Process {Write-Verbose $_.DisplayName -Verbose}
-	$SelectedFeatures.DisplayName
-	$ToReturn.Add($SelectedFeatures.DisplayName)
 }
 
 function Add-FeatureControl
@@ -642,66 +630,33 @@ function Add-FeatureControl
 		$Feature
 	)
 
-	process
-	{
+	process {
+
+		$StackPanel = New-Object -TypeName System.Windows.Controls.StackPanel
+
 		$CheckBox = New-Object -TypeName System.Windows.Controls.CheckBox
 		$CheckBox.Add_Click({Get-CheckboxClicked -CheckBox $_.Source})
+		$Checkbox.Content = $Feature.DisplayName
 		if ($Feature.Description){
 			$CheckBox.ToolTip = $Feature.Description
 		}
-
-		$TextBlock = New-Object -TypeName System.Windows.Controls.TextBlock
-		#$TextBlock.On_Click({Get-CheckboxClicked -CheckBox $_.Source})
-		$TextBlock.Text = $Feature.DisplayName
-		if ($Feature.Description){
-			$TextBlock.ToolTip = $Feature.Description
-		}
-
-		$StackPanel = New-Object -TypeName System.Windows.Controls.StackPanel
+		$Checkbox.IsChecked = $False
 		[void]$StackPanel.Children.Add($CheckBox)
-		[void]$StackPanel.Children.Add($TextBlock)
+
 		[void]$PanelContainer.Children.Add($StackPanel)
-
-		$CheckBox.IsChecked = $false
-
-		# If feature checked add to the array list
-		[void]$SelectedFeatures.Add($Feature)
-		$SelectedFeatures.Remove($Feature)
 	}
+
 }
-#endregion Functions
-
-# Getting list of all optional features according to the conditions
-
-
-# Add-Type -AssemblyName System.Windows.Forms
-
-
-
-# if (-not ("WinAPI.ForegroundWindow" -as [type]))
-# {
-# 	Add-Type @SetForegroundWindow
-# }
-
-# Get-Process | Where-Object -FilterScript {$_.Id -eq $PID} | ForEach-Object -Process {
-# 	# Show window, if minimized
-# 	[WinAPI.ForegroundWindow]::ShowWindowAsync($_.MainWindowHandle, 10)
-
-# 	#Start-Sleep -Seconds 1
-
-# 	# Force move the console window to the foreground
-# 	[WinAPI.ForegroundWindow]::SetForegroundWindow($_.MainWindowHandle)
-
-# 	#Start-Sleep -Seconds 1
-
-# 	# Emulate the Backspace key sending
-# 	[System.Windows.Forms.SendKeys]::SendWait("{BACKSPACE 1}")
-# }
-# #endregion Sendkey function
 
 $Window.Add_Loaded({$Items | Add-FeatureControl})
+
 $Button.Content = $ButtonName
-$Button.Add_Click({& DisableButton})
+$Button.Add_Click({
+	[void]$Window.Close()
+
+	$ToReturn.Add($SelectedFeatures.DisplayName)
+})
+
 $Window.Title = $Title
 
 # ty chrissy <3 https://blog.netnerds.net/2016/01/adding-toolbar-icons-to-your-powershell-wpf-guis/
@@ -715,22 +670,12 @@ $bitmap.StreamSource = [System.IO.MemoryStream][System.Convert]::FromBase64Strin
 $bitmap.EndInit()
 $bitmap.Freeze()
 
-# This is the icon in the upper left hand corner of the app
-# $Form.Icon = $bitmap
  
 # This is the toolbar icon and description
 $Form.TaskbarItemInfo.Overlay = $bitmap
 $Form.TaskbarItemInfo.Description = $window.Title
 
-# # Force move the WPF form to the foreground
-# $Window.Add_Loaded({$Window.Activate()})
-# $Form.ShowDialog() | Out-Null
-# return $ToReturn
-
-# [System.Windows.Forms.Integration.ElementHost]::EnableModelessKeyboardInterop($Form)
-
-Add-Type -AssemblyName PresentationFramework, System.Drawing, System.Windows.Forms, WindowsFormsIntegration
-$window.Add_Closing({[System.Windows.Forms.Application]::Exit()})
+$Window.Add_Closing({[System.Windows.Forms.Application]::Exit()})
 
 $Form.Show()
 
@@ -1038,6 +983,7 @@ $Patch = @{
       Foo =  'baz'
     }
     finish ='cum'
+    New="Ye"
 }
 #>
 function Merge-Hashtables {
