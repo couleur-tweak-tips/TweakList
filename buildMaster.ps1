@@ -39,17 +39,17 @@ Get-ChildItem ./modules, ./helpers -Recurse -File | ForEach-Object {
         }
     } }
 
-$Master += @"
+$Master.Append(@"
 
 Export-ModuleMember * -Alias *
 })) | Import-Module -DisableNameChecking -Global
-"@
+"@)
 
-$Master = $Master -join [System.Environment]::NewLine
+$Master = $Master.ToString()
 
 if (!$Write) {
     Write-Host "Imported $($FunctionCount.Count) functions"
-    Invoke-Expression $Master
+    Invoke-Expression $Master.To
 }
 else {
     return $Master
