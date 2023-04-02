@@ -1,12 +1,12 @@
 [
   {
-    "Path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
     "Name": "Optimize-LunarClient",
+    "Path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
     "Parameters": [
       {
         "Name": "Settings",
-        "Type": "Array",
         "Required": "false",
+        "Type": "Array",
         "KeyValues": {
           "Performance": "Turn off performance-hungry settings",
           "NoCosmetics": "Disable all emotes, cosmetics, wings, hats..",
@@ -44,13 +44,13 @@
     ]
   },
   {
-    "Path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
     "Name": "Optimize-OBS",
+    "Path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
     "Parameters": [
       {
         "Name": "Encoder",
-        "Type": "String",
         "Required": "false",
+        "Type": "String",
         "KeyValues": {
           "NVENC": "NVIDIA's Fastest encoder, it lets you record in hundreds of FPS easily",
           "AMF": "AMD GPUs/Integrated GPUs encoder, not as good as NVENC but can still get out ~240FPS at most",
@@ -67,8 +67,8 @@
       },
       {
         "Name": "OBS64Path",
-        "Type": "String",
         "Required": "false",
+        "Type": "String",
         "KeyValues": {},
         "Description": "If you've got a portable install or something, pass in the main OBS binary's path here"
       }
