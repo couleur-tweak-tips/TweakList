@@ -1,94 +1,75 @@
-# This file is automatically built at every commit to add up every function to a single file, this makes it simplier to parse (aka download) and execute.
-
-using namespace System.Management.Automation # Needed by Invoke-NGENposh
-$CommitCount = 311
-$FuncsCount = 67
-function Get-IniContent {
-    <#
-    .Synopsis
-        Gets the content of an INI file
-
-    .Description
-        Gets the content of an INI file and returns it as a hashtable
-
-    .Notes
-        Author		: Oliver Lipkau <oliver@lipkau.net>
-		Source		: https://github.com/lipkau/PsIni
-                      http://gallery.technet.microsoft.com/scriptcenter/ea40c1ef-c856-434b-b8fb-ebd7a76e8d91
-        Version		: 1.0.0 - 2010/03/12 - OL - Initial release
-                      1.0.1 - 2014/12/11 - OL - Typo (Thx SLDR)
-                                              Typo (Thx Dave Stiff)
-                      1.0.2 - 2015/06/06 - OL - Improvment to switch (Thx Tallandtree)
-                      1.0.3 - 2015/06/18 - OL - Migrate to semantic versioning (GitHub issue#4)
-                      1.0.4 - 2015/06/18 - OL - Remove check for .ini extension (GitHub Issue#6)
-                      1.1.0 - 2015/07/14 - CB - Improve round-tripping and be a bit more liberal (GitHub Pull #7)
-                                           OL - Small Improvments and cleanup
-                      1.1.1 - 2015/07/14 - CB - changed .outputs section to be OrderedDictionary
-                      1.1.2 - 2016/08/18 - SS - Add some more verbose outputs as the ini is parsed,
-                      				            allow non-existent paths for new ini handling,
-                      				            test for variable existence using local scope,
-                      				            added additional debug output.
-
-        #Requires -Version 2.0
-
-    .Inputs
-        System.String
-
-    .Outputs
-        System.Collections.Specialized.OrderedDictionary
-
-    .Example
-        $FileContent = Get-IniContent "C:\myinifile.ini"
-        -----------
-        Description
-        Saves the content of the c:\myinifile.ini in a hashtable called $FileContent
-
-    .Example
-        $inifilepath | $FileContent = Get-IniContent
-        -----------
-        Description
-        Gets the content of the ini file passed through the pipe into a hashtable called $FileContent
-
-    .Example
-        C:\PS>$FileContent = Get-IniContent "c:\settings.ini"
-        C:\PS>$FileContent["Section"]["Key"]
-        -----------
-        Description
-        Returns the key "Key" of the section "Section" from the C:\settings.ini file
-
-    .Link
-        Out-IniFile
-    #>
-
-    [CmdletBinding()]
-    [OutputType(
-        [System.Collections.Specialized.OrderedDictionary]
-    )]
-    Param(
-        # Specifies the path to the input file.
-        [ValidateNotNullOrEmpty()]
-        [Parameter( Mandatory = $true, ValueFromPipeline = $true )]
-        [String]
-        $FilePath,
-
-        # Specify what characters should be describe a comment.
-        # Lines starting with the characters provided will be rendered as comments.
-        # Default: ";"
-        [Char[]]
-        $CommentChar = @(";"),
-
-        # Remove lines determined to be comments from the resulting dictionary.
-        [Switch]
-        $IgnoreComments
-    )
-
-    Begin {
-        Write-Debug "PsBoundParameters:"
-        $PSBoundParameters.GetEnumerator() | ForEach-Object { Write-Debug $_ }
-        if ($PSBoundParameters['Debug']) {
-            $DebugPreference = 'Continue'
-        }
-        Write-Debug "DebugPreference: $DebugPreference"
+- /home/runner/work/TweakList/TweakList/helpers/PsInI/Get-IniContent.ps1
+- /home/runner/work/TweakList/TweakList/helpers/PsInI/Out-IniFile.ps1
+- /home/runner/work/TweakList/TweakList/helpers/SteamTools/ConvertFrom-VDF.ps1
+- /home/runner/work/TweakList/TweakList/helpers/SteamTools/ConvertTo-VDF.ps1
+- /home/runner/work/TweakList/TweakList/helpers/SteamTools/Get-SteamGameInstallDir.ps1
+- /home/runner/work/TweakList/TweakList/helpers/SteamTools/Get-SteamLibraryFolders.ps1
+- /home/runner/work/TweakList/TweakList/helpers/SteamTools/Get-SteamPath.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Assert-Choice.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Assert-Path.ps1
+- /home/runner/work/TweakList/TweakList/helpers/FindInText.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Get-7zPath.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Get-Boolean.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Get-EncodingArgs.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Get-FunctionContent.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Get-HeaderSize.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Get-Path.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Get-ScoopApp.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Get-ShortcutTarget.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Install-FFmpeg.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Install-Scoop.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Invoke-Checkbox.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Invoke-NGENposh.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Invoke-Registry.ps1
+- /home/runner/work/TweakList/TweakList/helpers/IsCustomISO.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Menu.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Merge-Hashtables.ps1
+- /home/runner/work/TweakList/TweakList/helpers/New-Shortcut.ps1
+- /home/runner/work/TweakList/TweakList/helpers/PauseNul.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Prompt.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Set-Choice.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Set-Title.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Set-Verbosity.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Test-Admin.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Write-Color.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Write-Diff.ps1
+- /home/runner/work/TweakList/TweakList/helpers/Write-Menu.ps1
+- /Combos/CB-CleanTaskbar.ps1
+- /Game & Program tuners/Optimize-LunarClient.ps1
+- /Game & Program tuners/Optimize-OBS.ps1
+- /Game & Program tuners/Optimize-OptiFine.ps1
+- /Installers/Get-GraalVM.ps1
+- /Installers/Get-TLShell.ps1
+- /Installers/Get.ps1
+- /Installers/Install-MPVProtocol.ps1
+- /Installers/Install-Voukoder.ps1
+- /Installers/Install-ZetaLoader.ps1
+- /Installers/Invoke-SmoothiePost.ps1
+- /Installers/Launch.ps1
+- /Miscellaneous/4K-Notifier.ps1
+- /Miscellaneous/Moony2.ps1
+- /One-liners/Remove-DesktopShortcuts.ps1
+- /Windows/Remove-KnownAppxPackages.ps1
+- /Windows/Remove-UselessFiles.ps1
+- /Windows/Set-PowerPlan.ps1
+- /Windows/Set-Win32PrioritySeparation.ps1
+- /Add-ContextMenu.ps1
+- /Block-RazerSynapse.ps1
+- /Check-XMP.ps1
+- /Import-Sophia.ps1
+- /Invoke-GitHubScript.ps1
+- /New-ContextMenu.ps1
+- /Remove-ContextMenu.ps1
+- /Remove-FromThisPC.ps1
+- /RemovePackBangs.ps1
+- /Set-CompatibilitySettings.ps1
+- /Set-MenuShowDelay.ps1
+- /TweakList.ps1
+Commit count: 313
+FuncsCount: 67
+Autobuild size: 0.18
+Autobuild lines: 5162
+     Write-Debug "DebugPreference: $DebugPreference"
 
         Write-Verbose "$($MyInvocation.MyCommand.Name):: Function started"
 
