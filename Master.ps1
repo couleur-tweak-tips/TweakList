@@ -1,3 +1,5 @@
+# This file is automatically built at every push to combine every function into a single file
+
 using namespace System.Management.Automation # Required by Invoke-NGENpsosh
 Remove-Module TweakList -ErrorAction Ignore
 New-Module TweakList ([ScriptBlock]::Create({
@@ -5192,6 +5194,8 @@ Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Forc
 }
 Export-ModuleMember * -Alias *
 })) | Import-Module -DisableNameChecking -Global
+# This file is automatically built at every push to combine every function into a single file
+
 using namespace System.Management.Automation # Required by Invoke-NGENpsosh
 Remove-Module TweakList -ErrorAction Ignore
 New-Module TweakList ([ScriptBlock]::Create({
