@@ -1,12 +1,15 @@
 function Test-Admin {
-
-    if (!$IsLinux -and !$IsMacOS){
-
-        $identity  = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-        $principal = New-Object System.Security.Principal.WindowsPrincipal( $identity )
-        return $principal.IsInRole( [System.Security.Principal.WindowsBuiltInRole]::Administrator )
+    [CmdletBinding()]
+    param ()
     
-    }else{ # Running on *nix
-        return ((id -u) -eq 0)
+    if ($IsLinux -or $IsMacOS) {
+        # If sudo-ing or logged on as root, returns user ID 0
+        $idCmd = (Get-Command -Name id).Source
+        [int64] $idResult = & $idCmd -u
+        $idResult -eq 0
+    }
+    else {
+        $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
+        (New-Object -TypeName Security.Principal.WindowsPrincipal -ArgumentList $currentUser).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
     }
 }
