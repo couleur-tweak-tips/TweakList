@@ -21,7 +21,7 @@ New-Module TweakList ([ScriptBlock]::Create({
 
 "@)
 
-Get-ChildItem ./modules, ./helpers -Recurse -File | ForEach-Object {
+Get-ChildItem ./helpers, ./modules -Recurse -File | ForEach-Object {
     switch ($_) {
         { $_.Extension -eq '.ps1' } {
             Write-Verbose "Dot-sourcing $_"
