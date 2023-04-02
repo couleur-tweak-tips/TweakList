@@ -13,6 +13,7 @@ $Patch = @{
       Foo =  'baz'
     }
     finish ='cum'
+    New="Ye"
 }
 #>
 function Merge-Hashtables {
