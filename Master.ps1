@@ -1873,6 +1873,217 @@ function Write-Menu {
     } while ($inputLoop)
 }
 
+Function ConvertFrom-VDF {
+<# 
+.Synopsis 
+    Reads a Valve Data File (VDF) formatted string into a custom object.
+
+.Description 
+    The ConvertFrom-VDF cmdlet converts a VDF-formatted string to a custom object (PSCustomObject) that has a property for each field in the VDF string. VDF is used as a textual data format for Valve software applications, such as Steam.
+
+.Parameter InputObject
+    Specifies the VDF strings to convert to PSObjects. Enter a variable that contains the string, or type a command or expression that gets the string. 
+
+.Example 
+    $vdf = ConvertFrom-VDF -InputObject (Get-Content ".\SharedConfig.vdf")
+
+    Description 
+    ----------- 
+    Gets the content of a VDF file named "SharedConfig.vdf" in the current location and converts it to a PSObject named $vdf
+
+.Inputs 
+    System.String
+
+.Outputs 
+    PSCustomObject
+
+
+#>
+    param
+    (
+        [Parameter(Position=0, Mandatory=$true)]
+        [AllowEmptyString()]
+        [String[]]
+        $InputObject
+    )
+
+    $root = New-Object -TypeName PSObject
+    $chain = [ordered]@{}
+    $depth = 0
+    $parent = $root
+    $element = $null
+
+    #Magic PowerShell Switch Enumrates Arrays
+    switch -Regex ($InputObject) {
+        #Case: ValueKey
+        '^\t*"(\S+)"\t\t"(.+)"$' {
+            Add-Member -InputObject $element -MemberType NoteProperty -Name $Matches[1] -Value $Matches[2]
+            continue
+        }
+        #Case: ParentKey
+        '^\t*"(\S+)"$' { 
+            $element = New-Object -TypeName PSObject
+            Add-Member -InputObject $parent -MemberType NoteProperty -Name $Matches[1] -Value $element
+            continue
+        }
+        #Case: Opening ParentKey Scope
+        '^\t*{$' {
+            $parent = $element
+            $chain.Add($depth, $element)
+            $depth++
+            continue
+        }
+        #Case: Closing ParentKey Scope
+        '^\t*}$' {
+            $depth--
+            $parent = $chain.($depth - 1)
+            $element = $parent
+            $chain.Remove($depth)
+            continue
+        }
+        #Case: Comments or unsupported lines
+        Default {
+            Write-Debug "Ignored line: $_"
+            continue
+        }
+    }
+
+    return $root
+}
+
+Function ConvertTo-VDF
+{
+<# 
+.Synopsis 
+    Converts a custom object into a Valve Data File (VDF) formatted string.
+
+.Description 
+    The ConvertTo-VDF cmdlet converts any object to a string in Valve Data File (VDF) format. The properties are converted to field names, the field values are converted to property values, and the methods are removed.
+
+.Parameter InputObject
+    Specifies PSObject to be converted into VDF strings.  Enter a variable that contains the object. You can also pipe an object to ConvertTo-Json.
+
+.Example 
+    ConvertTo-VDF -InputObject $VDFObject | Out-File ".\SharedConfig.vdf"
+
+    Description 
+    ----------- 
+    Converts the PS object to VDF format and pipes it into "SharedConfig.vdf" in the current directory
+
+.Inputs 
+    PSCustomObject
+
+.Outputs 
+    System.String
+
+
+#>
+    param
+    (
+        [Parameter(Position=0, Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [PSObject]
+        $InputObject,
+
+        [Parameter(Position=1, Mandatory=$false)]
+        [int]
+        $Depth = 0
+    )
+    $output = [string]::Empty
+    
+    foreach ( $property in ($InputObject.psobject.Properties) ) {
+        switch ($property.TypeNameOfValue) {
+            "System.String" { 
+                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`t`t`"" + $property.Value + "`"`n"
+                break
+            }
+            "System.Management.Automation.PSCustomObject" {
+                $element = $property.Value
+                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`n"
+                $output += ("`t" * $Depth) + "{`n"
+                $output += ConvertTo-VDF -InputObject $element -Depth ($Depth + 1)
+                $output += ("`t" * $Depth) + "}`n"
+                break
+            }
+            Default {
+                Write-Error ("Unsupported Property of type {0}" -f $_) -ErrorAction Stop
+                break
+            }
+        }
+    }
+
+    return $output
+}
+
+function Get-SteamGameInstallDir (
+    [Parameter(Mandatory = $true)][string]$Game, 
+    [array]$LibraryFolders = (Get-SteamLibraryFolders)) {
+
+    # Get the installation directory of a Steam game.
+    foreach ($LibraryFolder in $LibraryFolders) {
+        $GameInstallDir = "$LibraryFolder\steamapps\common\$Game"
+        if (Test-Path "$($GameInstallDir.ToLower())") {
+            return "$GameInstallDir"
+        }
+    }
+}
+Function Get-SteamLibraryFolders()
+{
+<#
+.Synopsis 
+	Retrieves library folder paths from .\SteamApps\libraryfolders.vdf
+.Description
+	Reads .\SteamApps\libraryfolders.vdf to find the paths of all the library folders set up in steam
+.Example 
+	$libraryFolders = Get-LibraryFolders
+	Description 
+	----------- 
+	Retrieves a list of the library folders set up in steam
+#>
+	$steamPath = Get-SteamPath
+	
+	$vdfPath = "$($steamPath)\SteamApps\libraryfolders.vdf"
+	
+	[array]$libraryFolderPaths = @()
+	
+	if (Test-Path $vdfPath)
+	{
+		$libraryFolders = ConvertFrom-VDF (Get-Content $vdfPath -Encoding UTF8) | Select-Object -ExpandProperty libraryfolders
+		
+		$libraryFolderIds = $libraryFolders | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
+		
+		ForEach ($libraryId in $libraryFolderIds)
+		{
+			$libraryFolder = $libraryFolders.($libraryId)
+			
+			$libraryFolderPaths += $libraryFolder.path.Replace('\\','\')
+		}
+	}
+	
+	return $libraryFolderPaths
+}
+
+
+function Get-SteamPath {
+    # Get the Steam installation directory.
+
+    $MUICache = "Registry::HKCR\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
+    $Protocol = "Registry::HKCR\steam\Shell\Open\Command"
+    $Steam = Get-ItemPropertyValue "Registry::HKCU\Software\Valve\Steam" -Name "SteamPath" -ErrorAction SilentlyContinue
+    
+    # MUICache
+    if (!$Steam) {
+        $Steam = Split-Path (((Get-Item "$MUICache").Property | Where-Object { $PSItem -Like "*Steam*" } |
+                Where-Object { (Get-ItemPropertyValue "$MUICache" -Name $PSItem) -eq "Steam" }).TrimEnd(".FriendlyAppName"))
+    }
+
+    # Steam Browser Protocol
+    if (!$Steam) {
+        $Steam = Split-Path (((Get-ItemPropertyValue "$Protocol" -Name "(Default)" -ErrorAction SilentlyContinue) -Split "--", 2, "SimpleMatch")[0]).Trim('"')
+    }
+
+    return $Steam.ToLower()
+}
 function Get-IniContent {
     <#
     .Synopsis
@@ -2283,217 +2494,6 @@ Function Out-IniFile {
 
 Set-Alias oif Out-IniFile
 
-Function ConvertFrom-VDF {
-<# 
-.Synopsis 
-    Reads a Valve Data File (VDF) formatted string into a custom object.
-
-.Description 
-    The ConvertFrom-VDF cmdlet converts a VDF-formatted string to a custom object (PSCustomObject) that has a property for each field in the VDF string. VDF is used as a textual data format for Valve software applications, such as Steam.
-
-.Parameter InputObject
-    Specifies the VDF strings to convert to PSObjects. Enter a variable that contains the string, or type a command or expression that gets the string. 
-
-.Example 
-    $vdf = ConvertFrom-VDF -InputObject (Get-Content ".\SharedConfig.vdf")
-
-    Description 
-    ----------- 
-    Gets the content of a VDF file named "SharedConfig.vdf" in the current location and converts it to a PSObject named $vdf
-
-.Inputs 
-    System.String
-
-.Outputs 
-    PSCustomObject
-
-
-#>
-    param
-    (
-        [Parameter(Position=0, Mandatory=$true)]
-        [AllowEmptyString()]
-        [String[]]
-        $InputObject
-    )
-
-    $root = New-Object -TypeName PSObject
-    $chain = [ordered]@{}
-    $depth = 0
-    $parent = $root
-    $element = $null
-
-    #Magic PowerShell Switch Enumrates Arrays
-    switch -Regex ($InputObject) {
-        #Case: ValueKey
-        '^\t*"(\S+)"\t\t"(.+)"$' {
-            Add-Member -InputObject $element -MemberType NoteProperty -Name $Matches[1] -Value $Matches[2]
-            continue
-        }
-        #Case: ParentKey
-        '^\t*"(\S+)"$' { 
-            $element = New-Object -TypeName PSObject
-            Add-Member -InputObject $parent -MemberType NoteProperty -Name $Matches[1] -Value $element
-            continue
-        }
-        #Case: Opening ParentKey Scope
-        '^\t*{$' {
-            $parent = $element
-            $chain.Add($depth, $element)
-            $depth++
-            continue
-        }
-        #Case: Closing ParentKey Scope
-        '^\t*}$' {
-            $depth--
-            $parent = $chain.($depth - 1)
-            $element = $parent
-            $chain.Remove($depth)
-            continue
-        }
-        #Case: Comments or unsupported lines
-        Default {
-            Write-Debug "Ignored line: $_"
-            continue
-        }
-    }
-
-    return $root
-}
-
-Function ConvertTo-VDF
-{
-<# 
-.Synopsis 
-    Converts a custom object into a Valve Data File (VDF) formatted string.
-
-.Description 
-    The ConvertTo-VDF cmdlet converts any object to a string in Valve Data File (VDF) format. The properties are converted to field names, the field values are converted to property values, and the methods are removed.
-
-.Parameter InputObject
-    Specifies PSObject to be converted into VDF strings.  Enter a variable that contains the object. You can also pipe an object to ConvertTo-Json.
-
-.Example 
-    ConvertTo-VDF -InputObject $VDFObject | Out-File ".\SharedConfig.vdf"
-
-    Description 
-    ----------- 
-    Converts the PS object to VDF format and pipes it into "SharedConfig.vdf" in the current directory
-
-.Inputs 
-    PSCustomObject
-
-.Outputs 
-    System.String
-
-
-#>
-    param
-    (
-        [Parameter(Position=0, Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [PSObject]
-        $InputObject,
-
-        [Parameter(Position=1, Mandatory=$false)]
-        [int]
-        $Depth = 0
-    )
-    $output = [string]::Empty
-    
-    foreach ( $property in ($InputObject.psobject.Properties) ) {
-        switch ($property.TypeNameOfValue) {
-            "System.String" { 
-                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`t`t`"" + $property.Value + "`"`n"
-                break
-            }
-            "System.Management.Automation.PSCustomObject" {
-                $element = $property.Value
-                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`n"
-                $output += ("`t" * $Depth) + "{`n"
-                $output += ConvertTo-VDF -InputObject $element -Depth ($Depth + 1)
-                $output += ("`t" * $Depth) + "}`n"
-                break
-            }
-            Default {
-                Write-Error ("Unsupported Property of type {0}" -f $_) -ErrorAction Stop
-                break
-            }
-        }
-    }
-
-    return $output
-}
-
-function Get-SteamGameInstallDir (
-    [Parameter(Mandatory = $true)][string]$Game, 
-    [array]$LibraryFolders = (Get-SteamLibraryFolders)) {
-
-    # Get the installation directory of a Steam game.
-    foreach ($LibraryFolder in $LibraryFolders) {
-        $GameInstallDir = "$LibraryFolder\steamapps\common\$Game"
-        if (Test-Path "$($GameInstallDir.ToLower())") {
-            return "$GameInstallDir"
-        }
-    }
-}
-Function Get-SteamLibraryFolders()
-{
-<#
-.Synopsis 
-	Retrieves library folder paths from .\SteamApps\libraryfolders.vdf
-.Description
-	Reads .\SteamApps\libraryfolders.vdf to find the paths of all the library folders set up in steam
-.Example 
-	$libraryFolders = Get-LibraryFolders
-	Description 
-	----------- 
-	Retrieves a list of the library folders set up in steam
-#>
-	$steamPath = Get-SteamPath
-	
-	$vdfPath = "$($steamPath)\SteamApps\libraryfolders.vdf"
-	
-	[array]$libraryFolderPaths = @()
-	
-	if (Test-Path $vdfPath)
-	{
-		$libraryFolders = ConvertFrom-VDF (Get-Content $vdfPath -Encoding UTF8) | Select-Object -ExpandProperty libraryfolders
-		
-		$libraryFolderIds = $libraryFolders | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
-		
-		ForEach ($libraryId in $libraryFolderIds)
-		{
-			$libraryFolder = $libraryFolders.($libraryId)
-			
-			$libraryFolderPaths += $libraryFolder.path.Replace('\\','\')
-		}
-	}
-	
-	return $libraryFolderPaths
-}
-
-
-function Get-SteamPath {
-    # Get the Steam installation directory.
-
-    $MUICache = "Registry::HKCR\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
-    $Protocol = "Registry::HKCR\steam\Shell\Open\Command"
-    $Steam = Get-ItemPropertyValue "Registry::HKCU\Software\Valve\Steam" -Name "SteamPath" -ErrorAction SilentlyContinue
-    
-    # MUICache
-    if (!$Steam) {
-        $Steam = Split-Path (((Get-Item "$MUICache").Property | Where-Object { $PSItem -Like "*Steam*" } |
-                Where-Object { (Get-ItemPropertyValue "$MUICache" -Name $PSItem) -eq "Steam" }).TrimEnd(".FriendlyAppName"))
-    }
-
-    # Steam Browser Protocol
-    if (!$Steam) {
-        $Steam = Split-Path (((Get-ItemPropertyValue "$Protocol" -Name "(Default)" -ErrorAction SilentlyContinue) -Split "--", 2, "SimpleMatch")[0]).Trim('"')
-    }
-
-    return $Steam.ToLower()
-}
 function Add-ContextMenu {
     #! TODO https://www.tenforums.com/tutorials/69524-add-remove-drives-send-context-menu-windows-10-a.html
     param(
@@ -3188,129 +3188,18 @@ tl ui opens the UI
 
 "@
 }
-function 4K-Notifier {
+function Remove-DesktopShortcuts {
     param(
-        [Parameter(Mandatory)]
-        [String]$Video,
-        [int]$Timeout = 30
+        [Switch]$ConfirmEach
     )
-    if (!$Video){
-        $Video = Read-Host "Pleaste paste in the URL of the video you'd like to wait for until it hits 4K"
-    }
-if (Get-Command yt-dlp -Ea 0){
-    $ytdl = (Get-Command yt-dlp).Source
-}elseif(Get-Command youtube-dl -Ea 0){
-    $ytdl = (Get-Command youtube-dl).Source
-}else{
-    return @"
-Nor YouTube-DL or yt-dlp are installed or added to the path, please run the following command to install it:
-iex(irm tl.ctt.cx);Get-ScoopApp main/yt-dlp
-"@
-}
-''
-$Finished = $null
-$Attempt = 0
-While (!$Finished){
-    $Attempt++
-    $Response = & $ytdl -F $Video
-    if ($Response | Where-Object {$PSItem -Like "*3840x2160*"}){
-        $Finished = $True
+    
+    if($ConfirmEach){
+        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
     }else{
-        Write-Host "`rYour video has not been encoded to 4K, trying again (attempt no.$attempt) in $Timeout seconds.." -NoNewLine 
-        Start-Sleep -Seconds $Timeout
-        Write-Host "`rTrying again..                                                       " -NoNewLine -ForegroundColor Red
-        continue
+        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item
     }
 }
-Set-Clipboard -Value $Video
-Write-Host @"
 
-YouTubed finished processing your video, it's URL has been copied to your clipboard:
-$Video
-"@ -ForegroundColor Green
-1..3 | ForEach-Object{
-    [Console]::Beep(500,300)
-    Start-Sleep -Milliseconds 100
-}
-}
-
-function Moony2 {
-    param(
-        [Switch]$NoIntro,
-        [Int]$McProcessID
-    )
-    $LaunchParameters = @{} # Fresh hashtable that will be splat with Start-Process
-
-    if (!$NoIntro){
-    Write-Host @'
-If you're used to the original Moony, this works a little differently,
-
-What you just runned lets you create a batchfile from your current running game
-that you can launch via a single click or even faster: via Run (Windows +R)
-
-Please launch your Minecraft (any client/version) and press ENTER on your keyboard
-once you're ready for it to create the batchfile
-'@
-    Pause
-    }
-
-    # java? is regex for either java or javaw
-    if (-Not(Get-Process java?)){
-        Write-Host "There was no processes with the name java or javaw"
-        pause
-        Moony -NoIntro
-        return
-    }else{
-        $ProcList = Get-Process -Name java?
-        if ($ProcList[1]){ # If $Procs isn't the only running java process
-                $Selected = Menu $ProcList.MainWindowTitle
-                $Proc = Get-Process | Where-Object {$_.MainWindowTitle -eq ($Selected)} # Crappy passthru
-                if ($Proc[1]){ # unlikely but w/e gotta handle it
-                    Write-Host "Sorry my code is bad and you have multiple processes with the name $($Proc.MainWindowTitle), GG!"
-                }
-        }else{$Proc = $ProcList} # lmk if theres a smarter way
-    }
-    $WinProcess = Get-CimInstance -ClassName Win32_Process | Where-Object ProcessId -eq $Proc.Id
-    $JRE = $WinProcess.ExecutablePath
-    $Arguments = $WinProcess.CommandLine.Replace($WinProcess.ExecutablePath,'')
-    if (Test-Path "$HOME\.lunarclient\offline\multiver"){
-        $WorkingDirectory = "$HOME\.lunarclient\offline\multiver"
-
-    }else{
-            # This cumbersome parse has been split in 3 lines, it just gets the right version from the args
-        $PlayedVersion = $Arguments.split(' ') |
-        Where-Object {$PSItem -Like "1.*"} |
-        Where-Object {$PSITem -NotLike "1.*.*"} |
-        Select-Object -Last 1
-        $WorkingDirectory = "$HOME\.lunarclient\offline\$PlayedVersion"
-    }
-    if ($Arguments -NotLike "* -server *"){
-        Write-Host @"
-Would you like this script to join a specific server right after it launches?
-
-If so, type the IP, otherwise just leave it blank and press ENTER
-"@  
-        $ServerIP = Read-Host "Server IP"
-        if ($ServerIP -NotIn '',$null){
-            $Arguments += " -server $ServerIP"
-        }
-    }
-
-    $InstanceName = Read-Host "Give a name to your Lunar Client instance, I recommend making it short without spaces"
-    if ($InstanceName -Like "* *"){
-        $InstanceName = Read-Host "Since there's a space in your name, you won't be able to call it from Run (Windows+R), type it again if you are sure"
-    }
-
-    Set-Content "$env:LOCALAPPDATA\Microsoft\WindowsApps\$InstanceName.cmd" @"
-@echo off
-cd /D "$WorkingDirectory"
-start "$JRE" $Arguments
-if %ERRORLEVEL% == 0 (exit) else (pause)
-"@
-    Write-Host "Your $InstanceName instance should be good to go, try typing it's name in the Run window (Windows+R)" -ForegroundColor Green
-    return
-
-}
 function Get-GraalVM {
     param(
         [Switch]$Reinstall
@@ -4222,19 +4111,6 @@ function Install-ZetaLoader {
     Write-Output "ZetaLoader has been installed."
 }
 
-function CB-CleanTaskbar {
-	if (-Not(Get-Module -Name "Sophia Script (TL)" -Ea 0)){
-		Import-Sophia
-	}
-	CortanaButton -Hide
-	PeopleTaskbar -Hide
-	TaskBarSearch -Hide
-	TaskViewButton -Hide
-	UnpinTaskbarShortcuts Edge, Store, Mail
-
-	# Remove "Meet now" from the taskbar, s/o privacy.sexy
-	Set-ItemProperty -Path "Registry::HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "HideSCAMeetNow" -Value 1
-}
 <#
 
 List of commonly used Appx packages:
@@ -4357,16 +4233,107 @@ function Set-Win32PrioritySeparation {
 }
 
 
-function Remove-DesktopShortcuts {
+function Optimize-Bedrock {
+    [alias('optmcbe')]
+    [CmdletBinding()]
     param(
-        [Switch]$ConfirmEach
+        [ValidateScript({
+                Test-Path $_ -PathType Leaf
+            })]
+        [String]$options = "$env:localappdata\Packages\Microsoft.MinecraftUWP_8wekyb3d8bbwe\LocalState\games\com.mojang\minecraftpe\options.txt",
+
+
+        [ValidateSet('Low', 'High', 'ashanksupercool')]
+        $Preset = "High",
+
+        $Presets = @{
+
+            High = @{
+                gfx_viewdistance           = 256
+                gfx_particleviewdistance   = 1
+                gfx_viewbobbing            = 1
+                gfx_fancygraphics          = 1
+                gfx_transparentleaves      = 1
+                gfx_smoothlighting         = 1
+                gfx_fancyskies             = 1
+                gfx_msaa                   = 4
+                gfx_texel_aa_2             = 0
+                gfx_multithreaded_renderer = 1
+                gfx_vsync                  = 0
+            } 
+        
+            Low = @{
+                gfx_viewdistance           = 160
+                gfx_particleviewdistance   = 0
+                gfx_viewbobbing            = 0
+                gfx_fancygraphics          = 0
+                gfx_transparentleaves      = 0
+                gfx_smoothlighting         = 0
+                gfx_fancyskies             = 0
+                gfx_msaa                   = 1
+                gfx_texel_aa_2             = 0
+                gfx_multithreaded_renderer = 1
+                gfx_vsync                  = 0
+            }
+            ashanksupercool = @{
+                gfx_viewdistance                                 = 256
+                gfx_particleviewdistance                         = 1
+                gfx_viewbobbing                                  = 1
+                gfx_fancygraphics                                = 0
+                gfx_transparentleaves                            = 1
+                gfx_vr_transparentleaves                         = 0
+                gfx_smoothlighting                               = 1
+                gfx_vr_smoothlighting                            = 0
+                gfx_fancyskies                                   = 0
+                gfx_field_of_view                                = 81.2
+                gfx_msaa                                         = 1
+                gfx_gamma                                        = 1
+                gfx_multithreaded_renderer                       = 1
+                gfx_vsync                                        = 0
+                dev_file_watcher                                 = 1
+                audio_music                                      = 0
+                gfx_hidepaperdoll                                = 1
+                dev_enable_texture_hot_reloader                  = 1
+                do_not_show_multiplayer_online_safety_warning    = 1
+                only_show_trusted_skins                          = 0
+                camera_shake                                     = 0
+                gfx_resizableui                                  = 0
+                gfx_hotbarScale                                  = 1
+                'keyboard_type_0_key.pickItem'                   = 75
+                'keyboard_type_0_key.hotbar.1'                   = 49
+                'keyboard_type_0_key.hotbar.2'                   = 50
+                'keyboard_type_0_key.hotbar.3'                   = 51
+                'keyboard_type_0_key.hotbar.4'                   = 52
+                'keyboard_type_0_key.hotbar.5'                   = 82
+                'keyboard_type_0_key.hotbar.6'                   = 70
+                'keyboard_type_0_key.hotbar.7'                   = 86
+                'keyboard_type_0_key.hotbar.8'                   = 90
+                'keyboard_type_0_key.hotbar.9'                   = '- 97'
+                'keyboard_type_0_key.inventory'                  = 69
+                'keyboard_type_0_key.togglePerspective'          = 53
+                'keyboard_type_0_key.jump'                       = 32
+                'keyboard_type_0_key.sneak'                      = 16
+                'keyboard_type_0_key.sprint'                     = 17
+                'keyboard_type_0_key.left'                       = 65
+                'keyboard_type_0_key.right'                      = 68
+                'keyboard_type_0_key.back'                       = 83
+                'keyboard_type_0_key.forward'                    = 87
+                'keyboard_type_0_key.mobEffects'                 = 88
+                'keyboard_type_0_key.chat'                       = 13
+                'keyboard_type_0_key.emote'                      = 0
+            }
+        }
     )
+
+    Write-Host "Optimize Minecraft bedrock with $Preset"
+
+    $optionsTable = (Get-Content $options) -Replace ':', '=' | ConvertFrom-StringData
+    Write-Verbose ($optionsTable | ConvertTo-Json -Depth 3)
+
+    $optionsTable = Merge-Hashtables -Original $optionsTable -Patch $Presets.$Preset
+    Write-Verbose ($optionsTable | ConvertTo-Json -Depth 3)
     
-    if($ConfirmEach){
-        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
-    }else{
-        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item
-    }
+    Set-Content $options -Value (ConvertTo-MCSetting $optionsTable) -Force
 }
 
 function Optimize-LunarClient {
@@ -5208,6 +5175,142 @@ $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.options
 $Hash.maxFPS = 260
 Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force
 
+}
+function 4K-Notifier {
+    param(
+        [Parameter(Mandatory)]
+        [String]$Video,
+        [int]$Timeout = 30
+    )
+    if (!$Video){
+        $Video = Read-Host "Pleaste paste in the URL of the video you'd like to wait for until it hits 4K"
+    }
+if (Get-Command yt-dlp -Ea 0){
+    $ytdl = (Get-Command yt-dlp).Source
+}elseif(Get-Command youtube-dl -Ea 0){
+    $ytdl = (Get-Command youtube-dl).Source
+}else{
+    return @"
+Nor YouTube-DL or yt-dlp are installed or added to the path, please run the following command to install it:
+iex(irm tl.ctt.cx);Get-ScoopApp main/yt-dlp
+"@
+}
+''
+$Finished = $null
+$Attempt = 0
+While (!$Finished){
+    $Attempt++
+    $Response = & $ytdl -F $Video
+    if ($Response | Where-Object {$PSItem -Like "*3840x2160*"}){
+        $Finished = $True
+    }else{
+        Write-Host "`rYour video has not been encoded to 4K, trying again (attempt no.$attempt) in $Timeout seconds.." -NoNewLine 
+        Start-Sleep -Seconds $Timeout
+        Write-Host "`rTrying again..                                                       " -NoNewLine -ForegroundColor Red
+        continue
+    }
+}
+Set-Clipboard -Value $Video
+Write-Host @"
+
+YouTubed finished processing your video, it's URL has been copied to your clipboard:
+$Video
+"@ -ForegroundColor Green
+1..3 | ForEach-Object{
+    [Console]::Beep(500,300)
+    Start-Sleep -Milliseconds 100
+}
+}
+
+function Moony2 {
+    param(
+        [Switch]$NoIntro,
+        [Int]$McProcessID
+    )
+    $LaunchParameters = @{} # Fresh hashtable that will be splat with Start-Process
+
+    if (!$NoIntro){
+    Write-Host @'
+If you're used to the original Moony, this works a little differently,
+
+What you just runned lets you create a batchfile from your current running game
+that you can launch via a single click or even faster: via Run (Windows +R)
+
+Please launch your Minecraft (any client/version) and press ENTER on your keyboard
+once you're ready for it to create the batchfile
+'@
+    Pause
+    }
+
+    # java? is regex for either java or javaw
+    if (-Not(Get-Process java?)){
+        Write-Host "There was no processes with the name java or javaw"
+        pause
+        Moony -NoIntro
+        return
+    }else{
+        $ProcList = Get-Process -Name java?
+        if ($ProcList[1]){ # If $Procs isn't the only running java process
+                $Selected = Menu $ProcList.MainWindowTitle
+                $Proc = Get-Process | Where-Object {$_.MainWindowTitle -eq ($Selected)} # Crappy passthru
+                if ($Proc[1]){ # unlikely but w/e gotta handle it
+                    Write-Host "Sorry my code is bad and you have multiple processes with the name $($Proc.MainWindowTitle), GG!"
+                }
+        }else{$Proc = $ProcList} # lmk if theres a smarter way
+    }
+    $WinProcess = Get-CimInstance -ClassName Win32_Process | Where-Object ProcessId -eq $Proc.Id
+    $JRE = $WinProcess.ExecutablePath
+    $Arguments = $WinProcess.CommandLine.Replace($WinProcess.ExecutablePath,'')
+    if (Test-Path "$HOME\.lunarclient\offline\multiver"){
+        $WorkingDirectory = "$HOME\.lunarclient\offline\multiver"
+
+    }else{
+            # This cumbersome parse has been split in 3 lines, it just gets the right version from the args
+        $PlayedVersion = $Arguments.split(' ') |
+        Where-Object {$PSItem -Like "1.*"} |
+        Where-Object {$PSITem -NotLike "1.*.*"} |
+        Select-Object -Last 1
+        $WorkingDirectory = "$HOME\.lunarclient\offline\$PlayedVersion"
+    }
+    if ($Arguments -NotLike "* -server *"){
+        Write-Host @"
+Would you like this script to join a specific server right after it launches?
+
+If so, type the IP, otherwise just leave it blank and press ENTER
+"@  
+        $ServerIP = Read-Host "Server IP"
+        if ($ServerIP -NotIn '',$null){
+            $Arguments += " -server $ServerIP"
+        }
+    }
+
+    $InstanceName = Read-Host "Give a name to your Lunar Client instance, I recommend making it short without spaces"
+    if ($InstanceName -Like "* *"){
+        $InstanceName = Read-Host "Since there's a space in your name, you won't be able to call it from Run (Windows+R), type it again if you are sure"
+    }
+
+    Set-Content "$env:LOCALAPPDATA\Microsoft\WindowsApps\$InstanceName.cmd" @"
+@echo off
+cd /D "$WorkingDirectory"
+start "$JRE" $Arguments
+if %ERRORLEVEL% == 0 (exit) else (pause)
+"@
+    Write-Host "Your $InstanceName instance should be good to go, try typing it's name in the Run window (Windows+R)" -ForegroundColor Green
+    return
+
+}
+function CB-CleanTaskbar {
+	if (-Not(Get-Module -Name "Sophia Script (TL)" -Ea 0)){
+		Import-Sophia
+	}
+	CortanaButton -Hide
+	PeopleTaskbar -Hide
+	TaskBarSearch -Hide
+	TaskViewButton -Hide
+	UnpinTaskbarShortcuts Edge, Store, Mail
+
+	# Remove "Meet now" from the taskbar, s/o privacy.sexy
+	Set-ItemProperty -Path "Registry::HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "HideSCAMeetNow" -Value 1
 }
 Export-ModuleMember * -Alias *
 })) | Import-Module -DisableNameChecking -Global

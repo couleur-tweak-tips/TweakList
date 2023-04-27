@@ -1,5 +1,6 @@
 [
   {
+    "Path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
     "Parameters": [
       {
         "Name": "Settings",
@@ -30,7 +31,6 @@
       }
     ],
     "Name": "Optimize-LunarClient",
-    "Path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
     "Description": "Tunes a selected Lunar Client profile to your liking, it has some good defaults everyone should have (no numbers in scoreboard, modern keybind handling, no achievements, transparent texture packs section, borderless fullscreen..)",
     "Display Name": "Optimize Lunar Client",
     "Platform": [
@@ -44,6 +44,7 @@
     ]
   },
   {
+    "Path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
     "Parameters": [
       {
         "Name": "Encoder",
@@ -72,7 +73,6 @@
       }
     ],
     "Name": "Optimize-OBS",
-    "Path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
     "Description": "Tune your OBS for a specific usecase in the snap of a finger!",
     "Display Name": "Optimize OBS",
     "Platform": [
