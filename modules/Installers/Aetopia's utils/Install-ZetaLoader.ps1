@@ -6,6 +6,7 @@ function Install-ZetaLoader {
         exit 1
     }
     Write-Output "Installing ZetaLoader..."
-    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\dinput8.dll"
+    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$ENV:TEMP\dpapi.dll"
+    @("$GameInstallDir\game\dpapi.dll", "$GameInstallDir\subgames\CampaignS1\dpapi.dll") | ForEach-Object { Copy-Item -Path "$ENV:TEMP\dpapi.dll" -Destination $_ -ErrorAction SilentlyContinue}
     Write-Output "ZetaLoader has been installed."
 }
