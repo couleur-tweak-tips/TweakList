@@ -3188,18 +3188,264 @@ tl ui opens the UI
 
 "@
 }
-function Remove-DesktopShortcuts {
-    param(
-        [Switch]$ConfirmEach
-    )
+<#
+
+List of commonly used Appx packages:
+
+Windows.PrintDialog
+Microsoft.WindowsCalculator
+Microsoft.ZuneVideo
+Microsoft.Windows.Photos
+
+I did not add them, but you can opt in by calling the function, e.g:
+
+    Remove-KnownAppxPackages -Add @('Windows.PrintDialog','Microsoft.WindowsCalculator')
+
+Don't forget to surround them by a ' so PowerShell considers them as a string
+
+#>
+
+function Remove-KnownAppxPackages ([array]$Add,[array]$Exclude) {
+
+    $AppxPackages = @(
+        "Microsoft.Windows.NarratorQuickStart"
+        "Microsoft.Wallet"
+        "3DBuilder"
+        "Microsoft.Microsoft3DViewer"
+        "WindowsAlarms"
+        "BingSports"
+        "WindowsCommunicationsapps"
+        "WindowsCamera"
+        "Feedback"
+        "Microsoft.GetHelp"
+        "GetStarted"
+        "ZuneMusic"
+        "WindowsMaps"
+        "Microsoft.Messaging"
+        "Microsoft.MixedReality.Portal"
+        "Microsoft.OneConnect"
+        "BingFinance"
+        "Microsoft.MSPaint"
+        "People"
+        "WindowsPhone"
+        "Microsoft.YourPhone"
+        "Microsoft.Print3D"
+        "Microsoft.ScreenSketch"
+        "Microsoft.MicrosoftStickyNotes"
+        "SoundRecorder"
+        
+        ) | Where-Object { $_ -notin $Exclude }
+
+        $AppxPackages += $Add # Appends the Appx packages given by the user (if any)
+
+        if (-Not($KeepXboxPackages)){
+            $AppxPackages += @(
+                "XboxApp"
+                "Microsoft.XboxGameOverlay"
+                "Microsoft.XboxGamingOverlay"
+                "Microsoft.XboxSpeechToTextOverlay"
+                "Microsoft.XboxIdentityProvider"
+                "Microsoft.XboxGameCallableUI"
+            )
+        }
+
+
+        ForEach ($Package in $AppxPackages){
+        
+        if ($PSVersionTable.PSEdition -eq 'Core'){ # Newer PowerShell versions don't have Appx cmdlets, manually calling PowerShell to 
+        
+            powershell.exe -command "Get-AppxPackage `"*$Package*`" | Remove-AppxPackage"
+        
+        }else{
+            Get-AppxPackage "*$Package*" | Remove-AppxPackage
+        }
+        
+        }
+
+}
+
+
+function Remove-UselessFiles {
     
-    if($ConfirmEach){
-        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
-    }else{
-        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item
+    @(
+        "$env:TEMP"
+        "$env:WINDIR\TEMP"
+        "$env:HOMEDRIVE\TEMP"
+    ) | ForEach-Object { Remove-Item (Convert-Path $_\*) -Force -ErrorAction SilentlyContinue }
+
+}
+function Set-PowerPlan {
+    param (
+        [string]$URL,
+        [switch]$Ultimate
+        )
+
+    if ($Ultimate){
+        powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
+        powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61
+    }elseif($URL){
+        if ($URL -Like "http*://cdn.discordapp.com/attachments/*.pow"){
+            $DotPow = "$env:TMP\{0}" -f (Split-Path $URL -Leaf)
+        }else{
+            $DotPow = "$env:TMP\Powerplan $(Get-Random).pow"
+        }
+        Invoke-WebRequest -Uri $PowURL -OutFile $DotPow
+        powercfg -duplicatescheme $DotPow
+        powercfg /s $DotPow
     }
 }
 
+function Set-Win32PrioritySeparation {
+    param(
+        [int]$DWord
+    )
+
+    $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
+    $current = (Get-ItemProperty $Path).Win32PrioritySeparation
+
+    Set-ItemProperty -Path ($Path).Win32PrioritySeparation -Value $Value -Type DWord -Force -ErrorAction Inquire
+
+    Write-Verbose "Set-Win32ProritySeparation: Changed from $current to $((Get-ItemProperty $Path).Win32PrioritySeparation)"
+
+}
+
+
+function CB-CleanTaskbar {
+	if (-Not(Get-Module -Name "Sophia Script (TL)" -Ea 0)){
+		Import-Sophia
+	}
+	CortanaButton -Hide
+	PeopleTaskbar -Hide
+	TaskBarSearch -Hide
+	TaskViewButton -Hide
+	UnpinTaskbarShortcuts Edge, Store, Mail
+
+	# Remove "Meet now" from the taskbar, s/o privacy.sexy
+	Set-ItemProperty -Path "Registry::HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "HideSCAMeetNow" -Value 1
+}
+function 4K-Notifier {
+    param(
+        [Parameter(Mandatory)]
+        [String]$Video,
+        [int]$Timeout = 30
+    )
+    if (!$Video){
+        $Video = Read-Host "Pleaste paste in the URL of the video you'd like to wait for until it hits 4K"
+    }
+if (Get-Command yt-dlp -Ea 0){
+    $ytdl = (Get-Command yt-dlp).Source
+}elseif(Get-Command youtube-dl -Ea 0){
+    $ytdl = (Get-Command youtube-dl).Source
+}else{
+    return @"
+Nor YouTube-DL or yt-dlp are installed or added to the path, please run the following command to install it:
+iex(irm tl.ctt.cx);Get-ScoopApp main/yt-dlp
+"@
+}
+''
+$Finished = $null
+$Attempt = 0
+While (!$Finished){
+    $Attempt++
+    $Response = & $ytdl -F $Video
+    if ($Response | Where-Object {$PSItem -Like "*3840x2160*"}){
+        $Finished = $True
+    }else{
+        Write-Host "`rYour video has not been encoded to 4K, trying again (attempt no.$attempt) in $Timeout seconds.." -NoNewLine 
+        Start-Sleep -Seconds $Timeout
+        Write-Host "`rTrying again..                                                       " -NoNewLine -ForegroundColor Red
+        continue
+    }
+}
+Set-Clipboard -Value $Video
+Write-Host @"
+
+YouTubed finished processing your video, it's URL has been copied to your clipboard:
+$Video
+"@ -ForegroundColor Green
+1..3 | ForEach-Object{
+    [Console]::Beep(500,300)
+    Start-Sleep -Milliseconds 100
+}
+}
+
+function Moony2 {
+    param(
+        [Switch]$NoIntro,
+        [Int]$McProcessID
+    )
+    $LaunchParameters = @{} # Fresh hashtable that will be splat with Start-Process
+
+    if (!$NoIntro){
+    Write-Host @'
+If you're used to the original Moony, this works a little differently,
+
+What you just runned lets you create a batchfile from your current running game
+that you can launch via a single click or even faster: via Run (Windows +R)
+
+Please launch your Minecraft (any client/version) and press ENTER on your keyboard
+once you're ready for it to create the batchfile
+'@
+    Pause
+    }
+
+    # java? is regex for either java or javaw
+    if (-Not(Get-Process java?)){
+        Write-Host "There was no processes with the name java or javaw"
+        pause
+        Moony -NoIntro
+        return
+    }else{
+        $ProcList = Get-Process -Name java?
+        if ($ProcList[1]){ # If $Procs isn't the only running java process
+                $Selected = Menu $ProcList.MainWindowTitle
+                $Proc = Get-Process | Where-Object {$_.MainWindowTitle -eq ($Selected)} # Crappy passthru
+                if ($Proc[1]){ # unlikely but w/e gotta handle it
+                    Write-Host "Sorry my code is bad and you have multiple processes with the name $($Proc.MainWindowTitle), GG!"
+                }
+        }else{$Proc = $ProcList} # lmk if theres a smarter way
+    }
+    $WinProcess = Get-CimInstance -ClassName Win32_Process | Where-Object ProcessId -eq $Proc.Id
+    $JRE = $WinProcess.ExecutablePath
+    $Arguments = $WinProcess.CommandLine.Replace($WinProcess.ExecutablePath,'')
+    if (Test-Path "$HOME\.lunarclient\offline\multiver"){
+        $WorkingDirectory = "$HOME\.lunarclient\offline\multiver"
+
+    }else{
+            # This cumbersome parse has been split in 3 lines, it just gets the right version from the args
+        $PlayedVersion = $Arguments.split(' ') |
+        Where-Object {$PSItem -Like "1.*"} |
+        Where-Object {$PSITem -NotLike "1.*.*"} |
+        Select-Object -Last 1
+        $WorkingDirectory = "$HOME\.lunarclient\offline\$PlayedVersion"
+    }
+    if ($Arguments -NotLike "* -server *"){
+        Write-Host @"
+Would you like this script to join a specific server right after it launches?
+
+If so, type the IP, otherwise just leave it blank and press ENTER
+"@  
+        $ServerIP = Read-Host "Server IP"
+        if ($ServerIP -NotIn '',$null){
+            $Arguments += " -server $ServerIP"
+        }
+    }
+
+    $InstanceName = Read-Host "Give a name to your Lunar Client instance, I recommend making it short without spaces"
+    if ($InstanceName -Like "* *"){
+        $InstanceName = Read-Host "Since there's a space in your name, you won't be able to call it from Run (Windows+R), type it again if you are sure"
+    }
+
+    Set-Content "$env:LOCALAPPDATA\Microsoft\WindowsApps\$InstanceName.cmd" @"
+@echo off
+cd /D "$WorkingDirectory"
+start "$JRE" $Arguments
+if %ERRORLEVEL% == 0 (exit) else (pause)
+"@
+    Write-Host "Your $InstanceName instance should be good to go, try typing it's name in the Run window (Windows+R)" -ForegroundColor Green
+    return
+
+}
 function Get-GraalVM {
     param(
         [Switch]$Reinstall
@@ -3386,7 +3632,7 @@ CTT Upscaler has been installed! Find it in the options when right clicking a vi
             }
 
             'Scoop'{Install-Scoop }
-            'FFmpeg'{Install-FFmpeg }
+            {$_ -in 'ff','FFmpeg'}{Install-FFmpeg }
 
             {$_ -in 'zl','ZetaLoader'}{Install-ZetaLoader}
             {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
@@ -4111,127 +4357,17 @@ function Install-ZetaLoader {
     Write-Output "ZetaLoader has been installed."
 }
 
-<#
-
-List of commonly used Appx packages:
-
-Windows.PrintDialog
-Microsoft.WindowsCalculator
-Microsoft.ZuneVideo
-Microsoft.Windows.Photos
-
-I did not add them, but you can opt in by calling the function, e.g:
-
-    Remove-KnownAppxPackages -Add @('Windows.PrintDialog','Microsoft.WindowsCalculator')
-
-Don't forget to surround them by a ' so PowerShell considers them as a string
-
-#>
-
-function Remove-KnownAppxPackages ([array]$Add,[array]$Exclude) {
-
-    $AppxPackages = @(
-        "Microsoft.Windows.NarratorQuickStart"
-        "Microsoft.Wallet"
-        "3DBuilder"
-        "Microsoft.Microsoft3DViewer"
-        "WindowsAlarms"
-        "BingSports"
-        "WindowsCommunicationsapps"
-        "WindowsCamera"
-        "Feedback"
-        "Microsoft.GetHelp"
-        "GetStarted"
-        "ZuneMusic"
-        "WindowsMaps"
-        "Microsoft.Messaging"
-        "Microsoft.MixedReality.Portal"
-        "Microsoft.OneConnect"
-        "BingFinance"
-        "Microsoft.MSPaint"
-        "People"
-        "WindowsPhone"
-        "Microsoft.YourPhone"
-        "Microsoft.Print3D"
-        "Microsoft.ScreenSketch"
-        "Microsoft.MicrosoftStickyNotes"
-        "SoundRecorder"
-        
-        ) | Where-Object { $_ -notin $Exclude }
-
-        $AppxPackages += $Add # Appends the Appx packages given by the user (if any)
-
-        if (-Not($KeepXboxPackages)){
-            $AppxPackages += @(
-                "XboxApp"
-                "Microsoft.XboxGameOverlay"
-                "Microsoft.XboxGamingOverlay"
-                "Microsoft.XboxSpeechToTextOverlay"
-                "Microsoft.XboxIdentityProvider"
-                "Microsoft.XboxGameCallableUI"
-            )
-        }
-
-
-        ForEach ($Package in $AppxPackages){
-        
-        if ($PSVersionTable.PSEdition -eq 'Core'){ # Newer PowerShell versions don't have Appx cmdlets, manually calling PowerShell to 
-        
-            powershell.exe -command "Get-AppxPackage `"*$Package*`" | Remove-AppxPackage"
-        
-        }else{
-            Get-AppxPackage "*$Package*" | Remove-AppxPackage
-        }
-        
-        }
-
-}
-
-
-function Remove-UselessFiles {
+function Remove-DesktopShortcuts {
+    param(
+        [Switch]$ConfirmEach
+    )
     
-    @(
-        "$env:TEMP"
-        "$env:WINDIR\TEMP"
-        "$env:HOMEDRIVE\TEMP"
-    ) | ForEach-Object { Remove-Item (Convert-Path $_\*) -Force -ErrorAction SilentlyContinue }
-
-}
-function Set-PowerPlan {
-    param (
-        [string]$URL,
-        [switch]$Ultimate
-        )
-
-    if ($Ultimate){
-        powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
-        powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61
-    }elseif($URL){
-        if ($URL -Like "http*://cdn.discordapp.com/attachments/*.pow"){
-            $DotPow = "$env:TMP\{0}" -f (Split-Path $URL -Leaf)
-        }else{
-            $DotPow = "$env:TMP\Powerplan $(Get-Random).pow"
-        }
-        Invoke-WebRequest -Uri $PowURL -OutFile $DotPow
-        powercfg -duplicatescheme $DotPow
-        powercfg /s $DotPow
+    if($ConfirmEach){
+        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
+    }else{
+        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item
     }
 }
-
-function Set-Win32PrioritySeparation {
-    param(
-        [int]$DWord
-    )
-
-    $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
-    $current = (Get-ItemProperty $Path).Win32PrioritySeparation
-
-    Set-ItemProperty -Path ($Path).Win32PrioritySeparation -Value $Value -Type DWord -Force -ErrorAction Inquire
-
-    Write-Verbose "Set-Win32ProritySeparation: Changed from $current to $((Get-ItemProperty $Path).Win32PrioritySeparation)"
-
-}
-
 
 function Optimize-Bedrock {
     [alias('optmcbe')]
@@ -5175,142 +5311,6 @@ $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.options
 $Hash.maxFPS = 260
 Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force
 
-}
-function 4K-Notifier {
-    param(
-        [Parameter(Mandatory)]
-        [String]$Video,
-        [int]$Timeout = 30
-    )
-    if (!$Video){
-        $Video = Read-Host "Pleaste paste in the URL of the video you'd like to wait for until it hits 4K"
-    }
-if (Get-Command yt-dlp -Ea 0){
-    $ytdl = (Get-Command yt-dlp).Source
-}elseif(Get-Command youtube-dl -Ea 0){
-    $ytdl = (Get-Command youtube-dl).Source
-}else{
-    return @"
-Nor YouTube-DL or yt-dlp are installed or added to the path, please run the following command to install it:
-iex(irm tl.ctt.cx);Get-ScoopApp main/yt-dlp
-"@
-}
-''
-$Finished = $null
-$Attempt = 0
-While (!$Finished){
-    $Attempt++
-    $Response = & $ytdl -F $Video
-    if ($Response | Where-Object {$PSItem -Like "*3840x2160*"}){
-        $Finished = $True
-    }else{
-        Write-Host "`rYour video has not been encoded to 4K, trying again (attempt no.$attempt) in $Timeout seconds.." -NoNewLine 
-        Start-Sleep -Seconds $Timeout
-        Write-Host "`rTrying again..                                                       " -NoNewLine -ForegroundColor Red
-        continue
-    }
-}
-Set-Clipboard -Value $Video
-Write-Host @"
-
-YouTubed finished processing your video, it's URL has been copied to your clipboard:
-$Video
-"@ -ForegroundColor Green
-1..3 | ForEach-Object{
-    [Console]::Beep(500,300)
-    Start-Sleep -Milliseconds 100
-}
-}
-
-function Moony2 {
-    param(
-        [Switch]$NoIntro,
-        [Int]$McProcessID
-    )
-    $LaunchParameters = @{} # Fresh hashtable that will be splat with Start-Process
-
-    if (!$NoIntro){
-    Write-Host @'
-If you're used to the original Moony, this works a little differently,
-
-What you just runned lets you create a batchfile from your current running game
-that you can launch via a single click or even faster: via Run (Windows +R)
-
-Please launch your Minecraft (any client/version) and press ENTER on your keyboard
-once you're ready for it to create the batchfile
-'@
-    Pause
-    }
-
-    # java? is regex for either java or javaw
-    if (-Not(Get-Process java?)){
-        Write-Host "There was no processes with the name java or javaw"
-        pause
-        Moony -NoIntro
-        return
-    }else{
-        $ProcList = Get-Process -Name java?
-        if ($ProcList[1]){ # If $Procs isn't the only running java process
-                $Selected = Menu $ProcList.MainWindowTitle
-                $Proc = Get-Process | Where-Object {$_.MainWindowTitle -eq ($Selected)} # Crappy passthru
-                if ($Proc[1]){ # unlikely but w/e gotta handle it
-                    Write-Host "Sorry my code is bad and you have multiple processes with the name $($Proc.MainWindowTitle), GG!"
-                }
-        }else{$Proc = $ProcList} # lmk if theres a smarter way
-    }
-    $WinProcess = Get-CimInstance -ClassName Win32_Process | Where-Object ProcessId -eq $Proc.Id
-    $JRE = $WinProcess.ExecutablePath
-    $Arguments = $WinProcess.CommandLine.Replace($WinProcess.ExecutablePath,'')
-    if (Test-Path "$HOME\.lunarclient\offline\multiver"){
-        $WorkingDirectory = "$HOME\.lunarclient\offline\multiver"
-
-    }else{
-            # This cumbersome parse has been split in 3 lines, it just gets the right version from the args
-        $PlayedVersion = $Arguments.split(' ') |
-        Where-Object {$PSItem -Like "1.*"} |
-        Where-Object {$PSITem -NotLike "1.*.*"} |
-        Select-Object -Last 1
-        $WorkingDirectory = "$HOME\.lunarclient\offline\$PlayedVersion"
-    }
-    if ($Arguments -NotLike "* -server *"){
-        Write-Host @"
-Would you like this script to join a specific server right after it launches?
-
-If so, type the IP, otherwise just leave it blank and press ENTER
-"@  
-        $ServerIP = Read-Host "Server IP"
-        if ($ServerIP -NotIn '',$null){
-            $Arguments += " -server $ServerIP"
-        }
-    }
-
-    $InstanceName = Read-Host "Give a name to your Lunar Client instance, I recommend making it short without spaces"
-    if ($InstanceName -Like "* *"){
-        $InstanceName = Read-Host "Since there's a space in your name, you won't be able to call it from Run (Windows+R), type it again if you are sure"
-    }
-
-    Set-Content "$env:LOCALAPPDATA\Microsoft\WindowsApps\$InstanceName.cmd" @"
-@echo off
-cd /D "$WorkingDirectory"
-start "$JRE" $Arguments
-if %ERRORLEVEL% == 0 (exit) else (pause)
-"@
-    Write-Host "Your $InstanceName instance should be good to go, try typing it's name in the Run window (Windows+R)" -ForegroundColor Green
-    return
-
-}
-function CB-CleanTaskbar {
-	if (-Not(Get-Module -Name "Sophia Script (TL)" -Ea 0)){
-		Import-Sophia
-	}
-	CortanaButton -Hide
-	PeopleTaskbar -Hide
-	TaskBarSearch -Hide
-	TaskViewButton -Hide
-	UnpinTaskbarShortcuts Edge, Store, Mail
-
-	# Remove "Meet now" from the taskbar, s/o privacy.sexy
-	Set-ItemProperty -Path "Registry::HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "HideSCAMeetNow" -Value 1
 }
 Export-ModuleMember * -Alias *
 })) | Import-Module -DisableNameChecking -Global
