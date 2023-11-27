@@ -58,7 +58,7 @@ CTT Upscaler has been installed! Find it in the options when right clicking a vi
             }
 
             'Scoop'{Install-Scoop }
-            'FFmpeg'{Install-FFmpeg }
+            {$_ -in 'ff','FFmpeg'}{Install-FFmpeg }
 
             {$_ -in 'zl','ZetaLoader'}{Install-ZetaLoader}
             {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
