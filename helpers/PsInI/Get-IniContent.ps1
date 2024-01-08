@@ -70,11 +70,14 @@
         # Lines starting with the characters provided will be rendered as comments.
         # Default: ";"
         [Char[]]
-        $CommentChar = @(";"),
+        $CommentChar = @(";", "#", ":", "/"),
 
         # Remove lines determined to be comments from the resulting dictionary.
         [Switch]
-        $IgnoreComments
+        $IgnoreComments,
+
+        [String]
+        $delimiter = '='
     )
 
     Begin {
@@ -89,7 +92,7 @@
 
         $commentRegex = "^\s*([$($CommentChar -join '')].*)$"
         $sectionRegex = "^\s*\[(.+)\]\s*$"
-        $keyRegex     = "^\s*(.+?)\s*=\s*(['`"]?)(.*)\2\s*$"
+        $keyRegex     = "^\s*(.+?)\s*$delimiter\s*(['`"]?)(.*)\2\s*$"
 
         Write-Debug ("commentRegex is {0}." -f $commentRegex)
     }

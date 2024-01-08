@@ -103,7 +103,10 @@ Function Out-IniFile {
         #
         # Adds an extra linebreak between Sections
         [Switch]
-        $Pretty
+        $Pretty,
+
+        [String]
+        $delimiter = '='
     )
 
     Begin {
@@ -161,9 +164,8 @@ Function Out-IniFile {
             }
         }
 
-        $delimiter = '='
         if ($Loose) {
-            $delimiter = ' = '
+            $delimiter = "$delimiter "
         }
 
         # Splatting Parameters
