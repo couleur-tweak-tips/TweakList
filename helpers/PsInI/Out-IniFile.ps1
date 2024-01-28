@@ -105,6 +105,7 @@ Function Out-IniFile {
         [Switch]
         $Pretty,
 
+        [Alias('KeyValSeparator')]
         [String]
         $delimiter = '='
     )

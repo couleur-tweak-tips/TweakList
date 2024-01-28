@@ -76,6 +76,7 @@
         [Switch]
         $IgnoreComments,
 
+        [Alias('KeyValSeparator')]
         [String]
         $delimiter = '='
     )
