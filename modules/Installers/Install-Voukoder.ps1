@@ -191,9 +191,9 @@ function Install-Voukoder {
                     $dvcpBundle = "$IOPlugins\voukoder_plugin.dvcp.bundle"
 
                     if (-Not(Test-Path $IOPlugins)){
-                        New-Item -ItemType Directory -Path $IOPlugins
+                        New-Item -ItemType Directory -Path $IOPlugins | Out-Null
                     }
-                    elseif (Test-Path $dvcpBundle){
+                    elseif (Test-Path $dvcpBundle -PathType Container){
                         if (-Not(Get-Boolean "Would you like to reinstall/update the Voukoder Resolve plugin? (Y/N)")){continue}
                         Remove-Item $dvcpBundle -Force -Recurse
                     }
@@ -205,7 +205,7 @@ function Install-Voukoder {
                     Remove-Item $ExtractDir -Recurse -Force -ErrorAction Ignore
                     Expand-Archive $Zip -Destination $ExtractDir
 
-                    Copy-Item "$ExtractDir\voukoder_plugin.dvcp.bundle" $IOPlugins
+                    Copy-Item "$ExtractDir\voukoder_plugin.dvcp.bundle" $IOPlugins -Recurse
                     
                     Write-Warning "If connection failed you should find instructions in $ExtractDir\README.txt"
                 }
