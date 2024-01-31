@@ -2,8 +2,8 @@
   {
     "Parameters": [
       {
-        "Required": "false",
         "Type": "Array",
+        "Required": "false",
         "Name": "Settings",
         "KeyValues": {
           "Performance": "Turn off performance-hungry settings",
@@ -29,9 +29,9 @@
         ]
       }
     ],
-    "Path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
     "Description": "Tunes a selected Lunar Client profile to your liking, it has some good defaults everyone should have (no numbers in scoreboard, modern keybind handling, no achievements, transparent texture packs section, borderless fullscreen..)",
     "Name": "Optimize-LunarClient",
+    "Path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
     "Display Name": "Optimize Lunar Client",
     "Platform": [
       "Linux",
@@ -46,8 +46,8 @@
   {
     "Parameters": [
       {
-        "Required": "false",
         "Type": "String",
+        "Required": "false",
         "Name": "Encoder",
         "KeyValues": {
           "NVENC": "NVIDIA's Fastest encoder, it lets you record in hundreds of FPS easily",
@@ -64,16 +64,16 @@
         ]
       },
       {
-        "Required": "false",
         "Type": "String",
+        "Required": "false",
         "Name": "OBS64Path",
         "KeyValues": {},
         "Description": "If you've got a portable install or something, pass in the main OBS binary's path here"
       }
     ],
-    "Path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
     "Description": "Tune your OBS for a specific usecase in the snap of a finger!",
     "Name": "Optimize-OBS",
+    "Path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
     "Display Name": "Optimize OBS",
     "Platform": [
       "Linux",

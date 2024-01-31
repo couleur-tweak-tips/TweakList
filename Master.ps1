@@ -3196,140 +3196,6 @@ tl ui opens the UI
 
 "@
 }
-function Remove-DesktopShortcuts {
-    param(
-        [Switch]$ConfirmEach
-    )
-    
-    if($ConfirmEach){
-        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
-    }else{
-        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item
-    }
-}
-
-<#
-
-List of commonly used Appx packages:
-
-Windows.PrintDialog
-Microsoft.WindowsCalculator
-Microsoft.ZuneVideo
-Microsoft.Windows.Photos
-
-I did not add them, but you can opt in by calling the function, e.g:
-
-    Remove-KnownAppxPackages -Add @('Windows.PrintDialog','Microsoft.WindowsCalculator')
-
-Don't forget to surround them by a ' so PowerShell considers them as a string
-
-#>
-
-function Remove-KnownAppxPackages ([array]$Add,[array]$Exclude) {
-
-    $AppxPackages = @(
-        "Microsoft.Windows.NarratorQuickStart"
-        "Microsoft.Wallet"
-        "3DBuilder"
-        "Microsoft.Microsoft3DViewer"
-        "WindowsAlarms"
-        "BingSports"
-        "WindowsCommunicationsapps"
-        "WindowsCamera"
-        "Feedback"
-        "Microsoft.GetHelp"
-        "GetStarted"
-        "ZuneMusic"
-        "WindowsMaps"
-        "Microsoft.Messaging"
-        "Microsoft.MixedReality.Portal"
-        "Microsoft.OneConnect"
-        "BingFinance"
-        "Microsoft.MSPaint"
-        "People"
-        "WindowsPhone"
-        "Microsoft.YourPhone"
-        "Microsoft.Print3D"
-        "Microsoft.ScreenSketch"
-        "Microsoft.MicrosoftStickyNotes"
-        "SoundRecorder"
-        
-        ) | Where-Object { $_ -notin $Exclude }
-
-        $AppxPackages += $Add # Appends the Appx packages given by the user (if any)
-
-        if (-Not($KeepXboxPackages)){
-            $AppxPackages += @(
-                "XboxApp"
-                "Microsoft.XboxGameOverlay"
-                "Microsoft.XboxGamingOverlay"
-                "Microsoft.XboxSpeechToTextOverlay"
-                "Microsoft.XboxIdentityProvider"
-                "Microsoft.XboxGameCallableUI"
-            )
-        }
-
-
-        ForEach ($Package in $AppxPackages){
-        
-        if ($PSVersionTable.PSEdition -eq 'Core'){ # Newer PowerShell versions don't have Appx cmdlets, manually calling PowerShell to 
-        
-            powershell.exe -command "Get-AppxPackage `"*$Package*`" | Remove-AppxPackage"
-        
-        }else{
-            Get-AppxPackage "*$Package*" | Remove-AppxPackage
-        }
-        
-        }
-
-}
-
-
-function Remove-UselessFiles {
-    
-    @(
-        "$env:TEMP"
-        "$env:WINDIR\TEMP"
-        "$env:HOMEDRIVE\TEMP"
-    ) | ForEach-Object { Remove-Item (Convert-Path $_\*) -Force -ErrorAction SilentlyContinue }
-
-}
-function Set-PowerPlan {
-    param (
-        [string]$URL,
-        [switch]$Ultimate
-        )
-
-    if ($Ultimate){
-        powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
-        powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61
-    }elseif($URL){
-        if ($URL -Like "http*://cdn.discordapp.com/attachments/*.pow"){
-            $DotPow = "$env:TMP\{0}" -f (Split-Path $URL -Leaf)
-        }else{
-            $DotPow = "$env:TMP\Powerplan $(Get-Random).pow"
-        }
-        Invoke-WebRequest -Uri $PowURL -OutFile $DotPow
-        powercfg -duplicatescheme $DotPow
-        powercfg /s $DotPow
-    }
-}
-
-function Set-Win32PrioritySeparation {
-    param(
-        [int]$DWord
-    )
-
-    $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
-    $current = (Get-ItemProperty $Path).Win32PrioritySeparation
-
-    Set-ItemProperty -Path ($Path).Win32PrioritySeparation -Value $Value -Type DWord -Force -ErrorAction Inquire
-
-    Write-Verbose "Set-Win32ProritySeparation: Changed from $current to $((Get-ItemProperty $Path).Win32PrioritySeparation)"
-
-}
-
-
 function 4K-Notifier {
     param(
         [Parameter(Mandatory)]
@@ -3453,6 +3319,18 @@ if %ERRORLEVEL% == 0 (exit) else (pause)
     return
 
 }
+function Remove-DesktopShortcuts {
+    param(
+        [Switch]$ConfirmEach
+    )
+    
+    if($ConfirmEach){
+        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
+    }else{
+        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item
+    }
+}
+
 function CB-CleanTaskbar {
 	if (-Not(Get-Module -Name "Sophia Script (TL)" -Ea 0)){
 		Import-Sophia
@@ -3466,6 +3344,1090 @@ function CB-CleanTaskbar {
 	# Remove "Meet now" from the taskbar, s/o privacy.sexy
 	Set-ItemProperty -Path "Registry::HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "HideSCAMeetNow" -Value 1
 }
+function Get-GraalVM {
+    param(
+        [Switch]$Reinstall
+    )
+
+    if ((Test-Path "$env:ProgramData\GraalVM") -and !$Reinstall){
+        return "GraalVM is already installed, run with -Reinstall to force reinstallation"
+    }
+    if (-Not(Get-Command curl.exe -ErrorAction Ignore)){
+        return "curl is not found (comes with windows per default?)"
+    }
+    Remove-Item "$env:ProgramData\GraalVM" -ErrorAction Ignore -Force -Recurse
+
+    $URL = 'https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-21.2.0/graalvm-ce-java16-windows-amd64-21.2.0.zip'
+    $SHA256 = 'DAE2511ABFF8EAD3EBC90CD9FC81A8E84B762FC91462B198C3EDDF28F81A937E'
+    $Zip = "$env:TMP\GraalVM.zip"
+
+
+    if (-Not(Test-Path $Zip)){
+        Write-Host "Downloading GraalVM ($(Get-HeaderSize $URL)`MB).." -ForegroundColor Green
+        curl.exe -# -L $URL -o"$Zip"
+    }
+
+    if ((Get-FileHash $Zip).Hash -ne $SHA256){
+        Remove-Item "$env:TMP\GraalVM.zip"
+        return "Failed to download GraalVM (SHA256 checksum mismatch, not the expected file)"
+        
+    }
+
+    if (Get-Command 7z -ErrorAction Ignore){
+
+        Invoke-Expression "& `"7z`" x -bso0 -bsp1 -bse1 -aoa `"$env:TMP\GraalVM.zip`" -o`"$env:ProgramData\GraalVM`""
+    } else {
+        Expand-Archive -Path $Zip -Destination "$env:ProgramData\GraalVM"
+    }
+    Move-Item -Path "$env:ProgramData\GraalVM\graalvm-?e*\*" "C:\ProgramData\GraalVM"
+}
+function Get-TLShell {
+    param(
+        [switch]$Offline,
+        [switch]$DontOpen
+        )
+    
+    $WR = "$env:LOCALAPPDATA\Microsoft\WindowsApps" # I've had the habit of calling this folder WR
+                                                    # because it's the only folder I know that is added to path
+                                                    # that you don't need perms to access.
+
+if ($Offline){
+    
+    try {
+        $Master = Invoke-RestMethod -UseBasicParsing https://raw.githubusercontent.com/couleur-tweak-tips/TweakList/master/Master.ps1
+    } catch {
+        Write-Host "Failed to get Master.ps1 from TweakList GitHub" -ForegroundColor DarkRed
+        Write-Output "Error: $($Error[0].ToString())"
+        return
+    }
+    Set-Content "$WR/TLSOff.cmd" -Value @'
+<# : batch portion
+@echo off
+powershell.exe -noexit -noprofile -noexit -command "iex (${%~f0} | out-string)"
+: end batch / begin powershell #>
+Write-Host "TweakList Shell " -Foregroundcolor White -NoNewLine
+Write-Host "(Offline)" -Foregroundcolor DarkGray -NoNewLine
+Write-Host " - dsc.gg/CTT" -Foregroundcolor White -NoNewLine
+
+'@
+    $Batch = Get-Item  "$WR/TLSOff.cmd"
+    Add-Content $Batch -Value $Master
+    if (!$DontOpen){
+        explorer.exe /select,`"$($Batch.FullName)`"
+    }
+
+}else{
+
+
+    
+    if ($WR -NotIn $env:PATH.Split(';')){
+        Write-Error "`"$env:LOCALAPPDATA\Microsoft\WindowsApps`" is not added to path, did you mess with Windows?"
+        return
+    }else{
+        $TLS = "$WR\TLS.CMD"
+        Set-Content -Path $TLS -Value @'
+@echo off
+title TweakList Shell
+if /I "%1" == "wr" (explorer "%~dp0" & exit)
+if /I "%1" == "so" (set sophiaflag=Write-Host 'Importing Sophia Script..' -NoNewLine -ForegroundColor DarkGray;Import-Sophia)
+
+fltmc >nul 2>&1 || (
+    echo Elevating to admin..
+    PowerShell.exe -NoProfile Start-Process -Verb RunAs ' %0' 2> nul || (
+        echo Failed to elevate to admin, launch CMD as Admin and type in "TL"
+        pause & exit 1
+    )
+    exit 0
+)
+
+powershell.exe -NoProfile -NoLogo -NoExit -Command ^
+"if ($PWD.Path -eq \"$env:WINDIR\system32\"){cd $HOME} ;^
+[System.Net.ServicePointManager]::SecurityProtocol='Tls12' ;^
+Write-Host 'Invoking TweakList.. ' -NoNewLine -ForegroundColor DarkGray;^
+iex(irm tl.ctt.cx);^
+%SOPHIAFLAG%;^
+Write-Host \"`rTweakList Shell - dsc.gg/CTT                  `n\" -Foregroundcolor White"
+'@ -Force
+    }
+    $ShortcutPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\TweakList Shell.lnk"
+    $WScriptShell = New-Object -ComObject WScript.Shell
+    $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
+    $Shortcut.IconLocation = (Get-Command powershell.exe).Source + ",0"
+    $Shortcut.TargetPath = "$WR\TLS.CMD"
+    $Shortcut.Save()
+
+    # Got this from my old list of snippets, originally found this on StackOverflow, forgot link
+    $bytes = [System.IO.File]::ReadAllBytes($ShortCutPath)
+    $bytes[0x15] = $bytes[0x15] -bor 0x20 # Set byte 21 (0x15) bit 6 (0x20) ON
+    [System.IO.File]::WriteAllBytes($ShortcutPath, $bytes)
+
+    Write-Host "You can now type 'TLS' in Run (Windows+R) to launch it, or from your start menu"
+    if (!$DontOpen){
+        & explorer.exe /select,`"$("$WR\TLS.CMD")`"
+    }
+    
+    
+}
+}
+
+# This function centralizes most of what you can download/install on CTT
+# Anything it doesn't find in that switch ($App){ statement is passed to scoop
+$global:SendTo = [System.Environment]::GetFolderPath('SendTo')
+function Get {
+    [alias('g')] # minimalism at it's finest
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [Array]$Apps,
+        [Switch]$DryRun
+    )
+
+    $FailedToInstall = $null # Reset that variable for later
+    if ($Apps.Count -eq 1 -and (($Apps[0] -Split '\r?\n') -gt 1)){
+        $Apps = $Apps[0] -Split '\r?\n'
+    }
+    if ($DryRun){
+        ForEach($App in $Apps){
+            "Installing $app."
+        }
+        return
+    }
+
+    ForEach($App in $Apps){ # Scoop exits when it throws
+
+        switch ($App){
+            'nvddl'{Get-ScoopApp utils/nvddl}
+            {$_ -in 'Remux','Remuxer'}{
+                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
+                Out-File "$SendTo\Remux.bat"
+
+            }
+            {$_ -in 'RemuxAVI','AVIRemuxer'}{
+                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
+                Out-File "$SendTo\Remux - AVI.bat"
+                $Content = (Get-Content "$SendTo\Remux - AVI.bat") -replace 'set container=mp4','set container=avi'
+                Set-Content "$SendTo\Remux - AVI.bat" $Content
+            }
+            {$_ -in 'Voukoder','vk'}{Install-Voukoder }
+            'Upscaler'{
+
+                Install-FFmpeg 
+                Invoke-RestMethod 'https://github.com/couleur-tweak-tips/utils/raw/main/Miscellaneous/CTT%20Upscaler.cmd' |
+                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'CTT Upscaler.cmd') -Encoding ASCII -Force
+                Write-Host @"
+CTT Upscaler has been installed! Find it in the options when right clicking a video file -> Send To -> CTT Upscaler.cmd
+"@ -ForegroundColor Green
+
+            }
+            {$_ -In 'QualityMuncher','qm'}{
+                Install-FFmpeg 
+
+                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/Quality%20Muncher.bat' |
+                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'Quality Muncher.bat') -Encoding ASCII -Force
+
+                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/!!qualitymuncher%20multiqueue.bat' |
+                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) '!!qualitymuncher multiqueue.bat') -Encoding ASCII -Force
+
+            }
+
+            'Scoop'{Install-Scoop }
+            {$_ -in 'ff','FFmpeg'}{Install-FFmpeg }
+
+            {$_ -in 'zl','ZetaLoader'}{Install-ZetaLoader}
+            {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
+            {$_ -in 'wt','windowsterminal','windows-terminal'}{Get-ScoopApp extras/windows-terminal}
+            {$_ -in 'np++','Notepad++','notepadplusplus'}{Get-ScoopApp extras/notepadplusplus}
+            {$_ -in 'DDU','DisplayDriverUninstaller'}{Get-ScoopApp extras/ddu}
+            {$_ -in 'Afterburner','MSIAfterburner'}{Get-ScoopApp utils/msiafterburner}
+            {$_ -in 'Everything','Everything-Alpha','Everything-Beta'}{Get-ScoopApp extras/everything-alpha}
+            {$_ -In '7-Zip','7z','7Zip'}{Get-ScoopApp 7zip}
+            {$_ -In 'Smoothie','sm'}{Install-FFmpeg ;Get-ScoopApp utils/Smoothie}
+            {$_ -In 'OBS','OBSstudio','OBS-Studio'}{Get-ScoopApp extras/obs-studio}
+            {$_ -In 'UTVideo'}{Get-ScoopApp utils/utvideo}
+            {$_ -In 'Nmkoder'}{Get-ScoopApp utils/nmkoder}
+            {$_ -In 'Librewolf'}{Get-ScoopApp extras/librewolf}
+            {$_ -In 'ffmpeg-nightly'}{Get-ScoopApp versions/ffmpeg-nightly}
+            {$_ -In 'Graal','GraalVM'}{Get-ScoopApp utils/GraalVM}
+            {$_ -In 'DiscordCompressor','dc'}{Install-FFmpeg ;Get-ScoopApp utils/discordcompressor}
+            {$_ -In 'Moony','mn'}{if (-Not(Test-Path "$HOME\.lunarclient")){Write-Warning "You NEED Lunar Client to launch it with Moony"};Get-ScoopApp utils/Moony}
+            {$_ -In 'TLShell','TLS'}{Get-TLShell }
+            default{Get-ScoopApp $App}
+        }
+        Write-Verbose "Finished installing $app"
+
+    }
+    if ($FailedToInstall){
+        
+        Write-Host "[!] The following apps failed to install (scroll up for details):" -ForegroundColor Red
+        $FailedToInstall
+    }
+}
+function Install-MPVProtocol {
+    param(
+        [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
+        $VideoPlayerFilePath
+    )
+
+if (!(Test-Admin)){
+    "PowerShell NEEDS to run as Adminisrator in order to create the protocol handler"
+    return
+}
+
+
+if ((Get-Command mpv -Ea 0) -and (Get-Command mpvnet -Ea 0)){
+    "Would you like mpv:// links to open with MPV or MPV.net?"
+    $Answer = Read-Host "Answer"
+    while ($answer -notin 'mpv','mpv.net','mpvnet','exit'){
+        "Answer must be mpv / mpvnet, type exit to quit"
+    }
+    switch ($Answer) {
+        'exit'{return}
+        {$_ -in 'mpvnet','mpv.net'}{$MPV = (Get-Command mpvnet.exe).Source}
+        'mpv'{$MPV = (Get-Command mpv.exe).Source}
+    }
+}elseif(Get-Command mpv -Ea 0){
+    "Using default MPV"
+    $MPV = (Get-Command mpv.exe).Source
+}elseif(Get-Command mpvnet -Ea 0){
+    Write-Warning "Using MPV.net since MPV was not found (not added to path?)"
+    $MPV = (Get-Command mpvnet.exe).Source
+}else{
+    return "MPV or MPV.net couldn't be found, please install MPV / MPV.net"
+}
+
+New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT -ea SilentlyContinue | Out-Null
+New-Item -Path "HKCR:" -Name "mpv" -Force | Out-Null
+Set-ItemProperty -Path "HKCR:\mpv" -Name "(Default)" -Value '"URL:mpv Protocol"' | Out-Null
+Set-ItemProperty -Path "HKCR:\mpv" -Name "URL Protocol" -Value '""' | Out-Null
+New-Item -Path "HKCR:\mpv" -Name "shell" -Force | Out-Null
+New-Item -Path "HKCR:\mpv\shell" -Name "open" -Force | Out-Null
+New-Item -Path "HKCR:\mpv\shell\open" -Name "command" -Force | Out-Null
+#Old command: "C:\ProgramData\CTT\mpv-protocol\mpv-protocol-wrapper.cmd" "%1"
+$Command = "cmd /c title MPV && powershell -ep bypass -NoProfile `"& \`"$MPV\`" ('%1' -replace 'mpv://https//','https://')`""
+Set-ItemProperty -Path "HKCR:\mpv\shell\open\command" -Name "(Default)" -Value  $Command | Out-Null
+
+Write-Output "Added the registry keys to handle mpv protocol and redirect to wrapper!"
+
+}
+function Install-Voukoder {
+    [CmdletBinding()]
+    [alias('isvk')]
+    param(
+        [Switch]$GetTemplates
+            # Skip Voukoder installation and just get to the template selector
+    )
+
+    function Get-VoukoderProgram ($Name){
+        # Parses the registry manually instead of using PackageManagement's Get-Package
+
+        $Programs = @(
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+            'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+            'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+
+        ) | Where-Object {Test-path $_} |
+
+        Get-ItemProperty |  Where-Object Publisher -eq 'Daniel Stankewitz' |
+            Sort-Object DisplayName |
+                Select-Object -Property @{n='Name';     e='DisplayName'   },
+                                        @{n='Version';  e='DisplayVersion'},
+                                        @{n='UninstallString'; e='UninstallString'}
+        
+        return $Programs | Where-Object Name -Like $Name
+    }
+
+    if (!$GetTemplates){
+    
+        $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases/latest)[0]
+            # get the latest release manifest from GitHub's API
+
+        if (($tag = $LatestCore.tag_name) -NotLike "*.*"){
+            $tag += ".0" # E.g "12" will not convert to a version type, "12.0" will
+        }
+        [Version]$LatestCoreVersion = $tag
+
+        $Core = Get-VoukoderProgram -Name "Voukoder*" -ErrorAction Ignore | # Find all programs starting with Voukoder
+            Where-Object Name -NotLike "*Connector*" # Exclude connectors
+
+        if ($Core){
+
+            if ($Core.Length -gt 1){
+                $Core
+                Write-Host "Multiple Voukoder Cores detected (or bad parsing?)" -ForegroundColor Red
+                return
+            }
+
+            $CurrentVersion = [Version]$Core.Version
+            if ($LatestCoreVersion -gt $CurrentVersion){ # then an upgrade is needed
+                "Updating Voukoder Core from version $CurrentVersion to $LatestCoreVersion"
+                Start-Process -FilePath msiexec -ArgumentList "/qb /x {$($Core.TagId)}" -Wait -NoNewWindow
+                    # Uses msiexec to uninstall the program
+                $Upgraded = $True
+            }
+        }
+
+        if (!$Core -or $Upgraded){
+
+            $DriverVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}_Display.Driver" -ErrorAction Ignore).DisplayVersion
+            if ($DriverVersion -and $DriverVersion -lt 520.00){ # Oldest NVIDIA version capable
+                Write-Warning "Outdated NVIDIA Drivers detected ($DriverVersion), you may not be able to encode (render) using NVENC util you update them."
+                pause
+            }
+
+            "Downloading and installing Voukoder Core.."
+            $CoreURL = $LatestCore[0].assets[0].browser_download_url
+            curl.exe -# -L $CoreURL -o"$env:TMP\Voukoder-Core.msi"
+            msiexec /i "$env:TMP\Voukoder-Core.msi" /passive    
+        }
+
+        filter ConnectorVer {$_.Trim('.msi').Trim('.zip').Split('-') | Select-Object -Last 1}
+            # .zip for Resolve's
+
+
+        # Following block generates a hashtable of all of the latest connectors
+
+        $Tree = (Invoke-RestMethod 'https://api.github.com/repos/Vouk/voukoder-connectors/git/trees/master?recursive=1').Tree
+            # Gets all files from the connectors repo, which contain all filepaths
+        $Connectors = [Ordered]@{}
+        ForEach($NLE in 'vegas','vegas18','vegas19','vegas20','aftereffects','premiere','resolve'){
+            # 'vegas' is for older versions
+            switch ($NLE){
+                vegas{
+                    $Pattern = "*vegas-connector-*"
+                    break # needs to stop here, otherwise it would overwrite it the next match
+                }
+                {$_ -Like "vegas*"}{
+                    $Pattern = "*connector-$_*"
+                }
+                default {
+                    $Pattern = "*$NLE-connector*"
+                }
+            }
+
+            $LCV = $Tree.path | # Short for LatestConnectorVersion
+            Where-Object {$_ -Like $Pattern} | # Find all versions of all matching connectors
+            ForEach-Object {[Version]($_ | ConnectorVer)} | # Parse it's version using the filter
+            Sort-Object -Descending | Select-Object -First 1 # Sort then select only the latest
+
+            $Path = $Tree.path | Where-Object {$_ -Like "$Pattern*$LCV*.*"} # get the absolute path with the latest version
+            $Connectors += @{$NLE = "https://github.com/Vouk/voukoder-connectors/raw/master/$Path"}
+            Remove-Variable -Name NLE
+        }
+
+        $Processes = @(
+            'vegas*'
+            'Adobe Premiere Pro'
+            'AfterFX'
+            'Resolve'
+        )
+
+        $Found = { Get-Process $Processes -ErrorAction Ignore }
+
+        if (-not (. $Found)){ # If $Found scriptblock returns nothing
+            Write-Host "[!] Open your video editor" -ForegroundColor Red
+            Write-Host "Voukoder supports: VEGAS 12-20, Premiere, After Effects, DaVinci Resolve (ONLY PAID `"Studio `"VERSION)" -ForeGroundColor Green
+            Write-Host "Looking for processes: $($Processes -join ', ')" -ForegroundColor DarkGray
+            While(-not (. $Found)){
+                Start-Sleep -Seconds 1
+            }
+        }
+        Write-Host @(
+            "`nDetected the following video editor(s):`n`n"
+            $(. $Found | Select-Object MainWindowTitle, Path, FileVersion | Out-String)
+            )
+
+        function Get-Connector ($PackageName, $Key, $NLEDir, $InnoFlag){
+            # Key is to get the right connector URL in $Connector hashtable
+            
+            function Install-Connector {
+                $msiPath = "$env:TMP\Voukoder Connector-$Key.msi"
+                curl.exe -# -L $Connectors.$Key -o"$msiPath"
+                Write-Verbose "Installing $msiPath at $InnoFlag=$NLEDir" -Verbose
+                msiexec /i "$msiPath" /qb "$InnoFlag=`"$NLEDir`""
+            }
+
+            $CurrentConnector = (Get-VoukoderProgram -Name $PackageName)
+            if ($CurrentConnector){
+                [Version]$CurrentConnectorVersion = $CurrentConnector.Version
+                [Version]$LatestConnector = $Connectors.$Key | ConnectorVer # Parse connector version
+                if ($LatestConnector -gt $CurrentConnectorVersion){
+
+                    Write-Host "Upgrading $PackageName from $CurrentConnectorVersion to $LatestConnector"
+                    Start-Process -FilePath msiexec -ArgumentList "/qb /x {$($CurrentConnector.TagId)}" -Wait -NoNewWindow
+                    Install-Connector
+                }
+            } else {
+
+                Install-Connector
+            }
+        }
+        $NLEs = Get-Process $Processes -ErrorAction Ignore
+        ForEach($NLE in $NLEs){
+
+            switch ($NLE){
+
+                {(Split-Path $_.Path -Leaf) -in 'vegas180.exe', 'vegas190.exe','vegas200.exe'} {
+                    Write-Verbose "Using newer VEGAS"
+
+                    $VegVer = (Split-Path $_.Path -Leaf) -replace 'vegas' -replace '0\.exe'
+
+                    Get-Connector -PackageName "Voukoder connector for VEGAS Pro $VegVer" -Key "vegas$VegVer" -NLEDir (Split-Path $_.Path -Parent) -InnoFlag VEGASDIR
+                    
+                    continue # Needs to loop over the next switch, which would've matched and also thought it needed to install an older Version
+                }
+
+
+                {(Split-Path $_.Path -Leaf) -Like 'vegas*.exe'}{
+                    Write-Host "/!\ Old-VEGAS connector installation may fail if you already have a connector for newer VEGAS versions" -ForegroundColor Red
+                    Get-Connector -PackageName "Voukoder connector for VEGAS" -Key vegas -NLEDir (Split-Path $_.Path -Parent) -InnoFlag VEGASDIR
+                }
+
+
+                {(Split-Path $_.Path -Leaf) -eq 'afterfx.exe'} {
+                    Get-Connector -PackageName 'Voukoder Connector for Adobe After Effects' -Key aftereffects -NLEDir "$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore" -InnoFlag INSTALLDIR
+                }
+
+
+                {(Split-Path $_.Path -Leaf) -eq 'Adobe Premiere Pro.exe'}{
+                    Get-Connector -PackageName 'Voukoder connector for Premiere' -Key premiere -NLEDir "$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore" -InnoFlag TGDir
+                }
+
+
+                {(Split-Path $_.Path -Leaf) -eq 'Resolve.exe'}{
+                    Write-Warning "Voukoder's connector for Resolve is ONLY FOR IT'S PAID `"Studio`" VERSION"
+                    pause
+                    
+                    $IOPlugins = "$env:ProgramData\Blackmagic Design\DaVinci Resolve\Support\IOPlugins"
+                    $dvcpBundle = "$IOPlugins\voukoder_plugin.dvcp.bundle"
+
+                    if (-Not(Test-Path $IOPlugins)){
+                        New-Item -ItemType Directory -Path $IOPlugins | Out-Null
+                    }
+                    elseif (Test-Path $dvcpBundle -PathType Container){
+                        if (-Not(Get-Boolean "Would you like to reinstall/update the Voukoder Resolve plugin? (Y/N)")){continue}
+                        Remove-Item $dvcpBundle -Force -Recurse
+                    }
+
+                    $Zip = "$env:TMP\Voukoder-Connector-Resolve.zip"
+                    curl.exe -# -L $Connectors.Resolve -o"$Zip"
+
+                    $ExtractDir = "$env:TMP\Voukoder-Connector-Resolve"
+                    Remove-Item $ExtractDir -Recurse -Force -ErrorAction Ignore
+                    Expand-Archive $Zip -Destination $ExtractDir
+
+                    Copy-Item "$ExtractDir\voukoder_plugin.dvcp.bundle" $IOPlugins -Recurse
+                    
+                    Write-Warning "If connection failed you should find instructions in $ExtractDir\README.txt"
+                }
+            }
+        }
+        $NLEBin = $NLE.Path
+    }else{
+        $AvailableNLETemplates = @{
+            "Vegas Pro" = "vegas200.exe"
+            "Premiere Pro" = "Adobe Premiere Pro.exe"
+            "After Effects" = "AfterFX.exe"
+        }
+        $NLE = Menu -menuItems $AvailableNLETemplates.Keys
+        $NLEBin = $AvailableNLETemplates.$NLE
+    }
+
+        # Converts 
+        # https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2
+        # To hashtable with key "HEVC NVENC + Upscale" and val the URL
+
+    filter File2Display {
+        [IO.Path]::GetFileNameWithoutExtension($_) -replace '_',' ' -replace " Upscale", " + Upscale" -replace '  ',' '
+    }
+
+    $VegasTemplates = @(
+
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904873517106/HEVC_NVENC_Upscale.sft2'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599905175502929/HEVC_NVENC.sft2'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904609288255/HEVC_NVENC__Upscale.sft2'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904353419284/H264_NVENC.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541639346225264/x265_Upscale.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541639560163348/x265.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541638943596574/x264_Upscale.sft2'
+        'https://cdn.discordapp.com/attachments/969870701798522901/972541639128129576/x264.sft2'
+        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2'
+        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638733885470/HEVC_NVENC.sft2'
+        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541639744688198/H264_NVENC_Upscale.sft2'
+        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638356389918/H264_NVENC.sft2'
+        ) | ForEach-Object {
+        [Ordered]@{($_ | File2Display) = $_}
+    }
+
+    $PremiereTemplates = @(
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690025369690/HEVC_NVENC__Upscale.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690369298432/HEVC_NVENC.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691992498218/H264_NVENC__Upscale.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609692277706902/H264_NVENC.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690688061490/x264__Upscale.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690964893706/x264.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691380125827/x265__Upscale.epr'
+        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691682111548/x265.epr'
+    ) | ForEach-Object {
+        [Ordered]@{($_ | File2Display) = $_}
+    }
+
+    switch($NLEBin){
+
+        {($NLEBin | Split-Path -Leaf).StartsWith('vegas')}{
+
+            $NLETerm = "Vegas"
+            $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
+
+            if (-Not(Test-Path $TemplatesFolder)){
+                New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
+            }
+
+            $SelectedTemplates =  Invoke-Checkbox -Items $VegasTemplates.Keys -Title "Select VEGAS render templates to install"
+
+            ForEach ($Template in $SelectedTemplates){
+                if (Test-Path ($TPPath = "$TemplatesFolder\$Template.sft2")){
+                    Remove-Item $TPPath -Force
+                }
+                curl.exe -# -sSL $VegasTemplates.$Template -o"$TPPath"
+            }
+        }
+
+
+
+        {($NLEBin | Split-Path -Leaf).StartsWith('Adobe Premiere Pro.exe')}{
+            
+            $NLETerm = 'Premiere Pro'
+            $TemplatesFolder = "$env:USERPROFILE\Documents\Adobe\Adobe Media Encoder\12.0\Presets"
+
+            if (-Not(Test-Path $TemplatesFolder)){
+                New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
+            }
+
+            $SelectedTemplates =  Invoke-Checkbox -Items $PremiereTemplates.Keys -Title "Select render templates to install"
+
+            ForEach ($Template in $SelectedTemplates){
+                if (Test-Path ($TPPath = "$TemplatesFolder\$Template.epr")){
+                    Remove-Item $TPPath -Force
+                }
+                curl.exe -# -sSL $PremiereTemplates.$Template -o"$TPPath"
+            }
+        
+        }
+
+
+
+
+        {($NLEBin | Split-Path -Leaf).StartsWith('AfterFX.exe')}{
+            $NLETerm = 'After Effects'
+
+            "Opening a tutorial in your browser and downloading the AE templates file.."
+            Start-Sleep -Seconds 2
+            if (-Not(Test-Path ($TPDir = "$env:TMP\AE_Templates"))){
+                New-Item -ItemType Directory -Path $TPDir -Force | Out-Null
+            }
+            curl.exe -# -sSL https://cdn.discordapp.com/attachments/1039599872703213648/1039614649638858772/CTT_AE_VOUKODER_TEMPLATES.aom -o"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom"
+
+            Start-Process -FilePath explorer.exe -ArgumentList "/select,`"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom`""
+            $Tutorial = 'https://i.imgur.com/XCaJGoV.mp4'
+            try {
+                Start-Process $Tutorial
+            } catch { # If the user does not have any browser
+                "Tutorial URL: $Tutorial" 
+            }
+        }
+
+
+
+        default{
+            Write-Host "Your video editor ($($NLEBin)) does not have any pre-made templates for me to propose you" -ForegroundColor Red
+            $NLETerm = "your video editor"
+        }
+    }
+    Write-Host "Installation script finished, follow instructions (if any)"
+    Write-Host "Then restart $NLETerm to make sure Voukoder render templates have loaded." -ForegroundColor Red
+
+}
+
+function Invoke-SmoothiePost {
+    param(
+        [String]
+        [ValidateScript({
+            Test-Path -Path (Get-Item $_) -PathType Container -ErrorAction Stop
+        })]
+        $CustomDir
+    )
+    # DIR is the variable used by Scoop, hence why I'm using a separate name
+    if ($CustomDir -and !$DIR){
+        if (!(Test-Path "$CustomDir\Smoothie") -And !(Test-Path "$CustomDir\VapourSynth")){
+            Write-Host "The folder you gave needs to contain the folders 'Smoothie' and 'VapourSynth', try the right path"
+        }else{
+            $DIR = (Get-Item $CustomDir).FullName
+        }
+    }
+    if (!$DIR){return "This script is suppose to be ran by Scoop after it's intallation, not manually"}
+
+    $rc = (Get-Content "$DIR\Smoothie\settings\recipe.yaml" -ErrorAction Stop) -replace ('H264 CPU',(Get-EncodingArgs -EzEncArgs))
+
+    if ($valid_args -like "H* CPU"){$rc = $rc -replace ('gpu: true','gpu: false')}
+
+    Set-Content "$DIR\Smoothie\settings\recipe.ini" -Value $rc
+
+    $term = Get-Path conhost.exe
+
+    Get Scoop
+
+    $SendTo = [System.Environment]::GetFolderPath('SendTo')
+    $Scoop = Get-Command Scoop | Split-Path | Split-Path
+    $SA = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs', 'Scoop Apps')
+
+    if (-Not(Test-Path $SA)){ # If not using Scoop
+        $SA = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs')
+    }
+
+    Set-Content "$Scoop\shims\sm.shim" -Value @"
+path = "$DIR\VapourSynth\python.exe"
+args = "$DIR\Smoothie\src\main.py"
+"@
+    if (-Not(Test-Path "$Scoop\shims\sm.exe")){
+        Copy-Item "$Scoop\shims\7z.exe" "$Scoop\shims\sm.exe"
+    }
+
+
+    $Parameters = @{
+        Overwrite = $True
+        LnkPath = "$Scoop\shims\rc.lnk"
+        TargetPath = "$DIR\Smoothie\settings\recipe.yaml"
+    }
+    New-Shortcut @Parameters
+
+
+    $Parameters = @{
+        Overwrite = $True
+        LnkPath = "$SA\Smoothie Recipe.lnk"
+        TargetPath = "$DIR\Smoothie\settings\recipe.yaml"
+    }
+    New-Shortcut @Parameters
+
+    $Parameters = @{
+        Overwrite = $True
+        LnkPath = "$SA\Smoothie.lnk"
+        TargetPath = $term
+        Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui"
+        Icon = "$DIR\Smoothie\src\sm.ico"
+    }
+    New-Shortcut @Parameters
+    
+    $Parameters = @{
+        Overwrite = $True
+        LnkPath = "$SendTo\Smoothie.lnk"
+        TargetPath = $term
+        Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui -input"
+        Icon = "$DIR\Smoothie\src\sm.ico"
+
+    }
+    New-Shortcut @Parameters
+
+}
+
+# This does not install Smoothie, it simply creates shortcuts in the start menu, Send To and configures the recipe
+function Invoke-SmoothieRsPost {
+    param(
+        
+        [ValidateScript({
+                Test-Path -Path (Get-Item $_) -PathType Container -ErrorAction Stop
+            })]
+        [String]$DIR,
+        [Switch]$Scoop,
+        [Switch]$Uninstall
+    )
+
+    $ErrorActionPreference = 'Stop'
+
+    <#
+        .SYNOPSIS
+        Merges recipes
+
+        .NOTES
+        It returns void, it just applies all patches on what was passed to -Original
+
+        .NOTES
+        Limitations:
+        - It cannot remove keys from $OG, most it can do is Patch containing a same key that is $null
+
+        .PARAMETER Original
+        The original hashtable which will get modified
+        .PARAMETER Patches
+        Recursively merge with $Original
+    #>
+    function Merge-Recipe {
+        [CmdletBinding()]
+        param (
+            $Original,
+            $Patch
+        )
+        foreach ($category in $Patch.GetEnumerator()) {
+            
+            $key, $patch = $category.name, $category.value
+
+            if ($Original.Contains($key) -and ($Original[$key] -is [Collections.Specialized.OrderedDictionary] -and $Patch -is [Collections.Specialized.OrderedDictionary])) {
+                Merge-Recipe -Original $Original[$key] -Patch $Patch
+            }
+            else {
+                $Original[$key] = $Patch
+            }
+        }
+    }
+    
+    $SendTo = [System.Environment]::GetFolderPath('SendTo')
+    $Start = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs')
+
+    if (!$SendTo -or !(Test-Path $SendTo)) {
+        return "FATAL: Send To folder [$SendTo] does not exist, did you/a script strip it?"
+    }
+    if (!$Start -or !(Test-Path $Start)) {
+        return "FATAL: Start Menu folder [$Start] does not exist, did you/a script strip it?"
+    }
+
+    if ($Scoop){
+        $shims = (Resolve-Path $DIR/../../../shims).Path
+    }
+
+    if ($Uninstall) {
+        Remove-Item "$Sendto\Smoothie.lnk"
+        Remove-Item "$SA\Smoothie.lnk"
+        if ($Scoop) {
+            Remove-Item "$shims\rc.lnk"
+        }
+        return
+    }
+
+    if ($Scoop) {
+        $old_VERSIONS = Get-ChildItem $dir/.. -Directory -Exclude current, $version
+        $old_DIR = switch ($old_VERSIONS.Length) {
+            { $_ -in 0, $null } {}
+            1 { $old_VERSIONS }
+            default {
+                $script:ret = ""
+                $script:mostRecentDate = [datetime]::MinValue
+
+                $old_VERSIONS | ForEach-Object {
+                    $string = $_.BaseName -replace "Nightly_"
+                    $datetime = [datetime]::ParseExact($string, "yyyy.MM.dd_HH-mm", [CultureInfo]::InvariantCulture)
+
+                    if ($datetime -gt $script:mostRecentDate) {
+                        $script:mostRecentDate = $datetime
+                        $script:ret = $_
+                    }
+                }
+
+                if ($script:mostRecentDate -eq [datetime]::MinValue) {
+                    write-Warning "Failed to parse old versions:"
+                    Write-Host $old_VERSIONS.FullName
+                }
+
+                $script:ret
+            }
+        }
+
+        if ($old_DIR -and (Test-Path $old_DIR)) {
+
+            [Collections.Specialized.OrderedDictionary]$old_MACROS = Get-IniContent $old_DIR/encoding_presets.ini -KeyValSeparator ':'
+            [Collections.Specialized.OrderedDictionary]$new_MACROS = Get-IniContent $DIR/encoding_presets.ini -KeyValSeparator ':'
+            
+            Merge-Recipe $new_MACROS $old_MACROS
+            $new_MACROS | Out-IniFile $DIR/encoding_presets.ini -Pretty -Force -Loose -KeyValSeparator ':'
+
+            $old_RECIPES = Get-ChildItem $old_DIR -File -Filter *.ini | Where-Object BaseName -Notin 'defaults', 'encoding_presets'
+
+            $old_RECIPES | ForEach-Object {
+                [Collections.Specialized.OrderedDictionary]$old_RC = Get-IniContent $_.FullName -KeyValSeparator ':'
+                [Collections.Specialized.OrderedDictionary]$new_RC = Get-IniContent $DIR\recipe.ini -KeyValSeparator ':'
+                
+                Merge-Recipe $new_RC $old_RC
+                $new_RC | Out-IniFile $DIR/$($_.BaseName).ini -Pretty -Force -Loose -KeyValSeparator ':'
+            }
+            $old_files = Get-ChildItem $old_DIR | Where-Object Name -notin 'defaults.ini', 'encoding_presets.ini', 'jamba.vpy', 'bin', 'recipe.ini', 'launch.cmd', 'manifest.json', 'install.json'
+
+            $old_files | ForEach-Object { Move-Item $_.FullName $DIR -Verbose }
+
+        }
+    }
+
+    $SendTo = [System.Environment]::GetFolderPath('SendTo')
+    $Start = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs')
+    . { # Shortcuts
+        if (!$SendTo -or !(Test-Path $SendTo)) {
+            return "FATAL: Send To folder [$SendTo] does not exist, did you/a script strip it?"
+        }
+        if (!$Start -or !(Test-Path $Start)) {
+            return "FATAL: Start Menu folder [$Start] does not exist, did you/a script strip it?"
+        }
+
+        # %APPDATA%\Microsoft\Windows\SendTo\Smoothie.lnk
+        $Parameters = @{
+            Overwrite  = $True
+            LnkPath    = "$SendTo\&Smoothie.lnk"
+            TargetPath = "$DIR\bin\smoothie-rs.exe"
+            Arguments  = "--tui -i"
+        }
+        New-Shortcut @Parameters
+
+        if ($Scoop) {
+            
+            # %USERPROFILE%\scoop\shims\rc.lnk
+            $Parameters = @{
+                Overwrite  = $True
+                LnkPath    = "$shims\rc.lnk"
+                TargetPath = "$dir\recipe.ini"
+            }
+            New-Shortcut @Parameters
+        }
+        else {
+            # %APPDATA%\Microsoft\Windows\Start Menu\Programs\Smoothie Recipe.lnk
+            $Parameters = @{
+                Overwrite  = $True
+                LnkPath    = "$Start\Smoothie Recipe.lnk"
+                TargetPath = "$DIR\recipe.ini"
+            }
+            # %APPDATA%\Microsoft\Windows\Start Menu\Programs\Smoothie.lnk
+            New-Shortcut @Parameters
+            $Parameters = @{
+                Overwrite  = $True
+                LnkPath    = "$Start\Smoothie.lnk"
+                TargetPath = "$DIR\bin\smoothie-rs.exe"
+                Arguments  = "--tui -i"
+            }
+            New-Shortcut @Parameters
+        }
+    }
+
+}
+function Launch{
+	[alias('l')]
+	param(
+		[ValidateSet(
+			'DisplayDriverUninstaller',
+			'NVCleanstall',
+			'NvidiaProfileInspector',
+			'MSIUtilityV3',
+			'Rufus',
+			'AutoRuns',
+			'Procmon',
+			'CustomResolutionUtility',
+			'NotepadReplacer',
+			'privacy.sexy',
+			'ReShade'
+			#! TODO: NVProfileInspector, MSIUtility, CRU, Notepadreplacer, BulkCrapUninstaller, https://www.bill2-software.com/processmanager/exe/BPM-Setup.exe
+		)]
+		[Array]$Apps,
+		[Switch]$DontLaunch, # Just keep them tidy in the Downloads folder))
+		# This is the non hardcoded Downloads folder path s/o @farag2
+		[String]$OutDir = (Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -Name "{374DE290-123F-4565-9164-39C4925E467B}")
+	)
+
+	Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+	function Invoke-Download{
+		param(
+			[String]$URL, # Parses mediafire
+			[String]$AppName,
+			[Switch]$Scoop, # Scoop 'bucket/manifest' name
+			[String]$PathToBinary, # In the zip
+			[String]$Checksum,
+			[String]$SelfExtracting7z # e.g for DDU
+		)
+
+		if (-Not(Test-Path $env:TMP)){
+			throw "TMP environment variable not found [$env:TMP]"
+		}
+
+		if($Scoop){
+			$Bucket, $Manifest = $URL -split '/'
+
+			$Repos = @{
+
+				main = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
+				extras = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
+				utils = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
+				nirsoft = @{org = 'kodybrown';repo = 'scoop-nirsoft';branch = 'master'}
+				games = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
+				'nerd-fonts' = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
+				versions = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
+				java = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
+			}
+			$repo = $Repos.$Bucket
+			$URL = "https://raw.githubusercontent.com/$($repo.org)/$($repo.repo)/$($repo.branch)/bucket/$Manifest.json"
+			$URL, $Version = Invoke-RestMethod $URL | ForEach-Object {$PSItem.URL, $PSItem.Version}
+		}elseif($URL -Like "*mediafire.com*"){
+			$URL = (Invoke-WebRequest -UseBasicParsing $URL).Links.href | Where-Object {$PSItem -Like "http*://download*.mediafire.com/*"}
+		}
+
+		if ($AppName){
+			$FileName = $AppName
+		}else{
+			$FileName = $Manifest
+		}
+		
+		if ($Version){$FileName += " $Version"}
+
+		$Extension = [io.path]::GetExtension((($URL -replace '#/dl.7z') | Split-Path -Leaf))
+
+		$OutFile = "$env:TMP\$FileName$Extension"
+		if (-Not(Test-Path $OutFile)){
+			curl.exe -#L -A "Scoop" $URL -o"$OutFile"
+		}
+
+		if($Checksum){
+			$Parameters = @{
+				Path = $OutFile
+			}
+			if ($Checksum -Like "*:*"){ # Contains a :
+				$Algo, $Checksum = $Checksum -Split ':' # To split hash and algo, eg md5:8424509737CEDBDE4BA9E9A780D5CE96
+				$Parameters += @{
+					Algorithm = $Algo 
+				}
+			}
+			if ($Checksum -ne (Get-FileHash @Parameters).Hash){
+				throw "Hash provided $Checksum does not match $OutFile"
+			}
+		}
+
+		if ($Extension -eq '.zip'){
+			$OutDir = "$env:TMP\$FileName\"
+			if (-Not(Test-Path $OutDir)){
+				[System.IO.Compression.ZipFile]::ExtractToDirectory($OutFile, $OutDir)
+			}
+
+			if ($PathToBinary){
+				$OutDir = Join-Path $OutDir $PathToBinary
+			}
+			$OutFile = $OutDir # To not have to check for the following statement twice
+		}elseif($SelfExtracting7z){
+			Start-Process -FilePath $OutFile -ArgumentList "-y" -Wait
+			$SelfExtracting7z = $SelfExtracting7z -replace "%VER%", $Version
+			if (-Not(Test-Path "$env:TMP\$SelfExtracting7z" -PathType Container)){
+				throw "Self extracting 7-Zip got wrong path: $SelfExtracting7z"
+			}
+			$OutDir = $SelfExtracting7z
+		}
+
+		if (-Not(Test-Path $OutFile)){
+			throw "$OutFile could not be found"
+		}
+
+		return $OutFile
+
+	}
+
+	$Paths = @()
+
+	$Apps | ForEach-Object { # Cycles through given apps
+		Write-Host "getting $PSItem"
+		$Paths += switch ($PSItem){
+			DisplayDriverUninstaller{ Invoke-Download -URL extras/ddu -Scoop -PathToBinary "Display Driver Uninstaller.exe" -SelfExtracting7z "DDU v%VER%" -AppName DDU }
+			NVCleanstall{ Invoke-Download -URL extras/nvcleanstall -Scoop -AppName NVCleanstall -PathToBinary "NVCleanstall.exe" }
+			NvidiaProfileInspector{ Invoke-Download -URL extras/nvidia-profile-inspector -Scoop -AppName NvidiaProfileInspector -PathToBinary 'nvidiaProfileInspector.exe' }
+			MSIUtilityV3{
+				Write-Warning "MSI mode is already applied by default on NVIDIA 1600/2000/3000 GPUs and AMD cards"
+				Invoke-Download -URL https://www.mediafire.com/file/ewpy1p0rr132thk/MSI_util_v3.zip/file -AppName "MSIUtilV3" -PathToBinary "MSI_util_v3.exe" -Checksum "md5:8424509737CEDBDE4BA9E9A780D5CE96"
+			}
+			Rufus{ Invoke-Download -URL extras/rufus -Scoop -AppName rufus}
+			AutoRuns{ Invoke-Download -URL https://download.sysinternals.com/files/Autoruns.zip -AppName AutoRuns -PathToBinary Autoruns64.exe }
+			Procmon{ Invoke-Download -URL https://download.sysinternals.com/files/ProcessMonitor.zip -AppName Procmon -PathToBinary Procmon64.exe }
+			CustomResolutionUtility { Invoke-Download -URL extras/cru -Scoop -AppName CRU -PathToBinary CRU.exe}
+			NotepadReplacer { Invoke-Download -URL utils/notepadreplacer -Scoop -AppName NotepadReplacer}
+			privacy.sexy { Invoke-Download -URL utils/privacysexy -Scoop -AppName privacysexy}
+			ReShade{
+				$Website = "https://reshade.me/"
+				$DLLink = (Invoke-WebRequest "$Website#download").Links.Href | Where-Object {$_ -Like "*.exe"} | Where-Object {$_ -NotLike "*_Addon.exe"}
+				$URL = $Website + $DLLink
+				Invoke-Download -URL $URL -AppName ReShade
+			}
+		}
+	}
+	return $Paths
+}
+# Source: https://github.com/Aetopia/Install-NVCPL
+function Install-NVCPL {
+    if (!(Test-Admin)) {
+        Write-Host "Install-NVCPL: This function needs Administrator priviledges" -ForegroundColor DarkRed
+        return
+    }
+
+    choice.exe /C 12 /N /M "Install NVIDIA Control Panel as:`n1. Win32 App`n2. UWP App`n>"
+  
+    $NVCPL = "$ENV:TEMP\NVCPL.zip"
+    $InstallationDirectory = "$ENV:PROGRAMFILES\NVIDIA Corporation\Control Panel Client"
+    $ShortcutFile = "$ENV:PROGRAMDATA\Microsoft\Windows\Start Menu\Programs\NVIDIA Control Panel.lnk"
+    if ($LASTEXITCODE -eq 2) { $NVCPL = "$NVCPL.appx" }
+
+    if ($null -eq (Get-CimInstance Win32_VideoController |
+        Where-Object { $_.Name -like "NVIDIA*" })) {
+            Write-Host "No NVIDIA GPU found." -ForegroundColor DarkRed
+            return
+        }
+
+        
+    # Disable Telemetry.
+    New-ItemProperty -Path "HKLM:\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client" -Name "OptInOrOutPreference" -Value 0 -PropertyType DWORD -Force -ErrorAction SilentlyContinue | Out-Null
+    New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\Global\Startup" -Name "SendTelemetryData" -Value 0 -PropertyType DWORD -Force -ErrorAction SilentlyContinue | Out-Null
+
+    
+    # Using rg-adguard to fetch the latest version of the NVIDIA Control Panel.
+    $Body = @{
+        type = 'url'
+        url  = "https://apps.microsoft.com/store/detail/nvidia-control-panel/9NF8H0H7WMLT"
+        ring = 'RP'
+        lang = 'en-US' 
+    }
+    Write-Output "Getting the latest version of the NVIDIA Control Panel from the Microsoft Store..."
+    $Link = ((Invoke-RestMethod -Method Post -Uri "https://store.rg-adguard.net/api/GetFiles" -ContentType "application/x-www-form-urlencoded" -Body $Body) -Split "`n" | 
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -like ("*http://tlu.dl.delivery.mp.microsoft.com*") } |
+        ForEach-Object { ((($_ -split "<td>", 2, "SimpleMatch")[1] -Split "rel=", 2, "SimpleMatch")[0] -Split "<a href=", 2, "SimpleMatch")[1].Trim().Trim('"') })[-1]
+    Invoke-RestMethod "$Link" -OutFile "$NVCPL"
+  
+    if ($LASTEXITCODE -eq 2) {
+        Write-Output "Installing the NVIDIA Control Panel as an UWP app..."
+        Add-AppxPackage "$NVCPL" -ForceApplicationShutdown -ForceUpdateFromAnyVersion
+    }
+    else {
+  
+        Write-Output "Installing the NVIDIA Control Panel as a Win32 app..."
+  
+        # Run the NVIDIA Control Panel as an Administrator.
+        New-Item "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" -ErrorAction SilentlyContinue | Out-Null
+        New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" -Name "$InstallationDirectory\nvcplui.exe" -Value "~ RUNASADMIN" -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
+  
+        # Disable the NVIDIA Root Container Service. The service runs when the NVIDIA Control Panel is launched.
+        Stop-Process -Name "NVDisplay.Container" -Force -ErrorAction SilentlyContinue
+        Set-Service "NVDisplay.ContainerLocalSystem" -StartupType Disabled -ErrorAction SilentlyContinue
+        Stop-Service "NVDisplay.ContainerLocalSystem" -Force -ErrorAction SilentlyContinue
+        foreach ($File in ($InstallationDirectory, $ShortcutFile)) { Remove-Item "$File" -Recurse -Force -ErrorAction SilentlyContinue }
+        Expand-Archive "$NVCPL" "$InstallationDirectory" -Force
+  
+        # This DLL is needed inorder to suppress the annoying pop-up that says the UWP Control Panel isn't installed.
+        Invoke-RestMethod "$((Invoke-RestMethod "https://api.github.com/repos/Aetopia/Install-NVCPL/releases/latest").assets.browser_download_url)" -OutFile "$InstallationDirectory\nvcpluir.dll"
+        $WSShell = New-Object -ComObject "WScript.Shell"
+        $Shortcut = $WSShell.CreateShortcut("$ShortcutFile")
+        $Shortcut.TargetPath = "$InstallationDirectory\nvcplui.exe"
+        $Shortcut.IconLocation = "$InstallationDirectory\nvcplui.exe, 0"
+        $Shortcut.Save()
+    }
+    Write-Output "NVIDIA Control Panel Installed!"
+}
+function Install-ZetaLoader {
+    $GameInstallDir = Get-SteamGameInstallDir "Halo Infinite"
+    $ZetaLoader = "$((Invoke-RestMethod "https://api.github.com/repos/Aetopia/ZetaLoader/releases/latest").assets[0].browser_download_url)"
+    if (!$GameInstallDir) {
+        Write-Error "Halo Infinite hasn't been installed via Steam."
+        exit 1
+    }
+    Write-Output "Installing ZetaLoader..."
+    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\dinput8.dll"
+    Write-Output "ZetaLoader has been installed."
+}
+
 function Optimize-Bedrock {
     [alias('optmcbe')]
     [CmdletBinding()]
@@ -4409,1089 +5371,127 @@ $Hash.maxFPS = 260
 Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force
 
 }
-function Get-GraalVM {
-    param(
-        [Switch]$Reinstall
-    )
+<#
 
-    if ((Test-Path "$env:ProgramData\GraalVM") -and !$Reinstall){
-        return "GraalVM is already installed, run with -Reinstall to force reinstallation"
-    }
-    if (-Not(Get-Command curl.exe -ErrorAction Ignore)){
-        return "curl is not found (comes with windows per default?)"
-    }
-    Remove-Item "$env:ProgramData\GraalVM" -ErrorAction Ignore -Force -Recurse
+List of commonly used Appx packages:
 
-    $URL = 'https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-21.2.0/graalvm-ce-java16-windows-amd64-21.2.0.zip'
-    $SHA256 = 'DAE2511ABFF8EAD3EBC90CD9FC81A8E84B762FC91462B198C3EDDF28F81A937E'
-    $Zip = "$env:TMP\GraalVM.zip"
+Windows.PrintDialog
+Microsoft.WindowsCalculator
+Microsoft.ZuneVideo
+Microsoft.Windows.Photos
 
+I did not add them, but you can opt in by calling the function, e.g:
 
-    if (-Not(Test-Path $Zip)){
-        Write-Host "Downloading GraalVM ($(Get-HeaderSize $URL)`MB).." -ForegroundColor Green
-        curl.exe -# -L $URL -o"$Zip"
-    }
+    Remove-KnownAppxPackages -Add @('Windows.PrintDialog','Microsoft.WindowsCalculator')
 
-    if ((Get-FileHash $Zip).Hash -ne $SHA256){
-        Remove-Item "$env:TMP\GraalVM.zip"
-        return "Failed to download GraalVM (SHA256 checksum mismatch, not the expected file)"
+Don't forget to surround them by a ' so PowerShell considers them as a string
+
+#>
+
+function Remove-KnownAppxPackages ([array]$Add,[array]$Exclude) {
+
+    $AppxPackages = @(
+        "Microsoft.Windows.NarratorQuickStart"
+        "Microsoft.Wallet"
+        "3DBuilder"
+        "Microsoft.Microsoft3DViewer"
+        "WindowsAlarms"
+        "BingSports"
+        "WindowsCommunicationsapps"
+        "WindowsCamera"
+        "Feedback"
+        "Microsoft.GetHelp"
+        "GetStarted"
+        "ZuneMusic"
+        "WindowsMaps"
+        "Microsoft.Messaging"
+        "Microsoft.MixedReality.Portal"
+        "Microsoft.OneConnect"
+        "BingFinance"
+        "Microsoft.MSPaint"
+        "People"
+        "WindowsPhone"
+        "Microsoft.YourPhone"
+        "Microsoft.Print3D"
+        "Microsoft.ScreenSketch"
+        "Microsoft.MicrosoftStickyNotes"
+        "SoundRecorder"
         
-    }
+        ) | Where-Object { $_ -notin $Exclude }
 
-    if (Get-Command 7z -ErrorAction Ignore){
+        $AppxPackages += $Add # Appends the Appx packages given by the user (if any)
 
-        Invoke-Expression "& `"7z`" x -bso0 -bsp1 -bse1 -aoa `"$env:TMP\GraalVM.zip`" -o`"$env:ProgramData\GraalVM`""
-    } else {
-        Expand-Archive -Path $Zip -Destination "$env:ProgramData\GraalVM"
-    }
-    Move-Item -Path "$env:ProgramData\GraalVM\graalvm-?e*\*" "C:\ProgramData\GraalVM"
-}
-function Get-TLShell {
-    param(
-        [switch]$Offline,
-        [switch]$DontOpen
-        )
-    
-    $WR = "$env:LOCALAPPDATA\Microsoft\WindowsApps" # I've had the habit of calling this folder WR
-                                                    # because it's the only folder I know that is added to path
-                                                    # that you don't need perms to access.
-
-if ($Offline){
-    
-    try {
-        $Master = Invoke-RestMethod -UseBasicParsing https://raw.githubusercontent.com/couleur-tweak-tips/TweakList/master/Master.ps1
-    } catch {
-        Write-Host "Failed to get Master.ps1 from TweakList GitHub" -ForegroundColor DarkRed
-        Write-Output "Error: $($Error[0].ToString())"
-        return
-    }
-    Set-Content "$WR/TLSOff.cmd" -Value @'
-<# : batch portion
-@echo off
-powershell.exe -noexit -noprofile -noexit -command "iex (${%~f0} | out-string)"
-: end batch / begin powershell #>
-Write-Host "TweakList Shell " -Foregroundcolor White -NoNewLine
-Write-Host "(Offline)" -Foregroundcolor DarkGray -NoNewLine
-Write-Host " - dsc.gg/CTT" -Foregroundcolor White -NoNewLine
-
-'@
-    $Batch = Get-Item  "$WR/TLSOff.cmd"
-    Add-Content $Batch -Value $Master
-    if (!$DontOpen){
-        explorer.exe /select,`"$($Batch.FullName)`"
-    }
-
-}else{
-
-
-    
-    if ($WR -NotIn $env:PATH.Split(';')){
-        Write-Error "`"$env:LOCALAPPDATA\Microsoft\WindowsApps`" is not added to path, did you mess with Windows?"
-        return
-    }else{
-        $TLS = "$WR\TLS.CMD"
-        Set-Content -Path $TLS -Value @'
-@echo off
-title TweakList Shell
-if /I "%1" == "wr" (explorer "%~dp0" & exit)
-if /I "%1" == "so" (set sophiaflag=Write-Host 'Importing Sophia Script..' -NoNewLine -ForegroundColor DarkGray;Import-Sophia)
-
-fltmc >nul 2>&1 || (
-    echo Elevating to admin..
-    PowerShell.exe -NoProfile Start-Process -Verb RunAs ' %0' 2> nul || (
-        echo Failed to elevate to admin, launch CMD as Admin and type in "TL"
-        pause & exit 1
-    )
-    exit 0
-)
-
-powershell.exe -NoProfile -NoLogo -NoExit -Command ^
-"if ($PWD.Path -eq \"$env:WINDIR\system32\"){cd $HOME} ;^
-[System.Net.ServicePointManager]::SecurityProtocol='Tls12' ;^
-Write-Host 'Invoking TweakList.. ' -NoNewLine -ForegroundColor DarkGray;^
-iex(irm tl.ctt.cx);^
-%SOPHIAFLAG%;^
-Write-Host \"`rTweakList Shell - dsc.gg/CTT                  `n\" -Foregroundcolor White"
-'@ -Force
-    }
-    $ShortcutPath = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\TweakList Shell.lnk"
-    $WScriptShell = New-Object -ComObject WScript.Shell
-    $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
-    $Shortcut.IconLocation = (Get-Command powershell.exe).Source + ",0"
-    $Shortcut.TargetPath = "$WR\TLS.CMD"
-    $Shortcut.Save()
-
-    # Got this from my old list of snippets, originally found this on StackOverflow, forgot link
-    $bytes = [System.IO.File]::ReadAllBytes($ShortCutPath)
-    $bytes[0x15] = $bytes[0x15] -bor 0x20 # Set byte 21 (0x15) bit 6 (0x20) ON
-    [System.IO.File]::WriteAllBytes($ShortcutPath, $bytes)
-
-    Write-Host "You can now type 'TLS' in Run (Windows+R) to launch it, or from your start menu"
-    if (!$DontOpen){
-        & explorer.exe /select,`"$("$WR\TLS.CMD")`"
-    }
-    
-    
-}
-}
-
-# This function centralizes most of what you can download/install on CTT
-# Anything it doesn't find in that switch ($App){ statement is passed to scoop
-$global:SendTo = [System.Environment]::GetFolderPath('SendTo')
-function Get {
-    [alias('g')] # minimalism at it's finest
-    param(
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [Array]$Apps,
-        [Switch]$DryRun
-    )
-
-    $FailedToInstall = $null # Reset that variable for later
-    if ($Apps.Count -eq 1 -and (($Apps[0] -Split '\r?\n') -gt 1)){
-        $Apps = $Apps[0] -Split '\r?\n'
-    }
-    if ($DryRun){
-        ForEach($App in $Apps){
-            "Installing $app."
-        }
-        return
-    }
-
-    ForEach($App in $Apps){ # Scoop exits when it throws
-
-        switch ($App){
-            'nvddl'{Get-ScoopApp utils/nvddl}
-            {$_ -in 'Remux','Remuxer'}{
-                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
-                Out-File "$SendTo\Remux.bat"
-
-            }
-            {$_ -in 'RemuxAVI','AVIRemuxer'}{
-                Invoke-RestMethod https://github.com/couleurm/couleurstoolbox/raw/main/7%20FFmpeg/Old%20Toolbox%20scripts/Remux.bat -Verbose |
-                Out-File "$SendTo\Remux - AVI.bat"
-                $Content = (Get-Content "$SendTo\Remux - AVI.bat") -replace 'set container=mp4','set container=avi'
-                Set-Content "$SendTo\Remux - AVI.bat" $Content
-            }
-            {$_ -in 'Voukoder','vk'}{Install-Voukoder }
-            'Upscaler'{
-
-                Install-FFmpeg 
-                Invoke-RestMethod 'https://github.com/couleur-tweak-tips/utils/raw/main/Miscellaneous/CTT%20Upscaler.cmd' |
-                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'CTT Upscaler.cmd') -Encoding ASCII -Force
-                Write-Host @"
-CTT Upscaler has been installed! Find it in the options when right clicking a video file -> Send To -> CTT Upscaler.cmd
-"@ -ForegroundColor Green
-
-            }
-            {$_ -In 'QualityMuncher','qm'}{
-                Install-FFmpeg 
-
-                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/Quality%20Muncher.bat' |
-                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) 'Quality Muncher.bat') -Encoding ASCII -Force
-
-                Invoke-RestMethod 'https://raw.githubusercontent.com/Thqrn/qualitymuncher/main/!!qualitymuncher%20multiqueue.bat' |
-                Out-File (Join-Path ([System.Environment]::GetFolderPath('SendTo')) '!!qualitymuncher multiqueue.bat') -Encoding ASCII -Force
-
-            }
-
-            'Scoop'{Install-Scoop }
-            {$_ -in 'ff','FFmpeg'}{Install-FFmpeg }
-
-            {$_ -in 'zl','ZetaLoader'}{Install-ZetaLoader}
-            {$_ -in 'CRU','custom-resolution-utility'}{Get-ScoopApp extras/cru}
-            {$_ -in 'wt','windowsterminal','windows-terminal'}{Get-ScoopApp extras/windows-terminal}
-            {$_ -in 'np++','Notepad++','notepadplusplus'}{Get-ScoopApp extras/notepadplusplus}
-            {$_ -in 'DDU','DisplayDriverUninstaller'}{Get-ScoopApp extras/ddu}
-            {$_ -in 'Afterburner','MSIAfterburner'}{Get-ScoopApp utils/msiafterburner}
-            {$_ -in 'Everything','Everything-Alpha','Everything-Beta'}{Get-ScoopApp extras/everything-alpha}
-            {$_ -In '7-Zip','7z','7Zip'}{Get-ScoopApp 7zip}
-            {$_ -In 'Smoothie','sm'}{Install-FFmpeg ;Get-ScoopApp utils/Smoothie}
-            {$_ -In 'OBS','OBSstudio','OBS-Studio'}{Get-ScoopApp extras/obs-studio}
-            {$_ -In 'UTVideo'}{Get-ScoopApp utils/utvideo}
-            {$_ -In 'Nmkoder'}{Get-ScoopApp utils/nmkoder}
-            {$_ -In 'Librewolf'}{Get-ScoopApp extras/librewolf}
-            {$_ -In 'ffmpeg-nightly'}{Get-ScoopApp versions/ffmpeg-nightly}
-            {$_ -In 'Graal','GraalVM'}{Get-ScoopApp utils/GraalVM}
-            {$_ -In 'DiscordCompressor','dc'}{Install-FFmpeg ;Get-ScoopApp utils/discordcompressor}
-            {$_ -In 'Moony','mn'}{if (-Not(Test-Path "$HOME\.lunarclient")){Write-Warning "You NEED Lunar Client to launch it with Moony"};Get-ScoopApp utils/Moony}
-            {$_ -In 'TLShell','TLS'}{Get-TLShell }
-            default{Get-ScoopApp $App}
-        }
-        Write-Verbose "Finished installing $app"
-
-    }
-    if ($FailedToInstall){
-        
-        Write-Host "[!] The following apps failed to install (scroll up for details):" -ForegroundColor Red
-        $FailedToInstall
-    }
-}
-function Install-MPVProtocol {
-    param(
-        [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
-        $VideoPlayerFilePath
-    )
-
-if (!(Test-Admin)){
-    "PowerShell NEEDS to run as Adminisrator in order to create the protocol handler"
-    return
-}
-
-
-if ((Get-Command mpv -Ea 0) -and (Get-Command mpvnet -Ea 0)){
-    "Would you like mpv:// links to open with MPV or MPV.net?"
-    $Answer = Read-Host "Answer"
-    while ($answer -notin 'mpv','mpv.net','mpvnet','exit'){
-        "Answer must be mpv / mpvnet, type exit to quit"
-    }
-    switch ($Answer) {
-        'exit'{return}
-        {$_ -in 'mpvnet','mpv.net'}{$MPV = (Get-Command mpvnet.exe).Source}
-        'mpv'{$MPV = (Get-Command mpv.exe).Source}
-    }
-}elseif(Get-Command mpv -Ea 0){
-    "Using default MPV"
-    $MPV = (Get-Command mpv.exe).Source
-}elseif(Get-Command mpvnet -Ea 0){
-    Write-Warning "Using MPV.net since MPV was not found (not added to path?)"
-    $MPV = (Get-Command mpvnet.exe).Source
-}else{
-    return "MPV or MPV.net couldn't be found, please install MPV / MPV.net"
-}
-
-New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT -ea SilentlyContinue | Out-Null
-New-Item -Path "HKCR:" -Name "mpv" -Force | Out-Null
-Set-ItemProperty -Path "HKCR:\mpv" -Name "(Default)" -Value '"URL:mpv Protocol"' | Out-Null
-Set-ItemProperty -Path "HKCR:\mpv" -Name "URL Protocol" -Value '""' | Out-Null
-New-Item -Path "HKCR:\mpv" -Name "shell" -Force | Out-Null
-New-Item -Path "HKCR:\mpv\shell" -Name "open" -Force | Out-Null
-New-Item -Path "HKCR:\mpv\shell\open" -Name "command" -Force | Out-Null
-#Old command: "C:\ProgramData\CTT\mpv-protocol\mpv-protocol-wrapper.cmd" "%1"
-$Command = "cmd /c title MPV && powershell -ep bypass -NoProfile `"& \`"$MPV\`" ('%1' -replace 'mpv://https//','https://')`""
-Set-ItemProperty -Path "HKCR:\mpv\shell\open\command" -Name "(Default)" -Value  $Command | Out-Null
-
-Write-Output "Added the registry keys to handle mpv protocol and redirect to wrapper!"
-
-}
-function Install-Voukoder {
-    [CmdletBinding()]
-    [alias('isvk')]
-    param(
-        [Switch]$GetTemplates
-            # Skip Voukoder installation and just get to the template selector
-    )
-
-    function Get-VoukoderProgram ($Name){
-        # Parses the registry manually instead of using PackageManagement's Get-Package
-
-        $Programs = @(
-            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
-            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
-            'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
-            'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
-
-        ) | Where-Object {Test-path $_} |
-
-        Get-ItemProperty |  Where-Object Publisher -eq 'Daniel Stankewitz' |
-            Sort-Object DisplayName |
-                Select-Object -Property @{n='Name';     e='DisplayName'   },
-                                        @{n='Version';  e='DisplayVersion'},
-                                        @{n='UninstallString'; e='UninstallString'}
-        
-        return $Programs | Where-Object Name -Like $Name
-    }
-
-    if (!$GetTemplates){
-    
-        $LatestCore = (Invoke-RestMethod https://api.github.com/repos/Vouk/voukoder/releases/latest)[0]
-            # get the latest release manifest from GitHub's API
-
-        if (($tag = $LatestCore.tag_name) -NotLike "*.*"){
-            $tag += ".0" # E.g "12" will not convert to a version type, "12.0" will
-        }
-        [Version]$LatestCoreVersion = $tag
-
-        $Core = Get-VoukoderProgram -Name "Voukoder*" -ErrorAction Ignore | # Find all programs starting with Voukoder
-            Where-Object Name -NotLike "*Connector*" # Exclude connectors
-
-        if ($Core){
-
-            if ($Core.Length -gt 1){
-                $Core
-                Write-Host "Multiple Voukoder Cores detected (or bad parsing?)" -ForegroundColor Red
-                return
-            }
-
-            $CurrentVersion = [Version]$Core.Version
-            if ($LatestCoreVersion -gt $CurrentVersion){ # then an upgrade is needed
-                "Updating Voukoder Core from version $CurrentVersion to $LatestCoreVersion"
-                Start-Process -FilePath msiexec -ArgumentList "/qb /x {$($Core.TagId)}" -Wait -NoNewWindow
-                    # Uses msiexec to uninstall the program
-                $Upgraded = $True
-            }
-        }
-
-        if (!$Core -or $Upgraded){
-
-            $DriverVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}_Display.Driver" -ErrorAction Ignore).DisplayVersion
-            if ($DriverVersion -and $DriverVersion -lt 520.00){ # Oldest NVIDIA version capable
-                Write-Warning "Outdated NVIDIA Drivers detected ($DriverVersion), you may not be able to encode (render) using NVENC util you update them."
-                pause
-            }
-
-            "Downloading and installing Voukoder Core.."
-            $CoreURL = $LatestCore[0].assets[0].browser_download_url
-            curl.exe -# -L $CoreURL -o"$env:TMP\Voukoder-Core.msi"
-            msiexec /i "$env:TMP\Voukoder-Core.msi" /passive    
-        }
-
-        filter ConnectorVer {$_.Trim('.msi').Trim('.zip').Split('-') | Select-Object -Last 1}
-            # .zip for Resolve's
-
-
-        # Following block generates a hashtable of all of the latest connectors
-
-        $Tree = (Invoke-RestMethod 'https://api.github.com/repos/Vouk/voukoder-connectors/git/trees/master?recursive=1').Tree
-            # Gets all files from the connectors repo, which contain all filepaths
-        $Connectors = [Ordered]@{}
-        ForEach($NLE in 'vegas','vegas18','vegas19','vegas20','aftereffects','premiere','resolve'){
-            # 'vegas' is for older versions
-            switch ($NLE){
-                vegas{
-                    $Pattern = "*vegas-connector-*"
-                    break # needs to stop here, otherwise it would overwrite it the next match
-                }
-                {$_ -Like "vegas*"}{
-                    $Pattern = "*connector-$_*"
-                }
-                default {
-                    $Pattern = "*$NLE-connector*"
-                }
-            }
-
-            $LCV = $Tree.path | # Short for LatestConnectorVersion
-            Where-Object {$_ -Like $Pattern} | # Find all versions of all matching connectors
-            ForEach-Object {[Version]($_ | ConnectorVer)} | # Parse it's version using the filter
-            Sort-Object -Descending | Select-Object -First 1 # Sort then select only the latest
-
-            $Path = $Tree.path | Where-Object {$_ -Like "$Pattern*$LCV*.*"} # get the absolute path with the latest version
-            $Connectors += @{$NLE = "https://github.com/Vouk/voukoder-connectors/raw/master/$Path"}
-            Remove-Variable -Name NLE
-        }
-
-        $Processes = @(
-            'vegas*'
-            'Adobe Premiere Pro'
-            'AfterFX'
-            'Resolve'
-        )
-
-        $Found = { Get-Process $Processes -ErrorAction Ignore }
-
-        if (-not (. $Found)){ # If $Found scriptblock returns nothing
-            Write-Host "[!] Open your video editor" -ForegroundColor Red
-            Write-Host "Voukoder supports: VEGAS 12-20, Premiere, After Effects, DaVinci Resolve (ONLY PAID `"Studio `"VERSION)" -ForeGroundColor Green
-            Write-Host "Looking for processes: $($Processes -join ', ')" -ForegroundColor DarkGray
-            While(-not (. $Found)){
-                Start-Sleep -Seconds 1
-            }
-        }
-        Write-Host @(
-            "`nDetected the following video editor(s):`n`n"
-            $(. $Found | Select-Object MainWindowTitle, Path, FileVersion | Out-String)
+        if (-Not($KeepXboxPackages)){
+            $AppxPackages += @(
+                "XboxApp"
+                "Microsoft.XboxGameOverlay"
+                "Microsoft.XboxGamingOverlay"
+                "Microsoft.XboxSpeechToTextOverlay"
+                "Microsoft.XboxIdentityProvider"
+                "Microsoft.XboxGameCallableUI"
             )
-
-        function Get-Connector ($PackageName, $Key, $NLEDir, $InnoFlag){
-            # Key is to get the right connector URL in $Connector hashtable
-            
-            function Install-Connector {
-                $msiPath = "$env:TMP\Voukoder Connector-$Key.msi"
-                curl.exe -# -L $Connectors.$Key -o"$msiPath"
-                Write-Verbose "Installing $msiPath at $InnoFlag=$NLEDir" -Verbose
-                msiexec /i "$msiPath" /qb "$InnoFlag=`"$NLEDir`""
-            }
-
-            $CurrentConnector = (Get-VoukoderProgram -Name $PackageName)
-            if ($CurrentConnector){
-                [Version]$CurrentConnectorVersion = $CurrentConnector.Version
-                [Version]$LatestConnector = $Connectors.$Key | ConnectorVer # Parse connector version
-                if ($LatestConnector -gt $CurrentConnectorVersion){
-
-                    Write-Host "Upgrading $PackageName from $CurrentConnectorVersion to $LatestConnector"
-                    Start-Process -FilePath msiexec -ArgumentList "/qb /x {$($CurrentConnector.TagId)}" -Wait -NoNewWindow
-                    Install-Connector
-                }
-            } else {
-
-                Install-Connector
-            }
-        }
-        $NLEs = Get-Process $Processes -ErrorAction Ignore
-        ForEach($NLE in $NLEs){
-
-            switch ($NLE){
-
-                {(Split-Path $_.Path -Leaf) -in 'vegas180.exe', 'vegas190.exe','vegas200.exe'} {
-                    Write-Verbose "Using newer VEGAS"
-
-                    $VegVer = (Split-Path $_.Path -Leaf) -replace 'vegas' -replace '0\.exe'
-
-                    Get-Connector -PackageName "Voukoder connector for VEGAS Pro $VegVer" -Key "vegas$VegVer" -NLEDir (Split-Path $_.Path -Parent) -InnoFlag VEGASDIR
-                    
-                    continue # Needs to loop over the next switch, which would've matched and also thought it needed to install an older Version
-                }
-
-
-                {(Split-Path $_.Path -Leaf) -Like 'vegas*.exe'}{
-                    Write-Host "/!\ Old-VEGAS connector installation may fail if you already have a connector for newer VEGAS versions" -ForegroundColor Red
-                    Get-Connector -PackageName "Voukoder connector for VEGAS" -Key vegas -NLEDir (Split-Path $_.Path -Parent) -InnoFlag VEGASDIR
-                }
-
-
-                {(Split-Path $_.Path -Leaf) -eq 'afterfx.exe'} {
-                    Get-Connector -PackageName 'Voukoder Connector for Adobe After Effects' -Key aftereffects -NLEDir "$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore" -InnoFlag INSTALLDIR
-                }
-
-
-                {(Split-Path $_.Path -Leaf) -eq 'Adobe Premiere Pro.exe'}{
-                    Get-Connector -PackageName 'Voukoder connector for Premiere' -Key premiere -NLEDir "$env:ProgramFiles\Adobe\Common\Plug-ins\7.0\MediaCore" -InnoFlag TGDir
-                }
-
-
-                {(Split-Path $_.Path -Leaf) -eq 'Resolve.exe'}{
-                    Write-Warning "Voukoder's connector for Resolve is ONLY FOR IT'S PAID `"Studio`" VERSION"
-                    pause
-                    
-                    $IOPlugins = "$env:ProgramData\Blackmagic Design\DaVinci Resolve\Support\IOPlugins"
-                    $dvcpBundle = "$IOPlugins\voukoder_plugin.dvcp.bundle"
-
-                    if (-Not(Test-Path $IOPlugins)){
-                        New-Item -ItemType Directory -Path $IOPlugins
-                    }
-                    elseif (Test-Path $dvcpBundle){
-                        if (-Not(Get-Boolean "Would you like to reinstall/update the Voukoder Resolve plugin? (Y/N)")){continue}
-                        Remove-Item $dvcpBundle -Force -Recurse
-                    }
-
-                    $Zip = "$env:TMP\Voukoder-Connector-Resolve.zip"
-                    curl.exe -# -L $Connectors.Resolve -o"$Zip"
-
-                    $ExtractDir = "$env:TMP\Voukoder-Connector-Resolve"
-                    Remove-Item $ExtractDir -Recurse -Force -ErrorAction Ignore
-                    Expand-Archive $Zip -Destination $ExtractDir
-
-                    Copy-Item "$ExtractDir\voukoder_plugin.dvcp.bundle" $IOPlugins
-                    
-                    Write-Warning "If connection failed you should find instructions in $ExtractDir\README.txt"
-                }
-            }
-        }
-        $NLEBin = $NLE.Path
-    }else{
-        $AvailableNLETemplates = @{
-            "Vegas Pro" = "vegas200.exe"
-            "Premiere Pro" = "Adobe Premiere Pro.exe"
-            "After Effects" = "AfterFX.exe"
-        }
-        $NLE = Menu -menuItems $AvailableNLETemplates.Keys
-        $NLEBin = $AvailableNLETemplates.$NLE
-    }
-
-        # Converts 
-        # https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2
-        # To hashtable with key "HEVC NVENC + Upscale" and val the URL
-
-    filter File2Display {
-        [IO.Path]::GetFileNameWithoutExtension($_) -replace '_',' ' -replace " Upscale", " + Upscale" -replace '  ',' '
-    }
-
-    $VegasTemplates = @(
-
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904873517106/HEVC_NVENC_Upscale.sft2'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599905175502929/HEVC_NVENC.sft2'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904609288255/HEVC_NVENC__Upscale.sft2'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904353419284/H264_NVENC.sft2'
-        'https://cdn.discordapp.com/attachments/969870701798522901/972541639346225264/x265_Upscale.sft2'
-        'https://cdn.discordapp.com/attachments/969870701798522901/972541639560163348/x265.sft2'
-        'https://cdn.discordapp.com/attachments/969870701798522901/972541638943596574/x264_Upscale.sft2'
-        'https://cdn.discordapp.com/attachments/969870701798522901/972541639128129576/x264.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638733885470/HEVC_NVENC.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541639744688198/H264_NVENC_Upscale.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638356389918/H264_NVENC.sft2'
-        ) | ForEach-Object {
-        [Ordered]@{($_ | File2Display) = $_}
-    }
-
-    $PremiereTemplates = @(
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690025369690/HEVC_NVENC__Upscale.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690369298432/HEVC_NVENC.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691992498218/H264_NVENC__Upscale.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609692277706902/H264_NVENC.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690688061490/x264__Upscale.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690964893706/x264.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691380125827/x265__Upscale.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691682111548/x265.epr'
-    ) | ForEach-Object {
-        [Ordered]@{($_ | File2Display) = $_}
-    }
-
-    switch($NLEBin){
-
-        {($NLEBin | Split-Path -Leaf).StartsWith('vegas')}{
-
-            $NLETerm = "Vegas"
-            $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
-
-            if (-Not(Test-Path $TemplatesFolder)){
-                New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
-            }
-
-            $SelectedTemplates =  Invoke-Checkbox -Items $VegasTemplates.Keys -Title "Select VEGAS render templates to install"
-
-            ForEach ($Template in $SelectedTemplates){
-                if (Test-Path ($TPPath = "$TemplatesFolder\$Template.sft2")){
-                    Remove-Item $TPPath -Force
-                }
-                curl.exe -# -sSL $VegasTemplates.$Template -o"$TPPath"
-            }
         }
 
 
-
-        {($NLEBin | Split-Path -Leaf).StartsWith('Adobe Premiere Pro.exe')}{
-            
-            $NLETerm = 'Premiere Pro'
-            $TemplatesFolder = "$env:USERPROFILE\Documents\Adobe\Adobe Media Encoder\12.0\Presets"
-
-            if (-Not(Test-Path $TemplatesFolder)){
-                New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
-            }
-
-            $SelectedTemplates =  Invoke-Checkbox -Items $PremiereTemplates.Keys -Title "Select render templates to install"
-
-            ForEach ($Template in $SelectedTemplates){
-                if (Test-Path ($TPPath = "$TemplatesFolder\$Template.epr")){
-                    Remove-Item $TPPath -Force
-                }
-                curl.exe -# -sSL $PremiereTemplates.$Template -o"$TPPath"
-            }
+        ForEach ($Package in $AppxPackages){
         
-        }
-
-
-
-
-        {($NLEBin | Split-Path -Leaf).StartsWith('AfterFX.exe')}{
-            $NLETerm = 'After Effects'
-
-            "Opening a tutorial in your browser and downloading the AE templates file.."
-            Start-Sleep -Seconds 2
-            if (-Not(Test-Path ($TPDir = "$env:TMP\AE_Templates"))){
-                New-Item -ItemType Directory -Path $TPDir -Force | Out-Null
-            }
-            curl.exe -# -sSL https://cdn.discordapp.com/attachments/1039599872703213648/1039614649638858772/CTT_AE_VOUKODER_TEMPLATES.aom -o"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom"
-
-            Start-Process -FilePath explorer.exe -ArgumentList "/select,`"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom`""
-            $Tutorial = 'https://i.imgur.com/XCaJGoV.mp4'
-            try {
-                Start-Process $Tutorial
-            } catch { # If the user does not have any browser
-                "Tutorial URL: $Tutorial" 
-            }
-        }
-
-
-
-        default{
-            Write-Host "Your video editor ($($NLEBin)) does not have any pre-made templates for me to propose you" -ForegroundColor Red
-            $NLETerm = "your video editor"
-        }
-    }
-    Write-Host "Installation script finished, follow instructions (if any)"
-    Write-Host "Then restart $NLETerm to make sure Voukoder render templates have loaded." -ForegroundColor Red
-
-}
-
-function Invoke-SmoothiePost {
-    param(
-        [String]
-        [ValidateScript({
-            Test-Path -Path (Get-Item $_) -PathType Container -ErrorAction Stop
-        })]
-        $CustomDir
-    )
-    # DIR is the variable used by Scoop, hence why I'm using a separate name
-    if ($CustomDir -and !$DIR){
-        if (!(Test-Path "$CustomDir\Smoothie") -And !(Test-Path "$CustomDir\VapourSynth")){
-            Write-Host "The folder you gave needs to contain the folders 'Smoothie' and 'VapourSynth', try the right path"
+        if ($PSVersionTable.PSEdition -eq 'Core'){ # Newer PowerShell versions don't have Appx cmdlets, manually calling PowerShell to 
+        
+            powershell.exe -command "Get-AppxPackage `"*$Package*`" | Remove-AppxPackage"
+        
         }else{
-            $DIR = (Get-Item $CustomDir).FullName
+            Get-AppxPackage "*$Package*" | Remove-AppxPackage
         }
-    }
-    if (!$DIR){return "This script is suppose to be ran by Scoop after it's intallation, not manually"}
-
-    $rc = (Get-Content "$DIR\Smoothie\settings\recipe.yaml" -ErrorAction Stop) -replace ('H264 CPU',(Get-EncodingArgs -EzEncArgs))
-
-    if ($valid_args -like "H* CPU"){$rc = $rc -replace ('gpu: true','gpu: false')}
-
-    Set-Content "$DIR\Smoothie\settings\recipe.ini" -Value $rc
-
-    $term = Get-Path conhost.exe
-
-    Get Scoop
-
-    $SendTo = [System.Environment]::GetFolderPath('SendTo')
-    $Scoop = Get-Command Scoop | Split-Path | Split-Path
-    $SA = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs', 'Scoop Apps')
-
-    if (-Not(Test-Path $SA)){ # If not using Scoop
-        $SA = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs')
-    }
-
-    Set-Content "$Scoop\shims\sm.shim" -Value @"
-path = "$DIR\VapourSynth\python.exe"
-args = "$DIR\Smoothie\src\main.py"
-"@
-    if (-Not(Test-Path "$Scoop\shims\sm.exe")){
-        Copy-Item "$Scoop\shims\7z.exe" "$Scoop\shims\sm.exe"
-    }
-
-
-    $Parameters = @{
-        Overwrite = $True
-        LnkPath = "$Scoop\shims\rc.lnk"
-        TargetPath = "$DIR\Smoothie\settings\recipe.yaml"
-    }
-    New-Shortcut @Parameters
-
-
-    $Parameters = @{
-        Overwrite = $True
-        LnkPath = "$SA\Smoothie Recipe.lnk"
-        TargetPath = "$DIR\Smoothie\settings\recipe.yaml"
-    }
-    New-Shortcut @Parameters
-
-    $Parameters = @{
-        Overwrite = $True
-        LnkPath = "$SA\Smoothie.lnk"
-        TargetPath = $term
-        Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui"
-        Icon = "$DIR\Smoothie\src\sm.ico"
-    }
-    New-Shortcut @Parameters
-    
-    $Parameters = @{
-        Overwrite = $True
-        LnkPath = "$SendTo\Smoothie.lnk"
-        TargetPath = $term
-        Arguments = "`"$DIR\VapourSynth\python.exe`" `"$DIR\Smoothie\src\main.py`" -cui -input"
-        Icon = "$DIR\Smoothie\src\sm.ico"
-
-    }
-    New-Shortcut @Parameters
+        
+        }
 
 }
 
-# This does not install Smoothie, it simply creates shortcuts in the start menu, Send To and configures the recipe
-function Invoke-SmoothieRsPost {
+
+function Remove-UselessFiles {
+    
+    @(
+        "$env:TEMP"
+        "$env:WINDIR\TEMP"
+        "$env:HOMEDRIVE\TEMP"
+    ) | ForEach-Object { Remove-Item (Convert-Path $_\*) -Force -ErrorAction SilentlyContinue }
+
+}
+function Set-PowerPlan {
+    param (
+        [string]$URL,
+        [switch]$Ultimate
+        )
+
+    if ($Ultimate){
+        powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
+        powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61
+    }elseif($URL){
+        if ($URL -Like "http*://cdn.discordapp.com/attachments/*.pow"){
+            $DotPow = "$env:TMP\{0}" -f (Split-Path $URL -Leaf)
+        }else{
+            $DotPow = "$env:TMP\Powerplan $(Get-Random).pow"
+        }
+        Invoke-WebRequest -Uri $PowURL -OutFile $DotPow
+        powercfg -duplicatescheme $DotPow
+        powercfg /s $DotPow
+    }
+}
+
+function Set-Win32PrioritySeparation {
     param(
-        
-        [ValidateScript({
-                Test-Path -Path (Get-Item $_) -PathType Container -ErrorAction Stop
-            })]
-        [String]$DIR,
-        [Switch]$Scoop,
-        [Switch]$Uninstall
+        [int]$DWord
     )
 
-    $ErrorActionPreference = 'Stop'
+    $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
+    $current = (Get-ItemProperty $Path).Win32PrioritySeparation
 
-    <#
-        .SYNOPSIS
-        Merges recipes
+    Set-ItemProperty -Path ($Path).Win32PrioritySeparation -Value $Value -Type DWord -Force -ErrorAction Inquire
 
-        .NOTES
-        It returns void, it just applies all patches on what was passed to -Original
-
-        .NOTES
-        Limitations:
-        - It cannot remove keys from $OG, most it can do is Patch containing a same key that is $null
-
-        .PARAMETER Original
-        The original hashtable which will get modified
-        .PARAMETER Patches
-        Recursively merge with $Original
-    #>
-    function Merge-Recipe {
-        [CmdletBinding()]
-        param (
-            $Original,
-            $Patch
-        )
-        foreach ($category in $Patch.GetEnumerator()) {
-            
-            $key, $patch = $category.name, $category.value
-
-            if ($Original.Contains($key) -and ($Original[$key] -is [Collections.Specialized.OrderedDictionary] -and $Patch -is [Collections.Specialized.OrderedDictionary])) {
-                Merge-Recipe -Original $Original[$key] -Patch $Patch
-            }
-            else {
-                $Original[$key] = $Patch
-            }
-        }
-    }
-    
-    $SendTo = [System.Environment]::GetFolderPath('SendTo')
-    $Start = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs')
-
-    if (!$SendTo -or !(Test-Path $SendTo)) {
-        return "FATAL: Send To folder [$SendTo] does not exist, did you/a script strip it?"
-    }
-    if (!$Start -or !(Test-Path $Start)) {
-        return "FATAL: Start Menu folder [$Start] does not exist, did you/a script strip it?"
-    }
-
-    if ($Scoop){
-        $shims = (Resolve-Path $DIR/../../../shims).Path
-    }
-
-    if ($Uninstall) {
-        Remove-Item "$Sendto\Smoothie.lnk"
-        Remove-Item "$SA\Smoothie.lnk"
-        if ($Scoop) {
-            Remove-Item "$shims\rc.lnk"
-        }
-        return
-    }
-
-    if ($Scoop) {
-        $old_VERSIONS = Get-ChildItem $dir/.. -Directory -Exclude current, $version
-        $old_DIR = switch ($old_VERSIONS.Length) {
-            { $_ -in 0, $null } {}
-            1 { $old_VERSIONS }
-            default {
-                $script:ret = ""
-                $script:mostRecentDate = [datetime]::MinValue
-
-                $old_VERSIONS | ForEach-Object {
-                    $string = $_.BaseName -replace "Nightly_"
-                    $datetime = [datetime]::ParseExact($string, "yyyy.MM.dd_HH-mm", [CultureInfo]::InvariantCulture)
-
-                    if ($datetime -gt $script:mostRecentDate) {
-                        $script:mostRecentDate = $datetime
-                        $script:ret = $_
-                    }
-                }
-
-                if ($script:mostRecentDate -eq [datetime]::MinValue) {
-                    write-Warning "Failed to parse old versions:"
-                    Write-Host $old_VERSIONS.FullName
-                }
-
-                $script:ret
-            }
-        }
-
-        if ($old_DIR -and (Test-Path $old_DIR)) {
-
-            [Collections.Specialized.OrderedDictionary]$old_MACROS = Get-IniContent $old_DIR/encoding_presets.ini -KeyValSeparator ':'
-            [Collections.Specialized.OrderedDictionary]$new_MACROS = Get-IniContent $DIR/encoding_presets.ini -KeyValSeparator ':'
-            
-            Merge-Recipe $new_MACROS $old_MACROS
-            $new_MACROS | Out-IniFile $DIR/encoding_presets.ini -Pretty -Force -Loose -KeyValSeparator ':'
-
-            $old_RECIPES = Get-ChildItem $old_DIR -File -Filter *.ini | Where-Object BaseName -Notin 'defaults', 'encoding_presets'
-
-            $old_RECIPES | ForEach-Object {
-                [Collections.Specialized.OrderedDictionary]$old_RC = Get-IniContent $_.FullName -KeyValSeparator ':'
-                [Collections.Specialized.OrderedDictionary]$new_RC = Get-IniContent $DIR\recipe.ini -KeyValSeparator ':'
-                
-                Merge-Recipe $new_RC $old_RC
-                $new_RC | Out-IniFile $DIR/$($_.BaseName).ini -Pretty -Force -Loose -KeyValSeparator ':'
-            }
-            $old_files = Get-ChildItem $old_DIR | Where-Object Name -notin 'defaults.ini', 'encoding_presets.ini', 'jamba.vpy', 'bin', 'recipe.ini', 'launch.cmd', 'manifest.json', 'install.json'
-
-            $old_files | ForEach-Object { Move-Item $_.FullName $DIR -Verbose }
-
-        }
-    }
-
-    $SendTo = [System.Environment]::GetFolderPath('SendTo')
-    $Start = [System.IO.Path]::Combine([Environment]::GetFolderPath('StartMenu'), 'Programs')
-    . { # Shortcuts
-        if (!$SendTo -or !(Test-Path $SendTo)) {
-            return "FATAL: Send To folder [$SendTo] does not exist, did you/a script strip it?"
-        }
-        if (!$Start -or !(Test-Path $Start)) {
-            return "FATAL: Start Menu folder [$Start] does not exist, did you/a script strip it?"
-        }
-
-        # %APPDATA%\Microsoft\Windows\SendTo\Smoothie.lnk
-        $Parameters = @{
-            Overwrite  = $True
-            LnkPath    = "$SendTo\&Smoothie.lnk"
-            TargetPath = "$DIR\bin\smoothie-rs.exe"
-            Arguments  = "--tui -i"
-        }
-        New-Shortcut @Parameters
-
-        if ($Scoop) {
-            
-            # %USERPROFILE%\scoop\shims\rc.lnk
-            $Parameters = @{
-                Overwrite  = $True
-                LnkPath    = "$shims\rc.lnk"
-                TargetPath = "$dir\recipe.ini"
-            }
-            New-Shortcut @Parameters
-        }
-        else {
-            # %APPDATA%\Microsoft\Windows\Start Menu\Programs\Smoothie Recipe.lnk
-            $Parameters = @{
-                Overwrite  = $True
-                LnkPath    = "$Start\Smoothie Recipe.lnk"
-                TargetPath = "$DIR\recipe.ini"
-            }
-            # %APPDATA%\Microsoft\Windows\Start Menu\Programs\Smoothie.lnk
-            New-Shortcut @Parameters
-            $Parameters = @{
-                Overwrite  = $True
-                LnkPath    = "$Start\Smoothie.lnk"
-                TargetPath = "$DIR\bin\smoothie-rs.exe"
-                Arguments  = "--tui -i"
-            }
-            New-Shortcut @Parameters
-        }
-    }
+    Write-Verbose "Set-Win32ProritySeparation: Changed from $current to $((Get-ItemProperty $Path).Win32PrioritySeparation)"
 
 }
-function Launch{
-	[alias('l')]
-	param(
-		[ValidateSet(
-			'DisplayDriverUninstaller',
-			'NVCleanstall',
-			'NvidiaProfileInspector',
-			'MSIUtilityV3',
-			'Rufus',
-			'AutoRuns',
-			'Procmon',
-			'CustomResolutionUtility',
-			'NotepadReplacer',
-			'privacy.sexy',
-			'ReShade'
-			#! TODO: NVProfileInspector, MSIUtility, CRU, Notepadreplacer, BulkCrapUninstaller, https://www.bill2-software.com/processmanager/exe/BPM-Setup.exe
-		)]
-		[Array]$Apps,
-		[Switch]$DontLaunch, # Just keep them tidy in the Downloads folder))
-		# This is the non hardcoded Downloads folder path s/o @farag2
-		[String]$OutDir = (Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -Name "{374DE290-123F-4565-9164-39C4925E467B}")
-	)
 
-	Add-Type -AssemblyName System.IO.Compression.FileSystem
-
-	function Invoke-Download{
-		param(
-			[String]$URL, # Parses mediafire
-			[String]$AppName,
-			[Switch]$Scoop, # Scoop 'bucket/manifest' name
-			[String]$PathToBinary, # In the zip
-			[String]$Checksum,
-			[String]$SelfExtracting7z # e.g for DDU
-		)
-
-		if (-Not(Test-Path $env:TMP)){
-			throw "TMP environment variable not found [$env:TMP]"
-		}
-
-		if($Scoop){
-			$Bucket, $Manifest = $URL -split '/'
-
-			$Repos = @{
-
-				main = @{org = 'ScoopInstaller';repo = 'main';branch = 'master'}
-				extras = @{org = 'ScoopInstaller';repo = 'extras';branch = 'master'}
-				utils = @{org = 'couleur-tweak-tips';repo = 'utils';branch = 'main'}
-				nirsoft = @{org = 'kodybrown';repo = 'scoop-nirsoft';branch = 'master'}
-				games = @{org = 'ScoopInstaller';repo = 'games';branch = 'master'}
-				'nerd-fonts' = @{org = 'ScoopInstaller';repo = 'nerd-fonts';branch = 'master'}
-				versions = @{org = 'ScoopInstaller';repo = 'versions';branch = 'master'}
-				java = @{org = 'ScoopInstaller';repo = 'java';branch = 'master'}
-			}
-			$repo = $Repos.$Bucket
-			$URL = "https://raw.githubusercontent.com/$($repo.org)/$($repo.repo)/$($repo.branch)/bucket/$Manifest.json"
-			$URL, $Version = Invoke-RestMethod $URL | ForEach-Object {$PSItem.URL, $PSItem.Version}
-		}elseif($URL -Like "*mediafire.com*"){
-			$URL = (Invoke-WebRequest -UseBasicParsing $URL).Links.href | Where-Object {$PSItem -Like "http*://download*.mediafire.com/*"}
-		}
-
-		if ($AppName){
-			$FileName = $AppName
-		}else{
-			$FileName = $Manifest
-		}
-		
-		if ($Version){$FileName += " $Version"}
-
-		$Extension = [io.path]::GetExtension((($URL -replace '#/dl.7z') | Split-Path -Leaf))
-
-		$OutFile = "$env:TMP\$FileName$Extension"
-		if (-Not(Test-Path $OutFile)){
-			curl.exe -#L -A "Scoop" $URL -o"$OutFile"
-		}
-
-		if($Checksum){
-			$Parameters = @{
-				Path = $OutFile
-			}
-			if ($Checksum -Like "*:*"){ # Contains a :
-				$Algo, $Checksum = $Checksum -Split ':' # To split hash and algo, eg md5:8424509737CEDBDE4BA9E9A780D5CE96
-				$Parameters += @{
-					Algorithm = $Algo 
-				}
-			}
-			if ($Checksum -ne (Get-FileHash @Parameters).Hash){
-				throw "Hash provided $Checksum does not match $OutFile"
-			}
-		}
-
-		if ($Extension -eq '.zip'){
-			$OutDir = "$env:TMP\$FileName\"
-			if (-Not(Test-Path $OutDir)){
-				[System.IO.Compression.ZipFile]::ExtractToDirectory($OutFile, $OutDir)
-			}
-
-			if ($PathToBinary){
-				$OutDir = Join-Path $OutDir $PathToBinary
-			}
-			$OutFile = $OutDir # To not have to check for the following statement twice
-		}elseif($SelfExtracting7z){
-			Start-Process -FilePath $OutFile -ArgumentList "-y" -Wait
-			$SelfExtracting7z = $SelfExtracting7z -replace "%VER%", $Version
-			if (-Not(Test-Path "$env:TMP\$SelfExtracting7z" -PathType Container)){
-				throw "Self extracting 7-Zip got wrong path: $SelfExtracting7z"
-			}
-			$OutDir = $SelfExtracting7z
-		}
-
-		if (-Not(Test-Path $OutFile)){
-			throw "$OutFile could not be found"
-		}
-
-		return $OutFile
-
-	}
-
-	$Paths = @()
-
-	$Apps | ForEach-Object { # Cycles through given apps
-		Write-Host "getting $PSItem"
-		$Paths += switch ($PSItem){
-			DisplayDriverUninstaller{ Invoke-Download -URL extras/ddu -Scoop -PathToBinary "Display Driver Uninstaller.exe" -SelfExtracting7z "DDU v%VER%" -AppName DDU }
-			NVCleanstall{ Invoke-Download -URL extras/nvcleanstall -Scoop -AppName NVCleanstall -PathToBinary "NVCleanstall.exe" }
-			NvidiaProfileInspector{ Invoke-Download -URL extras/nvidia-profile-inspector -Scoop -AppName NvidiaProfileInspector -PathToBinary 'nvidiaProfileInspector.exe' }
-			MSIUtilityV3{
-				Write-Warning "MSI mode is already applied by default on NVIDIA 1600/2000/3000 GPUs and AMD cards"
-				Invoke-Download -URL https://www.mediafire.com/file/ewpy1p0rr132thk/MSI_util_v3.zip/file -AppName "MSIUtilV3" -PathToBinary "MSI_util_v3.exe" -Checksum "md5:8424509737CEDBDE4BA9E9A780D5CE96"
-			}
-			Rufus{ Invoke-Download -URL extras/rufus -Scoop -AppName rufus}
-			AutoRuns{ Invoke-Download -URL https://download.sysinternals.com/files/Autoruns.zip -AppName AutoRuns -PathToBinary Autoruns64.exe }
-			Procmon{ Invoke-Download -URL https://download.sysinternals.com/files/ProcessMonitor.zip -AppName Procmon -PathToBinary Procmon64.exe }
-			CustomResolutionUtility { Invoke-Download -URL extras/cru -Scoop -AppName CRU -PathToBinary CRU.exe}
-			NotepadReplacer { Invoke-Download -URL utils/notepadreplacer -Scoop -AppName NotepadReplacer}
-			privacy.sexy { Invoke-Download -URL utils/privacysexy -Scoop -AppName privacysexy}
-			ReShade{
-				$Website = "https://reshade.me/"
-				$DLLink = (Invoke-WebRequest "$Website#download").Links.Href | Where-Object {$_ -Like "*.exe"} | Where-Object {$_ -NotLike "*_Addon.exe"}
-				$URL = $Website + $DLLink
-				Invoke-Download -URL $URL -AppName ReShade
-			}
-		}
-	}
-	return $Paths
-}
-# Source: https://github.com/Aetopia/Install-NVCPL
-function Install-NVCPL {
-    if (!(Test-Admin)) {
-        Write-Host "Install-NVCPL: This function needs Administrator priviledges" -ForegroundColor DarkRed
-        return
-    }
-
-    choice.exe /C 12 /N /M "Install NVIDIA Control Panel as:`n1. Win32 App`n2. UWP App`n>"
-  
-    $NVCPL = "$ENV:TEMP\NVCPL.zip"
-    $InstallationDirectory = "$ENV:PROGRAMFILES\NVIDIA Corporation\Control Panel Client"
-    $ShortcutFile = "$ENV:PROGRAMDATA\Microsoft\Windows\Start Menu\Programs\NVIDIA Control Panel.lnk"
-    if ($LASTEXITCODE -eq 2) { $NVCPL = "$NVCPL.appx" }
-
-    if ($null -eq (Get-CimInstance Win32_VideoController |
-        Where-Object { $_.Name -like "NVIDIA*" })) {
-            Write-Host "No NVIDIA GPU found." -ForegroundColor DarkRed
-            return
-        }
-
-        
-    # Disable Telemetry.
-    New-ItemProperty -Path "HKLM:\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client" -Name "OptInOrOutPreference" -Value 0 -PropertyType DWORD -Force -ErrorAction SilentlyContinue | Out-Null
-    New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\Global\Startup" -Name "SendTelemetryData" -Value 0 -PropertyType DWORD -Force -ErrorAction SilentlyContinue | Out-Null
-
-    
-    # Using rg-adguard to fetch the latest version of the NVIDIA Control Panel.
-    $Body = @{
-        type = 'url'
-        url  = "https://apps.microsoft.com/store/detail/nvidia-control-panel/9NF8H0H7WMLT"
-        ring = 'RP'
-        lang = 'en-US' 
-    }
-    Write-Output "Getting the latest version of the NVIDIA Control Panel from the Microsoft Store..."
-    $Link = ((Invoke-RestMethod -Method Post -Uri "https://store.rg-adguard.net/api/GetFiles" -ContentType "application/x-www-form-urlencoded" -Body $Body) -Split "`n" | 
-        ForEach-Object { $_.Trim() } |
-        Where-Object { $_ -like ("*http://tlu.dl.delivery.mp.microsoft.com*") } |
-        ForEach-Object { ((($_ -split "<td>", 2, "SimpleMatch")[1] -Split "rel=", 2, "SimpleMatch")[0] -Split "<a href=", 2, "SimpleMatch")[1].Trim().Trim('"') })[-1]
-    Invoke-RestMethod "$Link" -OutFile "$NVCPL"
-  
-    if ($LASTEXITCODE -eq 2) {
-        Write-Output "Installing the NVIDIA Control Panel as an UWP app..."
-        Add-AppxPackage "$NVCPL" -ForceApplicationShutdown -ForceUpdateFromAnyVersion
-    }
-    else {
-  
-        Write-Output "Installing the NVIDIA Control Panel as a Win32 app..."
-  
-        # Run the NVIDIA Control Panel as an Administrator.
-        New-Item "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" -ErrorAction SilentlyContinue | Out-Null
-        New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" -Name "$InstallationDirectory\nvcplui.exe" -Value "~ RUNASADMIN" -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
-  
-        # Disable the NVIDIA Root Container Service. The service runs when the NVIDIA Control Panel is launched.
-        Stop-Process -Name "NVDisplay.Container" -Force -ErrorAction SilentlyContinue
-        Set-Service "NVDisplay.ContainerLocalSystem" -StartupType Disabled -ErrorAction SilentlyContinue
-        Stop-Service "NVDisplay.ContainerLocalSystem" -Force -ErrorAction SilentlyContinue
-        foreach ($File in ($InstallationDirectory, $ShortcutFile)) { Remove-Item "$File" -Recurse -Force -ErrorAction SilentlyContinue }
-        Expand-Archive "$NVCPL" "$InstallationDirectory" -Force
-  
-        # This DLL is needed inorder to suppress the annoying pop-up that says the UWP Control Panel isn't installed.
-        Invoke-RestMethod "$((Invoke-RestMethod "https://api.github.com/repos/Aetopia/Install-NVCPL/releases/latest").assets.browser_download_url)" -OutFile "$InstallationDirectory\nvcpluir.dll"
-        $WSShell = New-Object -ComObject "WScript.Shell"
-        $Shortcut = $WSShell.CreateShortcut("$ShortcutFile")
-        $Shortcut.TargetPath = "$InstallationDirectory\nvcplui.exe"
-        $Shortcut.IconLocation = "$InstallationDirectory\nvcplui.exe, 0"
-        $Shortcut.Save()
-    }
-    Write-Output "NVIDIA Control Panel Installed!"
-}
-function Install-ZetaLoader {
-    $GameInstallDir = Get-SteamGameInstallDir "Halo Infinite"
-    $ZetaLoader = "$((Invoke-RestMethod "https://api.github.com/repos/Aetopia/ZetaLoader/releases/latest").assets[0].browser_download_url)"
-    if (!$GameInstallDir) {
-        Write-Error "Halo Infinite hasn't been installed via Steam."
-        exit 1
-    }
-    Write-Output "Installing ZetaLoader..."
-    Invoke-RestMethod -Uri "$ZetaLoader" -OutFile "$GameInstallDir\dinput8.dll"
-    Write-Output "ZetaLoader has been installed."
-}
 
 Export-ModuleMember * -Alias *
 })) | Import-Module -DisableNameChecking -Global
