@@ -164,7 +164,7 @@ function Invoke-SmoothieRsPost {
                 Overwrite  = $True
                 LnkPath    = "$Start\Smoothie.lnk"
                 TargetPath = "$DIR\bin\smoothie-rs.exe"
-                Arguments  = "--tui -i"
+                Arguments  = "--tui"
             }
             New-Shortcut @Parameters
         }
