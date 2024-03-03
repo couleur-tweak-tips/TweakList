@@ -3480,7 +3480,6 @@ function Install-Voukoder {
         ) | Where-Object {Test-path $_} |
 
         Get-ItemProperty |  Where-Object Publisher -eq 'Daniel Stankewitz' |
-            Sort-Object DisplayName |
                 Select-Object -Property @{n='Name';     e='DisplayName'   },
                                         @{n='Version';  e='DisplayVersion'},
                                         @{n='UninstallString'; e='UninstallString'}
@@ -3499,7 +3498,7 @@ function Install-Voukoder {
         [Version]$LatestCoreVersion = $tag
 
         $Core = Get-VoukoderProgram -Name "Voukoder*" -ErrorAction Ignore | # Find all programs starting with Voukoder
-            Where-Object Name -NotLike "*Connector*" # Exclude connectors
+            Where-Object Name -NotLike "*Connector*" | Where-Object Name -NotLike "*Pro*" # Exclude connectors and Voukoder Pro
 
         if ($Core){
 
@@ -3595,7 +3594,11 @@ function Install-Voukoder {
                 $msiPath = "$env:TMP\Voukoder Connector-$Key.msi"
                 curl.exe -# -L $Connectors.$Key -o"$msiPath"
                 Write-Verbose "Installing $msiPath at $InnoFlag=$NLEDir" -Verbose
-                msiexec /i "$msiPath" /qb "$InnoFlag=`"$NLEDir`""
+                cmd /c "msiexec /i `"$msiPath`" /qb $InnoFlag=`"$NLEDir`" /log `"$env:TEMP\Voukoder $InnoFlag.txt`""
+                # msiexec /i "$msiPath" /qb "$InnoFlag=`"$NLEDir`""
+                if ($LASTEXITCODE){
+                    Installer returned with error code $LASTEXITCODE
+                }
             }
 
             $CurrentConnector = (Get-VoukoderProgram -Name $PackageName)
@@ -3694,31 +3697,28 @@ function Install-Voukoder {
 
     $VegasTemplates = @(
 
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904873517106/HEVC_NVENC_Upscale.sft2'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599905175502929/HEVC_NVENC.sft2'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904609288255/HEVC_NVENC__Upscale.sft2'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039599904353419284/H264_NVENC.sft2'
-        'https://cdn.discordapp.com/attachments/969870701798522901/972541639346225264/x265_Upscale.sft2'
-        'https://cdn.discordapp.com/attachments/969870701798522901/972541639560163348/x265.sft2'
-        'https://cdn.discordapp.com/attachments/969870701798522901/972541638943596574/x264_Upscale.sft2'
-        'https://cdn.discordapp.com/attachments/969870701798522901/972541639128129576/x264.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638578667540/HEVC_NVENC_Upscale.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638733885470/HEVC_NVENC.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541639744688198/H264_NVENC_Upscale.sft2'
-        # 'https://cdn.discordapp.com/attachments/969870701798522901/972541638356389918/H264_NVENC.sft2'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/vegas-voukoder-presets/HEVC_NVENC_Upscale.sft2'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/vegas-voukoder-presets/HEVC_NVENC.sft2'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/vegas-voukoder-presets/HEVC_NVENC__Upscale.sft2'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/vegas-voukoder-presets/H264_NVENC.sft2'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/vegas-voukoder-presets/x265_Upscale.sft2'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/vegas-voukoder-presets/x265.sft2'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/vegas-voukoder-presets/x264_Upscale.sft2'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/vegas-voukoder-presets/x264.sft2'
+
         ) | ForEach-Object {
         [Ordered]@{($_ | File2Display) = $_}
     }
 
     $PremiereTemplates = @(
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690025369690/HEVC_NVENC__Upscale.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690369298432/HEVC_NVENC.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691992498218/H264_NVENC__Upscale.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609692277706902/H264_NVENC.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690688061490/x264__Upscale.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609690964893706/x264.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691380125827/x265__Upscale.epr'
-        'https://cdn.discordapp.com/attachments/1039599872703213648/1039609691682111548/x265.epr'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/premiere-voukoder-presets/HEVC_NVENC__Upscale.epr'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/premiere-voukoder-presets/HEVC_NVENC.epr'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/premiere-voukoder-presets/H264_NVENC__Upscale.epr'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/premiere-voukoder-presets/H264_NVENC.epr'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/premiere-voukoder-presets/x264__Upscale.epr'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/premiere-voukoder-presets/x264.epr'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/premiere-voukoder-presets/x265__Upscale.epr'
+        'https://github.com/couleur-tweak-tips/TweakList/releases/download/premiere-voukoder-presets/x265.epr'
     ) | ForEach-Object {
         [Ordered]@{($_ | File2Display) = $_}
     }
@@ -3777,7 +3777,7 @@ function Install-Voukoder {
             if (-Not(Test-Path ($TPDir = "$env:TMP\AE_Templates"))){
                 New-Item -ItemType Directory -Path $TPDir -Force | Out-Null
             }
-            curl.exe -# -sSL https://cdn.discordapp.com/attachments/1039599872703213648/1039614649638858772/CTT_AE_VOUKODER_TEMPLATES.aom -o"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom"
+            curl.exe -# -sSL https://github.com/couleur-tweak-tips/TweakList/releases/download/after-effects-voukoder-presets/CTT_AE_VOUKODER_TEMPLATES.aom -o"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom"
 
             Start-Process -FilePath explorer.exe -ArgumentList "/select,`"$TPDir\CTT_AE_VOUKODER_TEMPLATES.aom`""
             $Tutorial = 'https://i.imgur.com/XCaJGoV.mp4'
