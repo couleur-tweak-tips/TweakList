@@ -1,12 +1,28 @@
-[
-  {
-    "Path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
-    "Parameters": [
-      {
-        "Name": "Settings",
-        "Required": "false",
-        "Type": "Array",
-        "KeyValues": {
+{
+  "Optimize-LunarClient": {
+    "path": "/modules/Game & Program tuners/Optimize-LunarClient.ps1",
+    "description": "Tunes a selected Lunar Client profile to your liking, it has some good defaults everyone should have (no numbers in scoreboard, modern keybind handling, no achievements, transparent texture packs section, borderless fullscreen..)",
+    "Display Name": "Optimize Lunar Client",
+    "Platform": "Linux; Windows",
+    "Category": "Optimizations",
+    "Depends": "Write-Diff; Merge-HashTables",
+    "display": "Optimize LunarClient",
+    "parameters": {
+      "LazyChunkLoadSpeed": {
+        "values": [
+          "highest",
+          "high",
+          "medium",
+          "low",
+          "lowest",
+          "off_van"
+        ],
+        "default": "low",
+        "type": "enum"
+      },
+      "Settings": {
+        "description": "Specify which specific tweak you'd like applying on your profile",
+        "values": {
           "Performance": "Turn off performance-hungry settings",
           "NoCosmetics": "Disable all emotes, cosmetics, wings, hats..",
           "MinimalViewBobbing": "Keep item movement but disable walk bobbing",
@@ -16,69 +32,65 @@
           "DisableUHCMods": "Disables ArmorHUD, DirectionHUD and Coordinates mods",
           "FullBright": "literally night vision"
         },
-        "Description": "Specify which specific tweak you'd like applying on your profile",
-        "ValidateSet": [
-          "Performance",
-          "NoCosmetics",
-          "MinimalViewBobbing",
-          "No16xSaturationOverlay",
-          "HideToggleSprint",
-          "ToggleSneak",
-          "DisableUHCMods",
-          "FullBright",
-          "CouleursPreset"
-        ]
+        "type": "enum[]"
+      },
+      "LCDirectory": {
+        "default": "\"$HOME\\.lunarclient\"",
+        "type": "String"
+      },
+      "NoBetaWarning": {
+        "default": "False",
+        "type": "boolean"
+      },
+      "KeepLCOpen": {
+        "default": "False",
+        "type": "boolean"
+      },
+      "DryRun": {
+        "default": "False",
+        "type": "boolean"
       }
-    ],
-    "Name": "Optimize-LunarClient",
-    "Description": "Tunes a selected Lunar Client profile to your liking, it has some good defaults everyone should have (no numbers in scoreboard, modern keybind handling, no achievements, transparent texture packs section, borderless fullscreen..)",
-    "Display Name": "Optimize Lunar Client",
-    "Platform": [
-      "Linux",
-      "Windows"
-    ],
-    "Category": "Optimizations",
-    "Depends": [
-      "Write-Diff",
-      "Merge-HashTables"
-    ]
+    }
   },
-  {
-    "Path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
-    "Parameters": [
-      {
-        "Name": "Encoder",
-        "Required": "false",
-        "Type": "String",
-        "KeyValues": {
+  "Optimize-OBS": {
+    "path": "/modules/Game & Program tuners/Optimize-OBS.ps1",
+    "description": "Tune your OBS for a specific usecase in the snap of a finger!",
+    "Display Name": "Optimize OBS",
+    "Platform": "Linux; Windows",
+    "Category": "Optimizations",
+    "display": "Optimize OBS",
+    "parameters": {
+      "Encoder": {
+        "description": "Which hardware type you wish to record with",
+        "values": {
           "NVENC": "NVIDIA's Fastest encoder, it lets you record in hundreds of FPS easily",
           "AMF": "AMD GPUs/Integrated GPUs encoder, not as good as NVENC but can still get out ~240FPS at most",
           "QuickSync": "Intel's GPU encoder, worst out of the three, note this is H264, not the new fancy but slow AV1",
           "x264": "Encoding using your CPU, slow but efficient, only use if necessary/you know what you're doing"
         },
-        "Description": "Which hardware type you wish to record with",
-        "ValidateSet": [
-          "x264",
-          "NVENC",
-          "AMF",
-          "QuickSync"
-        ]
+        "type": "enum"
       },
-      {
-        "Name": "OBS64Path",
-        "Required": "false",
-        "Type": "String",
-        "KeyValues": {},
-        "Description": "If you've got a portable install or something, pass in the main OBS binary's path here"
+      "OBS64Path": {
+        "description": "If you've got a portable install or something, pass in the main OBS binary's path here",
+        "type": "String"
+      },
+      "Preset": {
+        "values": [
+          "HighPerformance"
+        ],
+        "default": "HighPerformance",
+        "type": "enum"
+      },
+      "MiscTweaks": {
+        "values": [
+          "EnableStatsDock",
+          "OldDarkTheme"
+        ],
+        "type": "enum[]"
+      },
+      "OBSProfile": {
+        "type": "String"
       }
-    ],
-    "Name": "Optimize-OBS",
-    "Description": "Tune your OBS for a specific usecase in the snap of a finger!",
-    "Display Name": "Optimize OBS",
-    "Platform": [
-      "Linux",
-      "Windows"
-    ],
-    "Category": "Optimizations"
+    }
   }
-]
+}

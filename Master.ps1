@@ -3196,6 +3196,1219 @@ tl ui opens the UI
 
 "@
 }
+function 4K-Notifier {
+    param(
+        [Parameter(Mandatory)]
+        [String]$Video,
+        [int]$Timeout = 30
+    )
+    if (!$Video){
+        $Video = Read-Host "Pleaste paste in the URL of the video you'd like to wait for until it hits 4K"
+    }
+if (Get-Command yt-dlp -Ea 0){
+    $ytdl = (Get-Command yt-dlp).Source
+}elseif(Get-Command youtube-dl -Ea 0){
+    $ytdl = (Get-Command youtube-dl).Source
+}else{
+    return @"
+Nor YouTube-DL or yt-dlp are installed or added to the path, please run the following command to install it:
+iex(irm tl.ctt.cx);Get-ScoopApp main/yt-dlp
+"@
+}
+''
+$Finished = $null
+$Attempt = 0
+While (!$Finished){
+    $Attempt++
+    $Response = & $ytdl -F $Video
+    if ($Response | Where-Object {$PSItem -Like "*3840x2160*"}){
+        $Finished = $True
+    }else{
+        Write-Host "`rYour video has not been encoded to 4K, trying again (attempt no.$attempt) in $Timeout seconds.." -NoNewLine 
+        Start-Sleep -Seconds $Timeout
+        Write-Host "`rTrying again..                                                       " -NoNewLine -ForegroundColor Red
+        continue
+    }
+}
+Set-Clipboard -Value $Video
+Write-Host @"
+
+YouTubed finished processing your video, it's URL has been copied to your clipboard:
+$Video
+"@ -ForegroundColor Green
+1..3 | ForEach-Object{
+    [Console]::Beep(500,300)
+    Start-Sleep -Milliseconds 100
+}
+}
+
+function Moony2 {
+    param(
+        [Switch]$NoIntro,
+        [Int]$McProcessID
+    )
+    $LaunchParameters = @{} # Fresh hashtable that will be splat with Start-Process
+
+    if (!$NoIntro){
+    Write-Host @'
+If you're used to the original Moony, this works a little differently,
+
+What you just runned lets you create a batchfile from your current running game
+that you can launch via a single click or even faster: via Run (Windows +R)
+
+Please launch your Minecraft (any client/version) and press ENTER on your keyboard
+once you're ready for it to create the batchfile
+'@
+    Pause
+    }
+
+    # java? is regex for either java or javaw
+    if (-Not(Get-Process java?)){
+        Write-Host "There was no processes with the name java or javaw"
+        pause
+        Moony -NoIntro
+        return
+    }else{
+        $ProcList = Get-Process -Name java?
+        if ($ProcList[1]){ # If $Procs isn't the only running java process
+                $Selected = Menu $ProcList.MainWindowTitle
+                $Proc = Get-Process | Where-Object {$_.MainWindowTitle -eq ($Selected)} # Crappy passthru
+                if ($Proc[1]){ # unlikely but w/e gotta handle it
+                    Write-Host "Sorry my code is bad and you have multiple processes with the name $($Proc.MainWindowTitle), GG!"
+                }
+        }else{$Proc = $ProcList} # lmk if theres a smarter way
+    }
+    $WinProcess = Get-CimInstance -ClassName Win32_Process | Where-Object ProcessId -eq $Proc.Id
+    $JRE = $WinProcess.ExecutablePath
+    $Arguments = $WinProcess.CommandLine.Replace($WinProcess.ExecutablePath,'')
+    if (Test-Path "$HOME\.lunarclient\offline\multiver"){
+        $WorkingDirectory = "$HOME\.lunarclient\offline\multiver"
+
+    }else{
+            # This cumbersome parse has been split in 3 lines, it just gets the right version from the args
+        $PlayedVersion = $Arguments.split(' ') |
+        Where-Object {$PSItem -Like "1.*"} |
+        Where-Object {$PSITem -NotLike "1.*.*"} |
+        Select-Object -Last 1
+        $WorkingDirectory = "$HOME\.lunarclient\offline\$PlayedVersion"
+    }
+    if ($Arguments -NotLike "* -server *"){
+        Write-Host @"
+Would you like this script to join a specific server right after it launches?
+
+If so, type the IP, otherwise just leave it blank and press ENTER
+"@  
+        $ServerIP = Read-Host "Server IP"
+        if ($ServerIP -NotIn '',$null){
+            $Arguments += " -server $ServerIP"
+        }
+    }
+
+    $InstanceName = Read-Host "Give a name to your Lunar Client instance, I recommend making it short without spaces"
+    if ($InstanceName -Like "* *"){
+        $InstanceName = Read-Host "Since there's a space in your name, you won't be able to call it from Run (Windows+R), type it again if you are sure"
+    }
+
+    Set-Content "$env:LOCALAPPDATA\Microsoft\WindowsApps\$InstanceName.cmd" @"
+@echo off
+cd /D "$WorkingDirectory"
+start "$JRE" $Arguments
+if %ERRORLEVEL% == 0 (exit) else (pause)
+"@
+    Write-Host "Your $InstanceName instance should be good to go, try typing it's name in the Run window (Windows+R)" -ForegroundColor Green
+    return
+
+}
+<#
+
+List of commonly used Appx packages:
+
+Windows.PrintDialog
+Microsoft.WindowsCalculator
+Microsoft.ZuneVideo
+Microsoft.Windows.Photos
+
+I did not add them, but you can opt in by calling the function, e.g:
+
+    Remove-KnownAppxPackages -Add @('Windows.PrintDialog','Microsoft.WindowsCalculator')
+
+Don't forget to surround them by a ' so PowerShell considers them as a string
+
+#>
+
+function Remove-KnownAppxPackages ([array]$Add,[array]$Exclude) {
+
+    $AppxPackages = @(
+        "Microsoft.Windows.NarratorQuickStart"
+        "Microsoft.Wallet"
+        "3DBuilder"
+        "Microsoft.Microsoft3DViewer"
+        "WindowsAlarms"
+        "BingSports"
+        "WindowsCommunicationsapps"
+        "WindowsCamera"
+        "Feedback"
+        "Microsoft.GetHelp"
+        "GetStarted"
+        "ZuneMusic"
+        "WindowsMaps"
+        "Microsoft.Messaging"
+        "Microsoft.MixedReality.Portal"
+        "Microsoft.OneConnect"
+        "BingFinance"
+        "Microsoft.MSPaint"
+        "People"
+        "WindowsPhone"
+        "Microsoft.YourPhone"
+        "Microsoft.Print3D"
+        "Microsoft.ScreenSketch"
+        "Microsoft.MicrosoftStickyNotes"
+        "SoundRecorder"
+        
+        ) | Where-Object { $_ -notin $Exclude }
+
+        $AppxPackages += $Add # Appends the Appx packages given by the user (if any)
+
+        if (-Not($KeepXboxPackages)){
+            $AppxPackages += @(
+                "XboxApp"
+                "Microsoft.XboxGameOverlay"
+                "Microsoft.XboxGamingOverlay"
+                "Microsoft.XboxSpeechToTextOverlay"
+                "Microsoft.XboxIdentityProvider"
+                "Microsoft.XboxGameCallableUI"
+            )
+        }
+
+
+        ForEach ($Package in $AppxPackages){
+        
+        if ($PSVersionTable.PSEdition -eq 'Core'){ # Newer PowerShell versions don't have Appx cmdlets, manually calling PowerShell to 
+        
+            powershell.exe -command "Get-AppxPackage `"*$Package*`" | Remove-AppxPackage"
+        
+        }else{
+            Get-AppxPackage "*$Package*" | Remove-AppxPackage
+        }
+        
+        }
+
+}
+
+
+function Remove-UselessFiles {
+    
+    @(
+        "$env:TEMP"
+        "$env:WINDIR\TEMP"
+        "$env:HOMEDRIVE\TEMP"
+    ) | ForEach-Object { Remove-Item (Convert-Path $_\*) -Force -ErrorAction SilentlyContinue }
+
+}
+function Set-PowerPlan {
+    param (
+        [string]$URL,
+        [switch]$Ultimate
+        )
+
+    if ($Ultimate){
+        powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
+        powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61
+    }elseif($URL){
+        if ($URL -Like "http*://cdn.discordapp.com/attachments/*.pow"){
+            $DotPow = "$env:TMP\{0}" -f (Split-Path $URL -Leaf)
+        }else{
+            $DotPow = "$env:TMP\Powerplan $(Get-Random).pow"
+        }
+        Invoke-WebRequest -Uri $PowURL -OutFile $DotPow
+        powercfg -duplicatescheme $DotPow
+        powercfg /s $DotPow
+    }
+}
+
+function Set-Win32PrioritySeparation {
+    param(
+        [int]$DWord
+    )
+
+    $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
+    $current = (Get-ItemProperty $Path).Win32PrioritySeparation
+
+    Set-ItemProperty -Path ($Path).Win32PrioritySeparation -Value $Value -Type DWord -Force -ErrorAction Inquire
+
+    Write-Verbose "Set-Win32ProritySeparation: Changed from $current to $((Get-ItemProperty $Path).Win32PrioritySeparation)"
+
+}
+
+
+function CB-CleanTaskbar {
+	if (-Not(Get-Module -Name "Sophia Script (TL)" -Ea 0)){
+		Import-Sophia
+	}
+	CortanaButton -Hide
+	PeopleTaskbar -Hide
+	TaskBarSearch -Hide
+	TaskViewButton -Hide
+	UnpinTaskbarShortcuts Edge, Store, Mail
+
+	# Remove "Meet now" from the taskbar, s/o privacy.sexy
+	Set-ItemProperty -Path "Registry::HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "HideSCAMeetNow" -Value 1
+}
+function Remove-DesktopShortcuts {
+    param(
+        [Switch]$ConfirmEach
+    )
+    
+    if($ConfirmEach){
+        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
+    }else{
+        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item
+    }
+}
+
+function Optimize-Bedrock {
+    [alias('optmcbe')]
+    [CmdletBinding()]
+    param(
+        [ValidateScript({
+                Test-Path $_ -PathType Leaf
+            })]
+        [String]$options = "$env:localappdata\Packages\Microsoft.MinecraftUWP_8wekyb3d8bbwe\LocalState\games\com.mojang\minecraftpe\options.txt",
+
+
+        [ValidateSet('Low', 'High', 'ashanksupercool')]
+        $Preset = "High",
+
+        $Presets = @{
+
+            High = @{
+                gfx_viewdistance           = 256
+                gfx_particleviewdistance   = 1
+                gfx_viewbobbing            = 1
+                gfx_fancygraphics          = 1
+                gfx_transparentleaves      = 1
+                gfx_smoothlighting         = 1
+                gfx_fancyskies             = 1
+                gfx_msaa                   = 4
+                gfx_texel_aa_2             = 0
+                gfx_multithreaded_renderer = 1
+                gfx_vsync                  = 0
+            } 
+        
+            Low = @{
+                gfx_viewdistance           = 160
+                gfx_particleviewdistance   = 0
+                gfx_viewbobbing            = 0
+                gfx_fancygraphics          = 0
+                gfx_transparentleaves      = 0
+                gfx_smoothlighting         = 0
+                gfx_fancyskies             = 0
+                gfx_msaa                   = 1
+                gfx_texel_aa_2             = 0
+                gfx_multithreaded_renderer = 1
+                gfx_vsync                  = 0
+            }
+            ashanksupercool = @{
+                gfx_viewdistance                                 = 256
+                gfx_particleviewdistance                         = 1
+                gfx_viewbobbing                                  = 1
+                gfx_fancygraphics                                = 0
+                gfx_transparentleaves                            = 1
+                gfx_vr_transparentleaves                         = 0
+                gfx_smoothlighting                               = 1
+                gfx_vr_smoothlighting                            = 0
+                gfx_fancyskies                                   = 0
+                gfx_field_of_view                                = 81.2
+                gfx_msaa                                         = 1
+                gfx_gamma                                        = 1
+                gfx_multithreaded_renderer                       = 1
+                gfx_vsync                                        = 0
+                dev_file_watcher                                 = 1
+                audio_music                                      = 0
+                gfx_hidepaperdoll                                = 1
+                dev_enable_texture_hot_reloader                  = 1
+                do_not_show_multiplayer_online_safety_warning    = 1
+                only_show_trusted_skins                          = 0
+                camera_shake                                     = 0
+                gfx_resizableui                                  = 0
+                gfx_hotbarScale                                  = 1
+                'keyboard_type_0_key.pickItem'                   = 75
+                'keyboard_type_0_key.hotbar.1'                   = 49
+                'keyboard_type_0_key.hotbar.2'                   = 50
+                'keyboard_type_0_key.hotbar.3'                   = 51
+                'keyboard_type_0_key.hotbar.4'                   = 52
+                'keyboard_type_0_key.hotbar.5'                   = 82
+                'keyboard_type_0_key.hotbar.6'                   = 70
+                'keyboard_type_0_key.hotbar.7'                   = 86
+                'keyboard_type_0_key.hotbar.8'                   = 90
+                'keyboard_type_0_key.hotbar.9'                   = '- 97'
+                'keyboard_type_0_key.inventory'                  = 69
+                'keyboard_type_0_key.togglePerspective'          = 53
+                'keyboard_type_0_key.jump'                       = 32
+                'keyboard_type_0_key.sneak'                      = 16
+                'keyboard_type_0_key.sprint'                     = 17
+                'keyboard_type_0_key.left'                       = 65
+                'keyboard_type_0_key.right'                      = 68
+                'keyboard_type_0_key.back'                       = 83
+                'keyboard_type_0_key.forward'                    = 87
+                'keyboard_type_0_key.mobEffects'                 = 88
+                'keyboard_type_0_key.chat'                       = 13
+                'keyboard_type_0_key.emote'                      = 0
+            }
+        }
+    )
+
+    Write-Host "Optimize Minecraft bedrock with $Preset"
+
+    $optionsTable = (Get-Content $options) -Replace ':', '=' | ConvertFrom-StringData
+    Write-Verbose ($optionsTable | ConvertTo-Json -Depth 3)
+
+    $optionsTable = Merge-Hashtables -Original $optionsTable -Patch $Presets.$Preset
+    Write-Verbose ($optionsTable | ConvertTo-Json -Depth 3)
+    
+    Set-Content $options -Value (ConvertTo-MCSetting $optionsTable) -Force
+}
+
+function Optimize-LunarClient {
+    <#
+    .SYNOPSIS
+    Display Name: Optimize Lunar Client
+    Platform: Linux; Windows
+    Category: Optimizations
+    Depends: Write-Diff; Merge-HashTables
+
+    .DESCRIPTION
+    Tunes a selected Lunar Client profile to your liking, it has some good defaults everyone should have (no numbers in scoreboard, modern keybind handling, no achievements, transparent texture packs section, borderless fullscreen..)
+
+    .PARAMETER Settings
+    Specify which specific tweak you'd like applying on your profile
+    Performance: Turn off performance-hungry settings
+    NoCosmetics: Disable all emotes, cosmetics, wings, hats..
+    MinimalViewBobbing: Keep item movement but disable walk bobbing
+    No16xSaturationOverlay: Remove the yellow 16x hunger bar overlay
+    HideToggleSprint: Hides the ToggleSprint status from HUD
+    ToggleSneak: Turns on ToggleSneak
+    DisableUHCMods: Disables ArmorHUD, DirectionHUD and Coordinates mods
+    FullBright: literally night vision    
+    #>
+    [alias('optlc')]
+    param(
+
+        #//[HelpMessage("Set your lazy chunk load speed")]
+        [ValidateSet(
+            'highest',  
+            'high',     
+            'medium',   
+            'low',      
+            'lowest',   
+            'off_van'   
+            )]
+        [String]$LazyChunkLoadSpeed = 'low',
+
+        [ValidateSet(
+            'Performance',
+            'NoCosmetics',
+            'MinimalViewBobbing',
+            'No16xSaturationOverlay',
+            'HideToggleSprint',
+            'ToggleSneak',
+            'DisableUHCMods',
+            'FullBright',
+            'CouleursPreset'    
+        )]
+        #// Gotta be put twice because mf cant handle variables in validate sets
+        [Array]$Settings = (Invoke-Checkbox -Title "Select tweaks to apply" -Items @(
+            'Performance'
+            'NoCosmetics'
+            'MinimalViewBobbing'
+            'No16xSaturationOverlay'
+            'HideToggleSprint'
+            'ToggleSneak'
+            'DisableUHCMods'
+            'FullBright'
+            'CouleursPreset'
+        )),
+       
+        [String]
+        $LCDirectory = "$HOME\.lunarclient",
+
+        [Switch]$NoBetaWarning,
+        [Switch]$KeepLCOpen,
+        [Switch]$DryRun
+
+        #//TODO: [Array]$Misc HideFoliage, NoEntityShadow, LCNametags, Clearglass, NoBackground, NoHypixelMods
+    )
+    
+    if (-Not(Test-Path $LCDirectory)){
+        Write-Host "Lunar Client's directory ($HOME\.lunarclient) does not exist (for the turbonerds reading this you can overwrite that with -LCDirectory"
+    }
+    if (!$NoBetaWarning){
+        Write-Warning "This script may corrupt your Lunar Client profiles, continue at your own risk,`nyou're probably safer if you copy the folder located at $(Convert-Path $HOME\.lunarclient\settings\game)"
+        pause
+    }
+    if (!$KeepLCOpen){
+        while ((Get-Process -Name java?).MainWindowTitle -Like "Lunar Client*"){
+            Write-Host "You must quit Lunar Client before running these optimizations (LC will overwrite them when it exits)" -ForegroundColor Red
+            pause
+        }
+    }else{
+        Write-Warning "You disabled the script from not running if Lunar Client is running, here be dragons!"
+        Start-Sleep -Milliseconds 500
+    }
+
+    if (!$LazyChunkLoadSpeed -and ('Performance' -in $Settings)){$LazyChunkLoadSpeed = 'low'}
+
+    $Manager = Get-Content "$LCDirectory\settings\game\profile_manager.json" -ErrorAction Stop | ConvertFrom-Json
+    
+    $Profiles = @{}
+    ForEach($Profile in $Manager){
+        $Profiles += @{ "$($Profile.DisplayName) ($($Profile.Name))" = $Profile}
+    }
+
+    Write-Host "Select a profile:"
+    $Selection = Menu @([Array[]]'Create a new profile' + [Array[]]$Profiles.Keys)
+    if ($Selection -in $Manager.name,$Manager.DisplayName){
+        if ($VerbosePreference -eq 'Continue'){
+            Write-Host "Error, Manager:`n`n" -ForegroundColor Red
+            Write-Host ($Manager | ConvertTo-Json)
+            return
+            
+        }
+        return "A profile with the same name already exists!"
+    }
+
+    if ($Selection -eq 'Create a new profile'){
+        
+        $ProfileName = Read-Host "Enter a name for the new profile"
+        New-Item -ItemType Directory -Path "$LCDirectory\settings\game\$ProfileName" -ErrorAction Stop | Out-Null
+        Push-Location "$LCDirectory\settings\game\$ProfileName"
+        ('general.json', 'mods.json', 'performance.json') | ForEach-Object {
+            if (-Not(Test-Path ./$_)){Add-Content ./$_ -Value '{}'} # Empty json file 
+        }
+        Pop-Location
+        $Selection = [PSCustomObject]@{
+
+            name = $ProfileName
+            displayName = $ProfileName
+            active = $False
+            default = $False
+            iconName = 'crossed-swords'
+            server = ''
+        }
+        $Manager += $Selection # Overwriting the string "Create a new profile" with the fresh one
+        Set-Content -Path "$LCDirectory\settings\game\profile_manager.json" -Value ($Manager | ConvertTo-Json -Compress -Depth 99)
+    }else{
+        $Selection = $Profiles.$Selection
+    }
+
+    $ProfileDir = "$LCDirectory\settings\game\$($Selection.name)"
+    ForEach($file in 'general','mods','performance'){ # Assigns $general, $mods and $performance variables
+        Set-Variable -Scope Global -Name $file -Value (Get-Content "$ProfileDir\$file.json" -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop)
+        if ($DryRun){
+        Write-Host $file -ForegroundColor Red
+        (Get-Variable -Name $file).Value | ConvertTo-Json
+        }
+    }
+    
+    $Presets = @{
+        All = @{
+            general = @{
+                shift_effects_bl         = $false
+                achievements_bl	         = $false
+                compact_menu_bl          = $true
+                modernKeybindHandling_bl = $true
+                borderless_fullscreen_bl = $true
+                trans_res_pack_menu_bg_bl = $true
+            }
+            mods = @{
+                chat = @{
+                    options = @{
+                        chat_bg_opacity_nr = "0.0"
+                    }
+                }
+                scoreboard = @{
+                    options = @{
+                        numbers_bl = $true
+                    }
+                }
+            }
+        }
+        CouleursPreset = @{
+            mods = @{
+                scoreboard = @{
+                    seen = $True
+                    x = 2 # Moves scoreboard 2 pixels to the right
+                }
+                potioneffects = @{
+                    seen = $True
+                    position = 'bottom_left'
+                    y = -246.5 # Middle left
+                }
+                saturation_hud_mod = @{
+                    seen = $True
+                    saturation_hud_mod_enabled_bl = $True
+                    position     = 'bottom_right' # Just right to the last hunger bar
+                    x            = -289
+                    y            = -37
+                    options = @{
+                        scale_nr          = 1.5 # Yellow
+                        text_clr_nr       = @{value=-171}
+                        background_clr_nr = @{value=0}
+                    }
+                }
+                zoom = @{
+                    seen = $True
+                    options = @{
+                        zoom_kblc         = 'KEY_X'
+                    }
+                }
+                bossbar = @{
+                    seen = $True
+                    bossbar_enabled_bl = $False
+                }
+            }
+        }
+        Performance = @{
+            general = @{
+                friend_online_status_bl	= $false
+            }
+            performance = @{
+                lazy_chunk_loading	= $LazyChunkLoadSpeed
+                ground_arrows_bl    = $false
+                stuck_arrows_bl     = $false
+                hide_skulls_bl      = $true
+                hide_foliage_bl     = $true
+            }
+        }
+        NoCosmetics = @{
+            general = @{
+                renderClothCloaks_bl         = $false
+                render_cosmetic_particles_bl = $false
+                backpack_bl                  = $false
+                dragon_wings_bl              = $false
+                pet_bl                       = $false
+                glasses_bl                   = $false
+                bandanna_bl                  = $false
+                mask_bl                      = $false
+                belts_bl                     = $false
+                neckwear_bl                  = $false
+                bodywear_bl                  = $false
+                hat_bl                       = $false
+                render_emotes_bl             = $false
+                render_emote_particles_bl    = $false
+                cloak_bl                     = $false
+                show_hat_above_helmet_bl     = $false
+                show_over_chestplate_bl      = $false
+                show_over_leggings_bl        = $false
+                show_over_boots_bl           = $false
+                scale_hat_with_skinlayer_bl  = $false
+            }
+        }
+        MinimalViewBobbing = @{
+            general = @{
+                minimal_viewbobbing_bl = $true
+            }
+        }
+        No16xSaturationOverlay = @{
+            mods = @{
+                saturation_mod = @{
+                    options = @{
+                        show_saturation_overlay_bl=$False
+                    }
+                }
+            }
+        }
+        HideToggleSprint = @{
+            mods = @{
+                toggleSneak = @{
+                     options = @{
+                         showHudText_bl = $false
+                     }
+                }
+            }
+        }
+        ToggleSneak = @{
+            mods = @{
+                toggleSneak = @{
+                    options = @{
+                        toggle_sneak_bl = $true
+                    }
+                }
+            }
+        }
+        DisableUHCMods = @{
+            mods = @{
+                waypoints = @{
+                    waypoints_enabled_bl = $false
+                }
+                directionhud = @{
+	                directionhud_enabled_bl = $false
+                }
+                coords = @{
+	                coords_enabled_bl = $false
+                }                
+                armorstatus = @{
+	                armorstatus_enabled_bl = $false
+                }
+            }
+        }
+        FullBright = @{
+            mods = @{
+                lighting = @{
+                    lighting_enabled_bl = $true
+                    options = @{
+                        full_bright_bl	= $true
+                    } 
+                }
+            }
+        }
+
+    }
+        # Whatever you do that's highly recommended :+1:
+    $general = Merge-Hashtables -Original $general -Patch $Presets.All.general
+    $mods = Merge-Hashtables -Original $mods -Patch $Presets.All.mods
+    Write-Diff "recommended settings (compact mods, fast chat).." -Positivity $True -Term "Setting up"
+
+    if ('Performance' -in $Settings){
+        $general = Merge-Hashtables -Original $general -Patch $Presets.Performance.general
+        $performance = Merge-Hashtables -Original $performance -Patch $Presets.Performance.performance
+        Write-Diff -Message "notifications from LC friends getting on (causes massive FPS drop)"
+        Write-Diff -Positivity $True -Message "lazy chunk loading at speed $LazyChunkLoadSpeed"
+        Write-Diff -Message "ground arrows"
+        Write-Diff -Message "player/mob skulls"
+        Write-Diff -Message "foliage (normal/tall grass)"
+    }
+    if ('NoCosmetics' -in $Settings){
+        $general = Merge-Hashtables -Original $general -Patch $Presets.NoCosmetics.general
+        ForEach($CosmeticRemoved in @(
+            "cloth cloaks" 
+            "cosmetic particles" 
+            "backpacks" 
+            "pets"
+            "dragon wings"
+            "bandannas"
+            "masks"
+            "belts"
+            "neckwears"
+            "bodywears"
+            "hats"
+            "emotes rendering"
+            "emote particles rendering"
+            "cloaks"
+        )){
+            Write-Diff -Message $CosmeticRemoved -Term "Disabled"
+        }
+
+    }
+    if ('MinimalViewBobbing' -in $Settings){
+        $general = Merge-Hashtables -Original $general -Patch $Presets.MinimalViewBobbing.general
+        Write-Diff -Positivity $True -Message "minimal view bobbing"
+    }
+    if ('No16xSaturationOverlay' -in $Settings){
+        $mods = Merge-Hashtables -Original $mods -Patch $Presets.No16xSaturationOverlay.mods
+        Write-Diff -Positivity $False -Message "16x saturation hunger bar overlay"
+    }
+    if ('HideToggleSprint' -in $Settings){
+        $mods = Merge-Hashtables -Original $mods -Patch $Presets.HideToggleSprint.mods
+        Write-Diff -Positivity $False -Term "Hid" -Message "ToggleSprint HUD"
+    }
+    if ('ToggleSneak' -in $Settings){
+        $mods = Merge-Hashtables -Original $mods $Presets.ToggleSneak.mods
+        Write-Diff -Positivity $True -Message "ToggleSneak"
+    }
+    if ('DisableUHCMods' -in $Settings){
+        $mods = Merge-Hashtables -Original $mods -Patch $Presets.DisableUHCMods.mods
+        Write-Diff -Positivity $False -Term "Disabled" -Message "Waypoints mod"
+        Write-Diff -Positivity $False -Term "Disabled" -Message "DirectionHUD mod"
+        Write-Diff -Positivity $False -Term "Disabled" -Message "Coordinates mod"
+        Write-Diff -Positivity $False -Term "Disabled" -Message "ArmorStatus mod"
+    }
+    if ('FullBright' -in $Settings){
+        $mods = Merge-Hashtables -Original $mods -Patch $Presets.FullBright.mods
+        Write-Diff -Term "Added" -Positivity $true -Message "Fullbright (disable shaders before restarting)"
+    }
+    if ('CouleursPreset' -in $Settings){
+        $mods = Merge-Hashtables -Original $mods -Patch $Presets.CouleursPreset.mods
+    }
+
+    ForEach($file in 'general','mods','performance'){ # Assigns $general, $mods and $performance variables
+        if ($DryRun){
+            Write-Host $file -ForegroundColor Red
+            (Get-Variable -Name $file).Value
+        }else{
+            ConvertTo-Json -Depth 99 -Compress -InputObject (Get-Variable -Name $file).Value -ErrorAction Stop | Set-Content "$ProfileDir\$file.json" -ErrorAction Stop
+        }
+    }
+
+}
+function Optimize-OBS {
+    <#
+    .SYNOPSIS
+    Display Name: Optimize OBS
+    Platform: Linux; Windows
+    Category: Optimizations
+
+    .DESCRIPTION
+    Tune your OBS for a specific usecase in the snap of a finger!
+
+    .PARAMETER Encoder
+    Which hardware type you wish to record with
+    NVENC: NVIDIA's Fastest encoder, it lets you record in hundreds of FPS easily
+    AMF: AMD GPUs/Integrated GPUs encoder, not as good as NVENC but can still get out ~240FPS at most
+    QuickSync: Intel's GPU encoder, worst out of the three, note this is H264, not the new fancy but slow AV1
+    x264: Encoding using your CPU, slow but efficient, only use if necessary/you know what you're doing
+
+    .PARAMETER OBS64Path
+    If you've got a portable install or something, pass in the main OBS binary's path here
+
+    #>
+    [alias('optobs')]
+    param(
+        [ValidateSet('x264','NVENC','AMF','QuickSync')]
+        [String]$Encoder,
+        
+        [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
+        [String]$OBS64Path,
+
+        [ValidateSet('HighPerformance')]
+        [String]$Preset = 'HighPerformance',
+
+        [ValidateSet(
+            'EnableStatsDock', 'OldDarkTheme')]
+        [Array]$MiscTweaks = (Invoke-CheckBox -Title "Select misc tweaks to apply" -Items (
+            'EnableStatsDock', 'OldDarkTheme')),
+
+        [ValidateScript({ Test-Path -Path $_ -PathType Container })]
+        [String]$OBSProfile = $null
+    )
+
+    if (!$Encoder){
+        $Encoders = [Ordered]@{
+            "NVENC (NVIDIA GPUs)" = "NVENC"
+            "AMF (AMD GPUs)" = "AMF"
+            "QuickSync (Intel iGPUs)" = "QuickSync"
+            "x264 (CPU)" = "x264"
+        }
+        Write-Host "Select what OBS will use to record (use arrow keys and press ENTER to confirm)"
+        $Key = Menu ([Collections.ArrayList]$Encoders.Keys)
+        $Encoder = $Encoders.$Key
+    }
+
+    $OBSPatches = @{
+        HighPerformance = @{
+            NVENC = @{
+                basic = @{
+                    AdvOut = @{
+                        RecEncoder = 'jim_nvenc'
+                    }
+                }
+                recordEncoder = @{
+                    bf=0
+                    cqp=18
+                    multipass='disabled'
+                    preset2='p2'
+                    profile='main'
+                    psycho_aq='false'
+                    rate_control='CQP'
+                }
+            }
+            AMF = @{
+                Basic = @{
+                    ADVOut = @{
+                        RecQuality='Small'
+                        RecEncoder='h265_texture_amf'
+                        FFOutputToFile='true'
+                    }
+                }
+                recordEncoder = @{
+                    'cqp' = 20
+                    preset = 'speed'
+                    rate_control = 'CQP'
+                    ffmpeg_opts = "MaxNumRefFrames=4 HighMotionQualityBoostEnable=1"
+                }
+            }
+            QuickSync = @{
+
+                basic = @{
+                    AdvOut = @{
+                        RecEncoder = 'obs_qsv11'
+                    }
+                }
+                recordEncoder = @{
+                    enhancements = 'false'
+                    target_usage = 'speed'
+                    bframes = 0
+                    rate_control = 'ICQ'
+                    bitrate = 16500
+                    icq_quality = 18
+                    keyint_sec = 2
+                }
+                
+            }
+            x264 = @{
+                basic = @{
+                    ADVOut = @{
+                        RecEncoder='obs_x264'
+                    }
+                }
+                recordEncoder = @{
+                    crf=1
+                    keyint_sec=1
+                    preset='ultrafast'
+                    profile='high'
+                    rate_control='CRF'
+                    x264opts='qpmin=15 qpmax=15 ref=0 merange=4 direct=none weightp=0 no-chroma-me'
+                }
+            }
+        }
+    }
+
+    # Applies to all patches/presets
+    $Global = @{
+        basic = @{
+            Output = @{
+                RecType='Standard'
+                Mode='Advanced'
+            }
+            AdvOut = @{
+                RecRB='true'
+            }
+        }
+    }
+    $OBSPatches.$Preset.$Encoder = Merge-Hashtables $OBSPatches.$Preset.$Encoder $Global
+        # Merge with global, which will be added for all
+
+    if (!$OBSProfile){
+        Remove-Variable -Name OBSProfile
+        if (-Not($OBS64Path)){
+
+            $Parameters = @{
+                Path = @("$env:APPDATA\Microsoft\Windows\Start Menu","$env:ProgramData\Microsoft\Windows\Start Menu")
+                Recurse = $True
+                Include = 'OBS Studio*.lnk'
+            }
+            $StartMenu = Get-ChildItem @Parameters
+            
+            if (!$StartMenu){
+                if ((Get-Process obs64 -ErrorAction Ignore).Path){$OBS64Path = (Get-Process obs64).Path} # Won't work if OBS is ran as Admin
+                else{
+    return @'
+Your OBS installation could not be found, 
+please manually specify the path to your OBS64 executable, example:
+
+Optimize-OBS -OBS64Path "D:\obs\bin\64bit\obs64.exe"
+
+You can find it this way:             
+Search OBS -> Right click it
+Open file location in Explorer ->
+Open file location again if it's a shortcut ->
+Shift right click obs64.exe -> Copy as path
+'@
+                }
+            }
+            if ($StartMenu.Count -gt 1){
+
+                $Shortcuts = $null
+                $StartMenu = Get-Item $StartMenu
+                ForEach($Lnk in $StartMenu){$Shortcuts += @{$Lnk.BaseName = $Lnk.FullName}}
+                "There are multiple OBS shortcuts in your Start Menu folder. Please select one."
+                $ShortcutName = menu ($Shortcuts.Keys -Split [System.Environment]::NewLine)
+                $StartMenu = $Shortcuts.$ShortcutName
+                $OBS64Path = Get-ShortcutTarget $StartMenu
+            }else{
+                $OBS64Path = Get-ShortcutTarget $StartMenu
+            }
+
+        }
+
+        if (!$IsLinux -or !$IsMacOS){
+            [Version]$CurVer = (Get-Item $OBS64Path).VersionInfo.ProductVersion
+            if ($CurVer -lt [Version]"28.1.0"){
+                Write-Warning @"
+It is strongly advised you update OBS before continuing (for compatibility with new NVENC/AMD settings)
+
+Detected version: $CurVer
+obs64.exe path: $OBS64Path
+pause
+"@
+            }
+        }
+
+        Set-CompatibilitySettings $OBS64Path -RunAsAdmin
+
+        if (Resolve-Path "$OBS64Path\..\..\..\portable_mode.txt" -ErrorAction Ignore){ # "Portable Mode" makes OBS make the config in it's own folder, else it's in appdata
+
+            $ProfilesDir = (Resolve-Path "$OBS64Path\..\..\..\config\obs-studio\basic\profiles" -ErrorAction Stop)
+        }else{
+            $ProfilesDir = (Resolve-Path "$env:APPDATA\obs-studio\basic\profiles" -ErrorAction Stop)
+        }
+        $Profiles = Get-ChildItem $ProfilesDir
+
+        ForEach($OBSProfile in $Profiles){$ProfilesHash += @{$OBSProfile.Name = $OBSProfile.FullName}}
+
+        $ProfileNames = ($ProfilesHash.Keys -Split [System.Environment]::NewLine) + 'Create a new profile'
+        "Please select a profile (use arrow keys to navigate, ENTER to select)"
+        $OBSProfile = menu  $ProfileNames
+
+        if ($OBSProfile -eq 'Create a new profile'){
+            $NewProfileName = Read-Host "Enter a name for the new profile"
+            $OBSProfile = Join-Path $ProfilesDir $NewProfileName
+            New-Item -ItemType Directory -Path $OBSProfile -ErrorAction Stop
+            $DefaultWidth, $DefaultHeight = ((Get-CimInstance Win32_VideoController).VideoModeDescription.Split(' x ') | Where-Object {$_ -ne ''} | Select-Object -First 2)
+            if (!$DefaultWidth -or !$DefaultHeight){
+                $DefaultWidth = 1920
+                $DefaultHeight = 1080
+            }
+            Set-Content "$OBSProfile\basic.ini" -Value @"
+[General]
+Name=$NewProfileName
+
+[Video]
+BaseCX=$DefaultWidth
+BaseCY=$DefaultHeight
+OutputCX=$DefaultWidth
+OutputCY=$DefaultHeight
+"@
+            Write-Host "Created new profile '$NewProfileName' with default resolution of $DefaultWidth`x$DefaultHeight" -ForegroundColor DarkGray
+        }else{
+            $OBSProfile = $ProfilesHash.$OBSProfile
+        }
+    }
+    if ('basic.ini' -notin ((Get-ChildItem $OBSProfile).Name)){
+       return "FATAL: Profile $OBSProfile is incomplete (missing basic.ini)"
+    }
+    Write-Verbose "Tweaking profile $OBSProfile"
+    try {
+        $Basic = Get-IniContent "$OBSProfile\basic.ini" -ErrorAction Stop
+    } catch {
+        Write-Warning "Failed to get basic.ini from profile folder $OBSProfile"
+        $_
+        return
+    }
+    if ($Basic.Video.FPSType -ne 2){ # then switch to fractional FPS
+        $FPS=$Basic.Video.FPSCommon
+        $Basic.Video.FPSType = 2
+        $Basic.Video.FPSNum = 60
+        $Basic.Video.FPSDen = 1
+
+        Write-Warning "Your FPS is at the default (60), you can go in Settings -> Video to set it to a higher value"
+    }
+
+    $FPS = $Basic.Video.FPSNum/$Basic.Video.FPSDen
+    $Pixels = [int]$Basic.Video.BaseCX*[int]$Basic.Video.BaseCY
+
+    if (($Basic.AdvOut.RecTracks -NotIn '1','2') -And ($FPS -gt 120)){
+        Write-Warning "Using multiple audio tracks while recording at a high FPS may cause OBS to fail to stop recording"
+    }
+
+    if (!$Basic.Hotkeys.ReplayBuffer){
+        Write-Warning "Replay Buffer is enabled, but there's no hotkey to Save Replay, set it up in Settings -> Hotkeys"
+    }
+
+    $Basic = Merge-Hashtables -Original $Basic -Patch $OBSPatches.$Preset.$Encoder.basic -ErrorAction Stop
+    Out-IniFile -FilePath "$OBSProfile\basic.ini" -InputObject $Basic -Pretty -Force
+
+    if ($Basic.Video.BaseCX -and $Basic.Video.BaseCY -and $Basic.Video.OutputCX -and $Basic.Video.OutputCY){
+
+        $Base = "{0}x{1}" -f $Basic.Video.BaseCX,$Basic.Video.BaseCY
+        $Output = "{0}x{1}" -f $Basic.Video.OutputCX,$Basic.Video.OutputCY
+        if ($Base -Ne $Output){
+            Write-Warning "Your Base/Canvas resolution ($Base) is not the same as the Output/Scaled resolution ($Output),`nthis means OBS is scaling your video. This is not recommended."
+        }    
+    }
+    
+    $NoEncSettings = -Not(Test-Path "$OBSProfile\recordEncoder.json")
+    $EmptyEncSettings = (Get-Content "$OBSProfile\recordEncoder.json" -ErrorAction Ignore) -in '',$null
+
+    if ($NoEncSettings -or $EmptyEncSettings){
+        Set-Content -Path "$OBSProfile\recordEncoder.json" -Value '{}' -Force 
+    }
+    $RecordEncoder = Get-Content "$OBSProfile\recordEncoder.json" | ConvertFrom-Json -ErrorAction Stop
+
+    if (($Basic.Video.FPSNum/$Basic.Video.FPSDen -gt 480) -And ($Pixels -ge 2073600)){ # Set profile to baseline if recording at a high FPS and if res +> 2MP
+        $RecordEncoder.Profile = 'baseline'
+    }
+    $RecordEncoder = Merge-Hashtables -Original $RecordEncoder -Patch $OBSPatches.$Preset.$Encoder.recordEncoder -ErrorAction Stop
+    if ($Verbose){
+        ConvertTo-Yaml $Basic
+        ConvertTo-Yaml $RecordEncoder    
+    }
+    Set-Content -Path "$OBSProfile\recordEncoder.json" -Value (ConvertTo-Json -InputObject $RecordEncoder -Depth 100) -Force
+
+    if ($True -in [bool]$MiscTweaks){ # If there is anything in $MiscTweaks
+        $global = Get-Item (Join-Path ($OBSProfile | Split-Path | Split-Path | Split-Path) -ChildPath 'global.ini') -ErrorAction Stop
+        $glob = Get-IniContent -FilePath $global
+
+        if ('OldDarkTheme' -in $MiscTweaks){
+            $glob.General.CurrentTheme3 = 'Dark'
+        }
+
+        if ('OldDarkTheme' -in $MiscTweaks){
+
+            $glob.BasicWindow.geometry = 'AdnQywADAAAAAAe/////uwAADJ0AAAKCAAAHv////9oAAAydAAACggAAAAEAAAAACgAAAAe/////2gAADJ0AAAKC'
+            $glob.BasicWindow.DockState = 'AAAA/wAAAAD9AAAAAgAAAAAAAAJOAAABvPwCAAAAAfsAAAASAHMAdABhAHQAcwBEAG8AYwBrAQAAABYAAAG8AAAA5gD///8AAAADAAAE3wAAALr8AQAAAAX7AAAAFABzAGMAZQBuAGUAcwBEAG8AYwBrAQAAAAAAAAD4AAAAoAD////7AAAAFgBzAG8AdQByAGMAZQBzAEQAbwBjAGsBAAAA/AAAAPoAAACgAP////sAAAASAG0AaQB4AGUAcgBEAG8AYwBrAQAAAfoAAAFBAAAA3gD////7AAAAHgB0AHIAYQBuAHMAaQB0AGkAbwBuAHMARABvAGMAawEAAAM/AAAAtAAAAI4A////+wAAABgAYwBvAG4AdAByAG8AbABzAEQAbwBjAGsBAAAD9wAAAOgAAACeAP///wAAAo0AAAG8AAAABAAAAAQAAAAIAAAACPwAAAAA'
+        }
+
+        $glob | Out-IniFile -FilePath $global -Force
+    }
+    Write-Host "Finished patching OBS, yay! Please switch profiles or reload OBS to see changes" -ForegroundColor Green
+}
+function Optimize-OptiFine {
+    [alias('optof')]
+    param(
+        [ValidateSet('Smart','Lowest','CouleursPreset')]
+        [Parameter(Mandatory)]
+        $Preset,
+        [String]$CustomDirectory = (Join-path $env:APPDATA '.minecraft'),
+        [Switch]$MultiMC,
+        [Switch]$PolyMC,
+        [Switch]$GDLauncher
+    )
+
+if($MultiMC){
+    $CustomDirectory = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse | Where-Object Name -Like "MultiMC.lnk"
+    $CustomDirectory = Get-ShortcutPath $CustomDirectory
+    $Instances = Get-ChildItem (Join-Path (Split-Path $CustomDirectory) instances)
+    "Please select a MultiMC instance"
+    $CustomDirectory = menu (Get-ChildItem $Instances).Name
+    $CustomDirectory = Join-Path $Instances $CustomDirectory
+
+}elseif($PolyMC){
+    $Instances = Get-ChildItem "$env:APPDATA\PolyMC\instances"
+    "Please select a PolyMC instance"
+    $CustomDirectory = menu $Instances.Name
+    $CustomDirectory = Join-Path $Instances $CustomDirectory
+
+}elseif($GDLauncher){
+    $Instances = Get-ChildItem "$env:APPDATA\gdlauncher_next\instances"
+    "Please select a GDLauncher instance"
+    $CustomDirectory = menu $Instances.Name
+    $CustomDirectory = Join-Path $Instances $CustomDirectory
+
+}
+
+$Presets = @{
+
+    CouleursPresets = @{
+        options = @{
+            'key_key.hotbar.5' = 19
+            'key_key.hotbar.6' = 20
+            'key_key.hotbar.7' = 33
+            'key_key.hotbar.8' = 34
+            'key_key.hotbar.9' = 0
+            chatScale      = 0.8
+            chatWidth      = 0.65
+            guiScale       = 3
+            renderDistance = 7
+            maxFps         = 260
+            chatOpacity    = 0.25
+            enableVsync    = $False
+            pauseOnLostFocus = $False
+        }
+    }
+
+    Smart = @{
+        options = @{
+            renderDistance=5
+            mipmapLevels=4
+            ofAoLevel=1.0
+        }
+        optionsof = @{
+            ofMipmapType=3
+            ofCustomSky=$true
+        }
+    }
+
+    Lowest = @{
+        options = @{
+            gamma=1000000 # I've never tried anything else and this always worked
+            renderDistance=2
+            particles=2
+            fboEnable=$true
+            useVbo=$true
+            showInventoryAchievementHint=$false
+        }
+        optionsof = @{
+            ofAaLevel=0 # Anti-Aliasing
+            ofDynamicLights=3
+            ofChunkUpdates=1
+            ofAoLevel=0.0 # Smooth lighting
+            ofOcclusionFancy=$false
+            ofSmoothWorld=$true
+            ofClouds=3
+            ofTrees=1
+            ofDroppedItems=0
+            ofRain=3
+            ofAnimatedWater=2
+            ofAnimatedLava=2
+            ofAnimatedFire=$true
+            ofAnimatedPortal=$false
+            ofAnimatedRedstone=$false
+            ofAnimatedExplosion=$false
+            ofAnimatedFlame=$true
+            ofAnimatedSmoke=$false
+            ofVoidParticles=$false
+            ofWaterParticles=$false
+            ofPortalParticles=$false
+            ofPotionParticles=$false
+            ofFireworkParticles=$false
+            ofDrippingWaterLava=$false
+            ofAnimatedTerrain=$false
+            ofAnimatedTextures=$false
+            ofRainSplash=$false
+            ofSky=$false
+            ofStars=$false
+            ofSunMoon=$false
+            ofVignette=1
+            ofCustomSky=$false
+            ofShowCapes=$false
+            ofFastMath=$true
+            ofSmoothFps=$false
+            ofTranslucentBlocks=1
+        }
+    }
+}
+$Global = @{
+    optionsof = @{
+        ofFastRender=$true
+        ofClouds=3
+        ofAfLevel=1 # Anisotropic filtering
+        ofAaLevel=0 # Anti-aliasing
+        ofRainSplash=$false
+    }
+    options = @{
+        showInventoryAchievementHint=$false
+        maxFps=260
+        renderClouds=$false
+        useVbo=$true
+    }
+}
+$Presets.$Preset = Merge-Hashtables $Presets.$Preset $Global
+
+function ConvertTo-MCSetting ($table){
+
+    $file = @()
+    ForEach($setting in $table.keys){
+        $file += [String]$($setting + ':' + ($table.$setting)) -replace'True','true' -replace 'False','false'
+    }
+    return $file
+}
+
+foreach ($file in 'options','optionsof'){
+
+    $Hash = (Get-Content "$CustomDirectory\$file.txt") -Replace ':','=' | ConvertFrom-StringData
+    $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.$file
+    Set-Content "$CustomDirectory\$file.txt" -Value (ConvertTo-MCSetting $Hash) -Force
+}
+if (Test-Path "$CustomDirectory\optionsLC.txt"){
+    $Hash = (Get-Content "$CustomDirectory\optionsLC.txt") -Replace ',"maxFps":"260"','' | ConvertFrom-Json
+}
+$Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.optionsof
+$Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.options
+$Hash.maxFPS = 260
+Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force
+
+}
 function Get-GraalVM {
     param(
         [Switch]$Reinstall
@@ -4280,1218 +5493,5 @@ function Install-ZetaLoader {
     Write-Output "ZetaLoader has been installed."
 }
 
-<#
-
-List of commonly used Appx packages:
-
-Windows.PrintDialog
-Microsoft.WindowsCalculator
-Microsoft.ZuneVideo
-Microsoft.Windows.Photos
-
-I did not add them, but you can opt in by calling the function, e.g:
-
-    Remove-KnownAppxPackages -Add @('Windows.PrintDialog','Microsoft.WindowsCalculator')
-
-Don't forget to surround them by a ' so PowerShell considers them as a string
-
-#>
-
-function Remove-KnownAppxPackages ([array]$Add,[array]$Exclude) {
-
-    $AppxPackages = @(
-        "Microsoft.Windows.NarratorQuickStart"
-        "Microsoft.Wallet"
-        "3DBuilder"
-        "Microsoft.Microsoft3DViewer"
-        "WindowsAlarms"
-        "BingSports"
-        "WindowsCommunicationsapps"
-        "WindowsCamera"
-        "Feedback"
-        "Microsoft.GetHelp"
-        "GetStarted"
-        "ZuneMusic"
-        "WindowsMaps"
-        "Microsoft.Messaging"
-        "Microsoft.MixedReality.Portal"
-        "Microsoft.OneConnect"
-        "BingFinance"
-        "Microsoft.MSPaint"
-        "People"
-        "WindowsPhone"
-        "Microsoft.YourPhone"
-        "Microsoft.Print3D"
-        "Microsoft.ScreenSketch"
-        "Microsoft.MicrosoftStickyNotes"
-        "SoundRecorder"
-        
-        ) | Where-Object { $_ -notin $Exclude }
-
-        $AppxPackages += $Add # Appends the Appx packages given by the user (if any)
-
-        if (-Not($KeepXboxPackages)){
-            $AppxPackages += @(
-                "XboxApp"
-                "Microsoft.XboxGameOverlay"
-                "Microsoft.XboxGamingOverlay"
-                "Microsoft.XboxSpeechToTextOverlay"
-                "Microsoft.XboxIdentityProvider"
-                "Microsoft.XboxGameCallableUI"
-            )
-        }
-
-
-        ForEach ($Package in $AppxPackages){
-        
-        if ($PSVersionTable.PSEdition -eq 'Core'){ # Newer PowerShell versions don't have Appx cmdlets, manually calling PowerShell to 
-        
-            powershell.exe -command "Get-AppxPackage `"*$Package*`" | Remove-AppxPackage"
-        
-        }else{
-            Get-AppxPackage "*$Package*" | Remove-AppxPackage
-        }
-        
-        }
-
-}
-
-
-function Remove-UselessFiles {
-    
-    @(
-        "$env:TEMP"
-        "$env:WINDIR\TEMP"
-        "$env:HOMEDRIVE\TEMP"
-    ) | ForEach-Object { Remove-Item (Convert-Path $_\*) -Force -ErrorAction SilentlyContinue }
-
-}
-function Set-PowerPlan {
-    param (
-        [string]$URL,
-        [switch]$Ultimate
-        )
-
-    if ($Ultimate){
-        powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
-        powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61
-    }elseif($URL){
-        if ($URL -Like "http*://cdn.discordapp.com/attachments/*.pow"){
-            $DotPow = "$env:TMP\{0}" -f (Split-Path $URL -Leaf)
-        }else{
-            $DotPow = "$env:TMP\Powerplan $(Get-Random).pow"
-        }
-        Invoke-WebRequest -Uri $PowURL -OutFile $DotPow
-        powercfg -duplicatescheme $DotPow
-        powercfg /s $DotPow
-    }
-}
-
-function Set-Win32PrioritySeparation {
-    param(
-        [int]$DWord
-    )
-
-    $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
-    $current = (Get-ItemProperty $Path).Win32PrioritySeparation
-
-    Set-ItemProperty -Path ($Path).Win32PrioritySeparation -Value $Value -Type DWord -Force -ErrorAction Inquire
-
-    Write-Verbose "Set-Win32ProritySeparation: Changed from $current to $((Get-ItemProperty $Path).Win32PrioritySeparation)"
-
-}
-
-
-function Remove-DesktopShortcuts {
-    param(
-        [Switch]$ConfirmEach
-    )
-    
-    if($ConfirmEach){
-        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
-    }else{
-        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item
-    }
-}
-
-function Optimize-Bedrock {
-    [alias('optmcbe')]
-    [CmdletBinding()]
-    param(
-        [ValidateScript({
-                Test-Path $_ -PathType Leaf
-            })]
-        [String]$options = "$env:localappdata\Packages\Microsoft.MinecraftUWP_8wekyb3d8bbwe\LocalState\games\com.mojang\minecraftpe\options.txt",
-
-
-        [ValidateSet('Low', 'High', 'ashanksupercool')]
-        $Preset = "High",
-
-        $Presets = @{
-
-            High = @{
-                gfx_viewdistance           = 256
-                gfx_particleviewdistance   = 1
-                gfx_viewbobbing            = 1
-                gfx_fancygraphics          = 1
-                gfx_transparentleaves      = 1
-                gfx_smoothlighting         = 1
-                gfx_fancyskies             = 1
-                gfx_msaa                   = 4
-                gfx_texel_aa_2             = 0
-                gfx_multithreaded_renderer = 1
-                gfx_vsync                  = 0
-            } 
-        
-            Low = @{
-                gfx_viewdistance           = 160
-                gfx_particleviewdistance   = 0
-                gfx_viewbobbing            = 0
-                gfx_fancygraphics          = 0
-                gfx_transparentleaves      = 0
-                gfx_smoothlighting         = 0
-                gfx_fancyskies             = 0
-                gfx_msaa                   = 1
-                gfx_texel_aa_2             = 0
-                gfx_multithreaded_renderer = 1
-                gfx_vsync                  = 0
-            }
-            ashanksupercool = @{
-                gfx_viewdistance                                 = 256
-                gfx_particleviewdistance                         = 1
-                gfx_viewbobbing                                  = 1
-                gfx_fancygraphics                                = 0
-                gfx_transparentleaves                            = 1
-                gfx_vr_transparentleaves                         = 0
-                gfx_smoothlighting                               = 1
-                gfx_vr_smoothlighting                            = 0
-                gfx_fancyskies                                   = 0
-                gfx_field_of_view                                = 81.2
-                gfx_msaa                                         = 1
-                gfx_gamma                                        = 1
-                gfx_multithreaded_renderer                       = 1
-                gfx_vsync                                        = 0
-                dev_file_watcher                                 = 1
-                audio_music                                      = 0
-                gfx_hidepaperdoll                                = 1
-                dev_enable_texture_hot_reloader                  = 1
-                do_not_show_multiplayer_online_safety_warning    = 1
-                only_show_trusted_skins                          = 0
-                camera_shake                                     = 0
-                gfx_resizableui                                  = 0
-                gfx_hotbarScale                                  = 1
-                'keyboard_type_0_key.pickItem'                   = 75
-                'keyboard_type_0_key.hotbar.1'                   = 49
-                'keyboard_type_0_key.hotbar.2'                   = 50
-                'keyboard_type_0_key.hotbar.3'                   = 51
-                'keyboard_type_0_key.hotbar.4'                   = 52
-                'keyboard_type_0_key.hotbar.5'                   = 82
-                'keyboard_type_0_key.hotbar.6'                   = 70
-                'keyboard_type_0_key.hotbar.7'                   = 86
-                'keyboard_type_0_key.hotbar.8'                   = 90
-                'keyboard_type_0_key.hotbar.9'                   = '- 97'
-                'keyboard_type_0_key.inventory'                  = 69
-                'keyboard_type_0_key.togglePerspective'          = 53
-                'keyboard_type_0_key.jump'                       = 32
-                'keyboard_type_0_key.sneak'                      = 16
-                'keyboard_type_0_key.sprint'                     = 17
-                'keyboard_type_0_key.left'                       = 65
-                'keyboard_type_0_key.right'                      = 68
-                'keyboard_type_0_key.back'                       = 83
-                'keyboard_type_0_key.forward'                    = 87
-                'keyboard_type_0_key.mobEffects'                 = 88
-                'keyboard_type_0_key.chat'                       = 13
-                'keyboard_type_0_key.emote'                      = 0
-            }
-        }
-    )
-
-    Write-Host "Optimize Minecraft bedrock with $Preset"
-
-    $optionsTable = (Get-Content $options) -Replace ':', '=' | ConvertFrom-StringData
-    Write-Verbose ($optionsTable | ConvertTo-Json -Depth 3)
-
-    $optionsTable = Merge-Hashtables -Original $optionsTable -Patch $Presets.$Preset
-    Write-Verbose ($optionsTable | ConvertTo-Json -Depth 3)
-    
-    Set-Content $options -Value (ConvertTo-MCSetting $optionsTable) -Force
-}
-
-function Optimize-LunarClient {
-    <#
-    .SYNOPSIS
-    Display Name: Optimize Lunar Client
-    Platform: Linux; Windows
-    Category: Optimizations
-    Depends: Write-Diff; Merge-HashTables
-
-    .DESCRIPTION
-    Tunes a selected Lunar Client profile to your liking, it has some good defaults everyone should have (no numbers in scoreboard, modern keybind handling, no achievements, transparent texture packs section, borderless fullscreen..)
-
-    .PARAMETER Settings
-    Specify which specific tweak you'd like applying on your profile
-    Performance: Turn off performance-hungry settings
-    NoCosmetics: Disable all emotes, cosmetics, wings, hats..
-    MinimalViewBobbing: Keep item movement but disable walk bobbing
-    No16xSaturationOverlay: Remove the yellow 16x hunger bar overlay
-    HideToggleSprint: Hides the ToggleSprint status from HUD
-    ToggleSneak: Turns on ToggleSneak
-    DisableUHCMods: Disables ArmorHUD, DirectionHUD and Coordinates mods
-    FullBright: literally night vision    
-    #>
-    [alias('optlc')]
-    param(
-
-        #//[HelpMessage("Set your lazy chunk load speed")]
-        [ValidateSet(
-            'highest',  
-            'high',     
-            'medium',   
-            'low',      
-            'lowest',   
-            'off_van'   
-            )]
-        [String]$LazyChunkLoadSpeed = 'low',
-
-        [ValidateSet(
-            'Performance',
-            'NoCosmetics',
-            'MinimalViewBobbing',
-            'No16xSaturationOverlay',
-            'HideToggleSprint',
-            'ToggleSneak',
-            'DisableUHCMods',
-            'FullBright',
-            'CouleursPreset'    
-        )]
-        #// Gotta be put twice because mf cant handle variables in validate sets
-        [Array]$Settings = (Invoke-Checkbox -Title "Select tweaks to apply" -Items @(
-            'Performance'
-            'NoCosmetics'
-            'MinimalViewBobbing'
-            'No16xSaturationOverlay'
-            'HideToggleSprint'
-            'ToggleSneak'
-            'DisableUHCMods'
-            'FullBright'
-            'CouleursPreset'
-        )),
-       
-        [String]
-        $LCDirectory = "$HOME\.lunarclient",
-
-        [Switch]$NoBetaWarning,
-        [Switch]$KeepLCOpen,
-        [Switch]$DryRun
-
-        #//TODO: [Array]$Misc HideFoliage, NoEntityShadow, LCNametags, Clearglass, NoBackground, NoHypixelMods
-    )
-    
-    if (-Not(Test-Path $LCDirectory)){
-        Write-Host "Lunar Client's directory ($HOME\.lunarclient) does not exist (for the turbonerds reading this you can overwrite that with -LCDirectory"
-    }
-    if (!$NoBetaWarning){
-        Write-Warning "This script may corrupt your Lunar Client profiles, continue at your own risk,`nyou're probably safer if you copy the folder located at $(Convert-Path $HOME\.lunarclient\settings\game)"
-        pause
-    }
-    if (!$KeepLCOpen){
-        while ((Get-Process -Name java?).MainWindowTitle -Like "Lunar Client*"){
-            Write-Host "You must quit Lunar Client before running these optimizations (LC will overwrite them when it exits)" -ForegroundColor Red
-            pause
-        }
-    }else{
-        Write-Warning "You disabled the script from not running if Lunar Client is running, here be dragons!"
-        Start-Sleep -Milliseconds 500
-    }
-
-    if (!$LazyChunkLoadSpeed -and ('Performance' -in $Settings)){$LazyChunkLoadSpeed = 'low'}
-
-    $Manager = Get-Content "$LCDirectory\settings\game\profile_manager.json" -ErrorAction Stop | ConvertFrom-Json
-    
-    $Profiles = @{}
-    ForEach($Profile in $Manager){
-        $Profiles += @{ "$($Profile.DisplayName) ($($Profile.Name))" = $Profile}
-    }
-
-    Write-Host "Select a profile:"
-    $Selection = Menu @([Array[]]'Create a new profile' + [Array[]]$Profiles.Keys)
-    if ($Selection -in $Manager.name,$Manager.DisplayName){
-        if ($VerbosePreference -eq 'Continue'){
-            Write-Host "Error, Manager:`n`n" -ForegroundColor Red
-            Write-Host ($Manager | ConvertTo-Json)
-            return
-            
-        }
-        return "A profile with the same name already exists!"
-    }
-
-    if ($Selection -eq 'Create a new profile'){
-        
-        $ProfileName = Read-Host "Enter a name for the new profile"
-        New-Item -ItemType Directory -Path "$LCDirectory\settings\game\$ProfileName" -ErrorAction Stop | Out-Null
-        Push-Location "$LCDirectory\settings\game\$ProfileName"
-        ('general.json', 'mods.json', 'performance.json') | ForEach-Object {
-            if (-Not(Test-Path ./$_)){Add-Content ./$_ -Value '{}'} # Empty json file 
-        }
-        Pop-Location
-        $Selection = [PSCustomObject]@{
-
-            name = $ProfileName
-            displayName = $ProfileName
-            active = $False
-            default = $False
-            iconName = 'crossed-swords'
-            server = ''
-        }
-        $Manager += $Selection # Overwriting the string "Create a new profile" with the fresh one
-        Set-Content -Path "$LCDirectory\settings\game\profile_manager.json" -Value ($Manager | ConvertTo-Json -Compress -Depth 99)
-    }else{
-        $Selection = $Profiles.$Selection
-    }
-
-    $ProfileDir = "$LCDirectory\settings\game\$($Selection.name)"
-    ForEach($file in 'general','mods','performance'){ # Assigns $general, $mods and $performance variables
-        Set-Variable -Scope Global -Name $file -Value (Get-Content "$ProfileDir\$file.json" -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop)
-        if ($DryRun){
-        Write-Host $file -ForegroundColor Red
-        (Get-Variable -Name $file).Value | ConvertTo-Json
-        }
-    }
-    
-    $Presets = @{
-        All = @{
-            general = @{
-                shift_effects_bl         = $false
-                achievements_bl	         = $false
-                compact_menu_bl          = $true
-                modernKeybindHandling_bl = $true
-                borderless_fullscreen_bl = $true
-                trans_res_pack_menu_bg_bl = $true
-            }
-            mods = @{
-                chat = @{
-                    options = @{
-                        chat_bg_opacity_nr = "0.0"
-                    }
-                }
-                scoreboard = @{
-                    options = @{
-                        numbers_bl = $true
-                    }
-                }
-            }
-        }
-        CouleursPreset = @{
-            mods = @{
-                scoreboard = @{
-                    seen = $True
-                    x = 2 # Moves scoreboard 2 pixels to the right
-                }
-                potioneffects = @{
-                    seen = $True
-                    position = 'bottom_left'
-                    y = -246.5 # Middle left
-                }
-                saturation_hud_mod = @{
-                    seen = $True
-                    saturation_hud_mod_enabled_bl = $True
-                    position     = 'bottom_right' # Just right to the last hunger bar
-                    x            = -289
-                    y            = -37
-                    options = @{
-                        scale_nr          = 1.5 # Yellow
-                        text_clr_nr       = @{value=-171}
-                        background_clr_nr = @{value=0}
-                    }
-                }
-                zoom = @{
-                    seen = $True
-                    options = @{
-                        zoom_kblc         = 'KEY_X'
-                    }
-                }
-                bossbar = @{
-                    seen = $True
-                    bossbar_enabled_bl = $False
-                }
-            }
-        }
-        Performance = @{
-            general = @{
-                friend_online_status_bl	= $false
-            }
-            performance = @{
-                lazy_chunk_loading	= $LazyChunkLoadSpeed
-                ground_arrows_bl    = $false
-                stuck_arrows_bl     = $false
-                hide_skulls_bl      = $true
-                hide_foliage_bl     = $true
-            }
-        }
-        NoCosmetics = @{
-            general = @{
-                renderClothCloaks_bl         = $false
-                render_cosmetic_particles_bl = $false
-                backpack_bl                  = $false
-                dragon_wings_bl              = $false
-                pet_bl                       = $false
-                glasses_bl                   = $false
-                bandanna_bl                  = $false
-                mask_bl                      = $false
-                belts_bl                     = $false
-                neckwear_bl                  = $false
-                bodywear_bl                  = $false
-                hat_bl                       = $false
-                render_emotes_bl             = $false
-                render_emote_particles_bl    = $false
-                cloak_bl                     = $false
-                show_hat_above_helmet_bl     = $false
-                show_over_chestplate_bl      = $false
-                show_over_leggings_bl        = $false
-                show_over_boots_bl           = $false
-                scale_hat_with_skinlayer_bl  = $false
-            }
-        }
-        MinimalViewBobbing = @{
-            general = @{
-                minimal_viewbobbing_bl = $true
-            }
-        }
-        No16xSaturationOverlay = @{
-            mods = @{
-                saturation_mod = @{
-                    options = @{
-                        show_saturation_overlay_bl=$False
-                    }
-                }
-            }
-        }
-        HideToggleSprint = @{
-            mods = @{
-                toggleSneak = @{
-                     options = @{
-                         showHudText_bl = $false
-                     }
-                }
-            }
-        }
-        ToggleSneak = @{
-            mods = @{
-                toggleSneak = @{
-                    options = @{
-                        toggle_sneak_bl = $true
-                    }
-                }
-            }
-        }
-        DisableUHCMods = @{
-            mods = @{
-                waypoints = @{
-                    waypoints_enabled_bl = $false
-                }
-                directionhud = @{
-	                directionhud_enabled_bl = $false
-                }
-                coords = @{
-	                coords_enabled_bl = $false
-                }                
-                armorstatus = @{
-	                armorstatus_enabled_bl = $false
-                }
-            }
-        }
-        FullBright = @{
-            mods = @{
-                lighting = @{
-                    lighting_enabled_bl = $true
-                    options = @{
-                        full_bright_bl	= $true
-                    } 
-                }
-            }
-        }
-
-    }
-        # Whatever you do that's highly recommended :+1:
-    $general = Merge-Hashtables -Original $general -Patch $Presets.All.general
-    $mods = Merge-Hashtables -Original $mods -Patch $Presets.All.mods
-    Write-Diff "recommended settings (compact mods, fast chat).." -Positivity $True -Term "Setting up"
-
-    if ('Performance' -in $Settings){
-        $general = Merge-Hashtables -Original $general -Patch $Presets.Performance.general
-        $performance = Merge-Hashtables -Original $performance -Patch $Presets.Performance.performance
-        Write-Diff -Message "notifications from LC friends getting on (causes massive FPS drop)"
-        Write-Diff -Positivity $True -Message "lazy chunk loading at speed $LazyChunkLoadSpeed"
-        Write-Diff -Message "ground arrows"
-        Write-Diff -Message "player/mob skulls"
-        Write-Diff -Message "foliage (normal/tall grass)"
-    }
-    if ('NoCosmetics' -in $Settings){
-        $general = Merge-Hashtables -Original $general -Patch $Presets.NoCosmetics.general
-        ForEach($CosmeticRemoved in @(
-            "cloth cloaks" 
-            "cosmetic particles" 
-            "backpacks" 
-            "pets"
-            "dragon wings"
-            "bandannas"
-            "masks"
-            "belts"
-            "neckwears"
-            "bodywears"
-            "hats"
-            "emotes rendering"
-            "emote particles rendering"
-            "cloaks"
-        )){
-            Write-Diff -Message $CosmeticRemoved -Term "Disabled"
-        }
-
-    }
-    if ('MinimalViewBobbing' -in $Settings){
-        $general = Merge-Hashtables -Original $general -Patch $Presets.MinimalViewBobbing.general
-        Write-Diff -Positivity $True -Message "minimal view bobbing"
-    }
-    if ('No16xSaturationOverlay' -in $Settings){
-        $mods = Merge-Hashtables -Original $mods -Patch $Presets.No16xSaturationOverlay.mods
-        Write-Diff -Positivity $False -Message "16x saturation hunger bar overlay"
-    }
-    if ('HideToggleSprint' -in $Settings){
-        $mods = Merge-Hashtables -Original $mods -Patch $Presets.HideToggleSprint.mods
-        Write-Diff -Positivity $False -Term "Hid" -Message "ToggleSprint HUD"
-    }
-    if ('ToggleSneak' -in $Settings){
-        $mods = Merge-Hashtables -Original $mods $Presets.ToggleSneak.mods
-        Write-Diff -Positivity $True -Message "ToggleSneak"
-    }
-    if ('DisableUHCMods' -in $Settings){
-        $mods = Merge-Hashtables -Original $mods -Patch $Presets.DisableUHCMods.mods
-        Write-Diff -Positivity $False -Term "Disabled" -Message "Waypoints mod"
-        Write-Diff -Positivity $False -Term "Disabled" -Message "DirectionHUD mod"
-        Write-Diff -Positivity $False -Term "Disabled" -Message "Coordinates mod"
-        Write-Diff -Positivity $False -Term "Disabled" -Message "ArmorStatus mod"
-    }
-    if ('FullBright' -in $Settings){
-        $mods = Merge-Hashtables -Original $mods -Patch $Presets.FullBright.mods
-        Write-Diff -Term "Added" -Positivity $true -Message "Fullbright (disable shaders before restarting)"
-    }
-    if ('CouleursPreset' -in $Settings){
-        $mods = Merge-Hashtables -Original $mods -Patch $Presets.CouleursPreset.mods
-    }
-
-    ForEach($file in 'general','mods','performance'){ # Assigns $general, $mods and $performance variables
-        if ($DryRun){
-            Write-Host $file -ForegroundColor Red
-            (Get-Variable -Name $file).Value
-        }else{
-            ConvertTo-Json -Depth 99 -Compress -InputObject (Get-Variable -Name $file).Value -ErrorAction Stop | Set-Content "$ProfileDir\$file.json" -ErrorAction Stop
-        }
-    }
-
-}
-function Optimize-OBS {
-    <#
-    .SYNOPSIS
-    Display Name: Optimize OBS
-    Platform: Linux; Windows
-    Category: Optimizations
-
-    .DESCRIPTION
-    Tune your OBS for a specific usecase in the snap of a finger!
-
-    .PARAMETER Encoder
-    Which hardware type you wish to record with
-    NVENC: NVIDIA's Fastest encoder, it lets you record in hundreds of FPS easily
-    AMF: AMD GPUs/Integrated GPUs encoder, not as good as NVENC but can still get out ~240FPS at most
-    QuickSync: Intel's GPU encoder, worst out of the three, note this is H264, not the new fancy but slow AV1
-    x264: Encoding using your CPU, slow but efficient, only use if necessary/you know what you're doing
-
-    .PARAMETER OBS64Path
-    If you've got a portable install or something, pass in the main OBS binary's path here
-
-    #>
-    [alias('optobs')]
-    param(
-        [ValidateSet('x264','NVENC','AMF','QuickSync')]
-        [String]$Encoder,
-        
-        [ValidateScript({Test-Path -Path $_ -PathType Leaf})]
-        [String]$OBS64Path,
-
-        [ValidateSet('HighPerformance')]
-        [String]$Preset = 'HighPerformance',
-
-        [ValidateSet(
-            'EnableStatsDock', 'OldDarkTheme')]
-        [Array]$MiscTweaks = (Invoke-CheckBox -Title "Select misc tweaks to apply" -Items (
-            'EnableStatsDock', 'OldDarkTheme')),
-
-        [ValidateScript({ Test-Path -Path $_ -PathType Container })]
-        [String]$OBSProfile = $null
-    )
-
-    if (!$Encoder){
-        $Encoders = [Ordered]@{
-            "NVENC (NVIDIA GPUs)" = "NVENC"
-            "AMF (AMD GPUs)" = "AMF"
-            "QuickSync (Intel iGPUs)" = "QuickSync"
-            "x264 (CPU)" = "x264"
-        }
-        Write-Host "Select what OBS will use to record (use arrow keys and press ENTER to confirm)"
-        $Key = Menu ([Collections.ArrayList]$Encoders.Keys)
-        $Encoder = $Encoders.$Key
-    }
-
-    $OBSPatches = @{
-        HighPerformance = @{
-            NVENC = @{
-                basic = @{
-                    AdvOut = @{
-                        RecEncoder = 'jim_nvenc'
-                    }
-                }
-                recordEncoder = @{
-                    bf=0
-                    cqp=18
-                    multipass='disabled'
-                    preset2='p2'
-                    profile='main'
-                    psycho_aq='false'
-                    rate_control='CQP'
-                }
-            }
-            AMF = @{
-                Basic = @{
-                    ADVOut = @{
-                        RecQuality='Small'
-                        RecEncoder='h265_texture_amf'
-                        FFOutputToFile='true'
-                    }
-                }
-                recordEncoder = @{
-                    'cqp' = 20
-                    preset = 'speed'
-                    rate_control = 'CQP'
-                    ffmpeg_opts = "MaxNumRefFrames=4 HighMotionQualityBoostEnable=1"
-                }
-            }
-            QuickSync = @{
-
-                basic = @{
-                    AdvOut = @{
-                        RecEncoder = 'obs_qsv11'
-                    }
-                }
-                recordEncoder = @{
-                    enhancements = 'false'
-                    target_usage = 'speed'
-                    bframes = 0
-                    rate_control = 'ICQ'
-                    bitrate = 16500
-                    icq_quality = 18
-                    keyint_sec = 2
-                }
-                
-            }
-            x264 = @{
-                basic = @{
-                    ADVOut = @{
-                        RecEncoder='obs_x264'
-                    }
-                }
-                recordEncoder = @{
-                    crf=1
-                    keyint_sec=1
-                    preset='ultrafast'
-                    profile='high'
-                    rate_control='CRF'
-                    x264opts='qpmin=15 qpmax=15 ref=0 merange=4 direct=none weightp=0 no-chroma-me'
-                }
-            }
-        }
-    }
-
-    # Applies to all patches/presets
-    $Global = @{
-        basic = @{
-            Output = @{
-                RecType='Standard'
-                Mode='Advanced'
-            }
-            AdvOut = @{
-                RecRB='true'
-            }
-        }
-    }
-    $OBSPatches.$Preset.$Encoder = Merge-Hashtables $OBSPatches.$Preset.$Encoder $Global
-        # Merge with global, which will be added for all
-
-    if (!$OBSProfile){
-        Remove-Variable -Name OBSProfile
-        if (-Not($OBS64Path)){
-
-            $Parameters = @{
-                Path = @("$env:APPDATA\Microsoft\Windows\Start Menu","$env:ProgramData\Microsoft\Windows\Start Menu")
-                Recurse = $True
-                Include = 'OBS Studio*.lnk'
-            }
-            $StartMenu = Get-ChildItem @Parameters
-            
-            if (!$StartMenu){
-                if ((Get-Process obs64 -ErrorAction Ignore).Path){$OBS64Path = (Get-Process obs64).Path} # Won't work if OBS is ran as Admin
-                else{
-    return @'
-Your OBS installation could not be found, 
-please manually specify the path to your OBS64 executable, example:
-
-Optimize-OBS -OBS64Path "D:\obs\bin\64bit\obs64.exe"
-
-You can find it this way:             
-Search OBS -> Right click it
-Open file location in Explorer ->
-Open file location again if it's a shortcut ->
-Shift right click obs64.exe -> Copy as path
-'@
-                }
-            }
-            if ($StartMenu.Count -gt 1){
-
-                $Shortcuts = $null
-                $StartMenu = Get-Item $StartMenu
-                ForEach($Lnk in $StartMenu){$Shortcuts += @{$Lnk.BaseName = $Lnk.FullName}}
-                "There are multiple OBS shortcuts in your Start Menu folder. Please select one."
-                $ShortcutName = menu ($Shortcuts.Keys -Split [System.Environment]::NewLine)
-                $StartMenu = $Shortcuts.$ShortcutName
-                $OBS64Path = Get-ShortcutTarget $StartMenu
-            }else{
-                $OBS64Path = Get-ShortcutTarget $StartMenu
-            }
-
-        }
-
-        if (!$IsLinux -or !$IsMacOS){
-            [Version]$CurVer = (Get-Item $OBS64Path).VersionInfo.ProductVersion
-            if ($CurVer -lt [Version]"28.1.0"){
-                Write-Warning @"
-It is strongly advised you update OBS before continuing (for compatibility with new NVENC/AMD settings)
-
-Detected version: $CurVer
-obs64.exe path: $OBS64Path
-pause
-"@
-            }
-        }
-
-        Set-CompatibilitySettings $OBS64Path -RunAsAdmin
-
-        if (Resolve-Path "$OBS64Path\..\..\..\portable_mode.txt" -ErrorAction Ignore){ # "Portable Mode" makes OBS make the config in it's own folder, else it's in appdata
-
-            $ProfilesDir = (Resolve-Path "$OBS64Path\..\..\..\config\obs-studio\basic\profiles" -ErrorAction Stop)
-        }else{
-            $ProfilesDir = (Resolve-Path "$env:APPDATA\obs-studio\basic\profiles" -ErrorAction Stop)
-        }
-        $Profiles = Get-ChildItem $ProfilesDir
-
-        ForEach($OBSProfile in $Profiles){$ProfilesHash += @{$OBSProfile.Name = $OBSProfile.FullName}}
-
-        $ProfileNames = ($ProfilesHash.Keys -Split [System.Environment]::NewLine) + 'Create a new profile'
-        "Please select a profile (use arrow keys to navigate, ENTER to select)"
-        $OBSProfile = menu  $ProfileNames
-
-        if ($OBSProfile -eq 'Create a new profile'){
-            $NewProfileName = Read-Host "Enter a name for the new profile"
-            $OBSProfile = Join-Path $ProfilesDir $NewProfileName
-            New-Item -ItemType Directory -Path $OBSProfile -ErrorAction Stop
-            $DefaultWidth, $DefaultHeight = ((Get-CimInstance Win32_VideoController).VideoModeDescription.Split(' x ') | Where-Object {$_ -ne ''} | Select-Object -First 2)
-            if (!$DefaultWidth -or !$DefaultHeight){
-                $DefaultWidth = 1920
-                $DefaultHeight = 1080
-            }
-            Set-Content "$OBSProfile\basic.ini" -Value @"
-[General]
-Name=$NewProfileName
-
-[Video]
-BaseCX=$DefaultWidth
-BaseCY=$DefaultHeight
-OutputCX=$DefaultWidth
-OutputCY=$DefaultHeight
-"@
-            Write-Host "Created new profile '$NewProfileName' with default resolution of $DefaultWidth`x$DefaultHeight" -ForegroundColor DarkGray
-        }else{
-            $OBSProfile = $ProfilesHash.$OBSProfile
-        }
-    }
-    if ('basic.ini' -notin ((Get-ChildItem $OBSProfile).Name)){
-       return "FATAL: Profile $OBSProfile is incomplete (missing basic.ini)"
-    }
-    Write-Verbose "Tweaking profile $OBSProfile"
-    try {
-        $Basic = Get-IniContent "$OBSProfile\basic.ini" -ErrorAction Stop
-    } catch {
-        Write-Warning "Failed to get basic.ini from profile folder $OBSProfile"
-        $_
-        return
-    }
-    if ($Basic.Video.FPSType -ne 2){ # then switch to fractional FPS
-        $FPS=$Basic.Video.FPSCommon
-        $Basic.Video.FPSType = 2
-        $Basic.Video.FPSNum = 60
-        $Basic.Video.FPSDen = 1
-
-        Write-Warning "Your FPS is at the default (60), you can go in Settings -> Video to set it to a higher value"
-    }
-
-    $FPS = $Basic.Video.FPSNum/$Basic.Video.FPSDen
-    $Pixels = [int]$Basic.Video.BaseCX*[int]$Basic.Video.BaseCY
-
-    if (($Basic.AdvOut.RecTracks -NotIn '1','2') -And ($FPS -gt 120)){
-        Write-Warning "Using multiple audio tracks while recording at a high FPS may cause OBS to fail to stop recording"
-    }
-
-    if (!$Basic.Hotkeys.ReplayBuffer){
-        Write-Warning "Replay Buffer is enabled, but there's no hotkey to Save Replay, set it up in Settings -> Hotkeys"
-    }
-
-    $Basic = Merge-Hashtables -Original $Basic -Patch $OBSPatches.$Preset.$Encoder.basic -ErrorAction Stop
-    Out-IniFile -FilePath "$OBSProfile\basic.ini" -InputObject $Basic -Pretty -Force
-
-    if ($Basic.Video.BaseCX -and $Basic.Video.BaseCY -and $Basic.Video.OutputCX -and $Basic.Video.OutputCY){
-
-        $Base = "{0}x{1}" -f $Basic.Video.BaseCX,$Basic.Video.BaseCY
-        $Output = "{0}x{1}" -f $Basic.Video.OutputCX,$Basic.Video.OutputCY
-        if ($Base -Ne $Output){
-            Write-Warning "Your Base/Canvas resolution ($Base) is not the same as the Output/Scaled resolution ($Output),`nthis means OBS is scaling your video. This is not recommended."
-        }    
-    }
-    
-    $NoEncSettings = -Not(Test-Path "$OBSProfile\recordEncoder.json")
-    $EmptyEncSettings = (Get-Content "$OBSProfile\recordEncoder.json" -ErrorAction Ignore) -in '',$null
-
-    if ($NoEncSettings -or $EmptyEncSettings){
-        Set-Content -Path "$OBSProfile\recordEncoder.json" -Value '{}' -Force 
-    }
-    $RecordEncoder = Get-Content "$OBSProfile\recordEncoder.json" | ConvertFrom-Json -ErrorAction Stop
-
-    if (($Basic.Video.FPSNum/$Basic.Video.FPSDen -gt 480) -And ($Pixels -ge 2073600)){ # Set profile to baseline if recording at a high FPS and if res +> 2MP
-        $RecordEncoder.Profile = 'baseline'
-    }
-    $RecordEncoder = Merge-Hashtables -Original $RecordEncoder -Patch $OBSPatches.$Preset.$Encoder.recordEncoder -ErrorAction Stop
-    if ($Verbose){
-        ConvertTo-Yaml $Basic
-        ConvertTo-Yaml $RecordEncoder    
-    }
-    Set-Content -Path "$OBSProfile\recordEncoder.json" -Value (ConvertTo-Json -InputObject $RecordEncoder -Depth 100) -Force
-
-    if ($True -in [bool]$MiscTweaks){ # If there is anything in $MiscTweaks
-        $global = Get-Item (Join-Path ($OBSProfile | Split-Path | Split-Path | Split-Path) -ChildPath 'global.ini') -ErrorAction Stop
-        $glob = Get-IniContent -FilePath $global
-
-        if ('OldDarkTheme' -in $MiscTweaks){
-            $glob.General.CurrentTheme3 = 'Dark'
-        }
-
-        if ('OldDarkTheme' -in $MiscTweaks){
-
-            $glob.BasicWindow.geometry = 'AdnQywADAAAAAAe/////uwAADJ0AAAKCAAAHv////9oAAAydAAACggAAAAEAAAAACgAAAAe/////2gAADJ0AAAKC'
-            $glob.BasicWindow.DockState = 'AAAA/wAAAAD9AAAAAgAAAAAAAAJOAAABvPwCAAAAAfsAAAASAHMAdABhAHQAcwBEAG8AYwBrAQAAABYAAAG8AAAA5gD///8AAAADAAAE3wAAALr8AQAAAAX7AAAAFABzAGMAZQBuAGUAcwBEAG8AYwBrAQAAAAAAAAD4AAAAoAD////7AAAAFgBzAG8AdQByAGMAZQBzAEQAbwBjAGsBAAAA/AAAAPoAAACgAP////sAAAASAG0AaQB4AGUAcgBEAG8AYwBrAQAAAfoAAAFBAAAA3gD////7AAAAHgB0AHIAYQBuAHMAaQB0AGkAbwBuAHMARABvAGMAawEAAAM/AAAAtAAAAI4A////+wAAABgAYwBvAG4AdAByAG8AbABzAEQAbwBjAGsBAAAD9wAAAOgAAACeAP///wAAAo0AAAG8AAAABAAAAAQAAAAIAAAACPwAAAAA'
-        }
-
-        $glob | Out-IniFile -FilePath $global -Force
-    }
-    Write-Host "Finished patching OBS, yay! Please switch profiles or reload OBS to see changes" -ForegroundColor Green
-}
-function Optimize-OptiFine {
-    [alias('optof')]
-    param(
-        [ValidateSet('Smart','Lowest','CouleursPreset')]
-        [Parameter(Mandatory)]
-        $Preset,
-        [String]$CustomDirectory = (Join-path $env:APPDATA '.minecraft'),
-        [Switch]$MultiMC,
-        [Switch]$PolyMC,
-        [Switch]$GDLauncher
-    )
-
-if($MultiMC){
-    $CustomDirectory = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse | Where-Object Name -Like "MultiMC.lnk"
-    $CustomDirectory = Get-ShortcutPath $CustomDirectory
-    $Instances = Get-ChildItem (Join-Path (Split-Path $CustomDirectory) instances)
-    "Please select a MultiMC instance"
-    $CustomDirectory = menu (Get-ChildItem $Instances).Name
-    $CustomDirectory = Join-Path $Instances $CustomDirectory
-
-}elseif($PolyMC){
-    $Instances = Get-ChildItem "$env:APPDATA\PolyMC\instances"
-    "Please select a PolyMC instance"
-    $CustomDirectory = menu $Instances.Name
-    $CustomDirectory = Join-Path $Instances $CustomDirectory
-
-}elseif($GDLauncher){
-    $Instances = Get-ChildItem "$env:APPDATA\gdlauncher_next\instances"
-    "Please select a GDLauncher instance"
-    $CustomDirectory = menu $Instances.Name
-    $CustomDirectory = Join-Path $Instances $CustomDirectory
-
-}
-
-$Presets = @{
-
-    CouleursPresets = @{
-        options = @{
-            'key_key.hotbar.5' = 19
-            'key_key.hotbar.6' = 20
-            'key_key.hotbar.7' = 33
-            'key_key.hotbar.8' = 34
-            'key_key.hotbar.9' = 0
-            chatScale      = 0.8
-            chatWidth      = 0.65
-            guiScale       = 3
-            renderDistance = 7
-            maxFps         = 260
-            chatOpacity    = 0.25
-            enableVsync    = $False
-            pauseOnLostFocus = $False
-        }
-    }
-
-    Smart = @{
-        options = @{
-            renderDistance=5
-            mipmapLevels=4
-            ofAoLevel=1.0
-        }
-        optionsof = @{
-            ofMipmapType=3
-            ofCustomSky=$true
-        }
-    }
-
-    Lowest = @{
-        options = @{
-            gamma=1000000 # I've never tried anything else and this always worked
-            renderDistance=2
-            particles=2
-            fboEnable=$true
-            useVbo=$true
-            showInventoryAchievementHint=$false
-        }
-        optionsof = @{
-            ofAaLevel=0 # Anti-Aliasing
-            ofDynamicLights=3
-            ofChunkUpdates=1
-            ofAoLevel=0.0 # Smooth lighting
-            ofOcclusionFancy=$false
-            ofSmoothWorld=$true
-            ofClouds=3
-            ofTrees=1
-            ofDroppedItems=0
-            ofRain=3
-            ofAnimatedWater=2
-            ofAnimatedLava=2
-            ofAnimatedFire=$true
-            ofAnimatedPortal=$false
-            ofAnimatedRedstone=$false
-            ofAnimatedExplosion=$false
-            ofAnimatedFlame=$true
-            ofAnimatedSmoke=$false
-            ofVoidParticles=$false
-            ofWaterParticles=$false
-            ofPortalParticles=$false
-            ofPotionParticles=$false
-            ofFireworkParticles=$false
-            ofDrippingWaterLava=$false
-            ofAnimatedTerrain=$false
-            ofAnimatedTextures=$false
-            ofRainSplash=$false
-            ofSky=$false
-            ofStars=$false
-            ofSunMoon=$false
-            ofVignette=1
-            ofCustomSky=$false
-            ofShowCapes=$false
-            ofFastMath=$true
-            ofSmoothFps=$false
-            ofTranslucentBlocks=1
-        }
-    }
-}
-$Global = @{
-    optionsof = @{
-        ofFastRender=$true
-        ofClouds=3
-        ofAfLevel=1 # Anisotropic filtering
-        ofAaLevel=0 # Anti-aliasing
-        ofRainSplash=$false
-    }
-    options = @{
-        showInventoryAchievementHint=$false
-        maxFps=260
-        renderClouds=$false
-        useVbo=$true
-    }
-}
-$Presets.$Preset = Merge-Hashtables $Presets.$Preset $Global
-
-function ConvertTo-MCSetting ($table){
-
-    $file = @()
-    ForEach($setting in $table.keys){
-        $file += [String]$($setting + ':' + ($table.$setting)) -replace'True','true' -replace 'False','false'
-    }
-    return $file
-}
-
-foreach ($file in 'options','optionsof'){
-
-    $Hash = (Get-Content "$CustomDirectory\$file.txt") -Replace ':','=' | ConvertFrom-StringData
-    $Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.$file
-    Set-Content "$CustomDirectory\$file.txt" -Value (ConvertTo-MCSetting $Hash) -Force
-}
-if (Test-Path "$CustomDirectory\optionsLC.txt"){
-    $Hash = (Get-Content "$CustomDirectory\optionsLC.txt") -Replace ',"maxFps":"260"','' | ConvertFrom-Json
-}
-$Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.optionsof
-$Hash = Merge-Hashtables -Original $Hash -Patch $Presets.$Preset.options
-$Hash.maxFPS = 260
-Set-Content "$CustomDirectory\optionsLC.txt" -Value (ConvertTo-Json $Hash) -Force
-
-}
-function CB-CleanTaskbar {
-	if (-Not(Get-Module -Name "Sophia Script (TL)" -Ea 0)){
-		Import-Sophia
-	}
-	CortanaButton -Hide
-	PeopleTaskbar -Hide
-	TaskBarSearch -Hide
-	TaskViewButton -Hide
-	UnpinTaskbarShortcuts Edge, Store, Mail
-
-	# Remove "Meet now" from the taskbar, s/o privacy.sexy
-	Set-ItemProperty -Path "Registry::HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "HideSCAMeetNow" -Value 1
-}
-function 4K-Notifier {
-    param(
-        [Parameter(Mandatory)]
-        [String]$Video,
-        [int]$Timeout = 30
-    )
-    if (!$Video){
-        $Video = Read-Host "Pleaste paste in the URL of the video you'd like to wait for until it hits 4K"
-    }
-if (Get-Command yt-dlp -Ea 0){
-    $ytdl = (Get-Command yt-dlp).Source
-}elseif(Get-Command youtube-dl -Ea 0){
-    $ytdl = (Get-Command youtube-dl).Source
-}else{
-    return @"
-Nor YouTube-DL or yt-dlp are installed or added to the path, please run the following command to install it:
-iex(irm tl.ctt.cx);Get-ScoopApp main/yt-dlp
-"@
-}
-''
-$Finished = $null
-$Attempt = 0
-While (!$Finished){
-    $Attempt++
-    $Response = & $ytdl -F $Video
-    if ($Response | Where-Object {$PSItem -Like "*3840x2160*"}){
-        $Finished = $True
-    }else{
-        Write-Host "`rYour video has not been encoded to 4K, trying again (attempt no.$attempt) in $Timeout seconds.." -NoNewLine 
-        Start-Sleep -Seconds $Timeout
-        Write-Host "`rTrying again..                                                       " -NoNewLine -ForegroundColor Red
-        continue
-    }
-}
-Set-Clipboard -Value $Video
-Write-Host @"
-
-YouTubed finished processing your video, it's URL has been copied to your clipboard:
-$Video
-"@ -ForegroundColor Green
-1..3 | ForEach-Object{
-    [Console]::Beep(500,300)
-    Start-Sleep -Milliseconds 100
-}
-}
-
-function Moony2 {
-    param(
-        [Switch]$NoIntro,
-        [Int]$McProcessID
-    )
-    $LaunchParameters = @{} # Fresh hashtable that will be splat with Start-Process
-
-    if (!$NoIntro){
-    Write-Host @'
-If you're used to the original Moony, this works a little differently,
-
-What you just runned lets you create a batchfile from your current running game
-that you can launch via a single click or even faster: via Run (Windows +R)
-
-Please launch your Minecraft (any client/version) and press ENTER on your keyboard
-once you're ready for it to create the batchfile
-'@
-    Pause
-    }
-
-    # java? is regex for either java or javaw
-    if (-Not(Get-Process java?)){
-        Write-Host "There was no processes with the name java or javaw"
-        pause
-        Moony -NoIntro
-        return
-    }else{
-        $ProcList = Get-Process -Name java?
-        if ($ProcList[1]){ # If $Procs isn't the only running java process
-                $Selected = Menu $ProcList.MainWindowTitle
-                $Proc = Get-Process | Where-Object {$_.MainWindowTitle -eq ($Selected)} # Crappy passthru
-                if ($Proc[1]){ # unlikely but w/e gotta handle it
-                    Write-Host "Sorry my code is bad and you have multiple processes with the name $($Proc.MainWindowTitle), GG!"
-                }
-        }else{$Proc = $ProcList} # lmk if theres a smarter way
-    }
-    $WinProcess = Get-CimInstance -ClassName Win32_Process | Where-Object ProcessId -eq $Proc.Id
-    $JRE = $WinProcess.ExecutablePath
-    $Arguments = $WinProcess.CommandLine.Replace($WinProcess.ExecutablePath,'')
-    if (Test-Path "$HOME\.lunarclient\offline\multiver"){
-        $WorkingDirectory = "$HOME\.lunarclient\offline\multiver"
-
-    }else{
-            # This cumbersome parse has been split in 3 lines, it just gets the right version from the args
-        $PlayedVersion = $Arguments.split(' ') |
-        Where-Object {$PSItem -Like "1.*"} |
-        Where-Object {$PSITem -NotLike "1.*.*"} |
-        Select-Object -Last 1
-        $WorkingDirectory = "$HOME\.lunarclient\offline\$PlayedVersion"
-    }
-    if ($Arguments -NotLike "* -server *"){
-        Write-Host @"
-Would you like this script to join a specific server right after it launches?
-
-If so, type the IP, otherwise just leave it blank and press ENTER
-"@  
-        $ServerIP = Read-Host "Server IP"
-        if ($ServerIP -NotIn '',$null){
-            $Arguments += " -server $ServerIP"
-        }
-    }
-
-    $InstanceName = Read-Host "Give a name to your Lunar Client instance, I recommend making it short without spaces"
-    if ($InstanceName -Like "* *"){
-        $InstanceName = Read-Host "Since there's a space in your name, you won't be able to call it from Run (Windows+R), type it again if you are sure"
-    }
-
-    Set-Content "$env:LOCALAPPDATA\Microsoft\WindowsApps\$InstanceName.cmd" @"
-@echo off
-cd /D "$WorkingDirectory"
-start "$JRE" $Arguments
-if %ERRORLEVEL% == 0 (exit) else (pause)
-"@
-    Write-Host "Your $InstanceName instance should be good to go, try typing it's name in the Run window (Windows+R)" -ForegroundColor Green
-    return
-
-}
 Export-ModuleMember * -Alias *
 })) | Import-Module -DisableNameChecking -Global
