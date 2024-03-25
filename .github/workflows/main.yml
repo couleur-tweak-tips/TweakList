@@ -15,7 +15,7 @@ jobs:
         shell: pwsh
         run: |
           ./buildMaster.ps1 -Write | Set-Content ./Master.ps1
-          ./buildManifests.ps1
+          ./buildManifests.ps1 | ConvertTo-Json -Depth 5 | Set-Content ./Manifests.json
       - name: 🌊 Commit the new 'compiled' build
         uses: stefanzweifel/git-auto-commit-action@v4
         with:

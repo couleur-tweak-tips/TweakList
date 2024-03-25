@@ -1,135 +1,154 @@
-function ParseTable {
-    <#
+<#
 
-    #//Turns:
-    Hello, this is my parameter's description,
-    here's some useful info that will get formatted and fed in the manifests separately
-    Platform: Linux; Windows
-    Category: Optimizations
-    #//Into:
-    @{
-        Description = @(
-            "Hello, this is my parameter's description,"
-            "here's some useful info that will get formatted and fed in the manifests separately"
-        )
-        KeyValues = @{
-            Category = 'Optimizations'
-            Platform = @('Linux', 'Windows')
+    .DESCRIPTION
+
+    Splits string-based description from hashtable-based key;values
+
+    .EXAMPLE
+    $desc, $value = Get-Metadata @"
+    Hey this is a description
+
+    key1: value1
+    key2: value2
+    "@
+#>
+function Get-Metadata ($string) {
+    $desc = $string -split "`n" | Where-Object { $_ -NotLike "*: *" -and $_.trim() } | Where-Object { $_ -notlike "//*" }
+    $values = $string -split "`n" | Where-Object { $_ -Like "*: *" } | Where-Object { $_ -notlike "//*" }
+
+    $value_table = [PSCustomObject]@{}
+    if ($values) {
+
+        foreach ($line in $values) {
+            [string]$key, [string]$value = ($line -split ':', 2).trim()
+            if (!$key -or !$value) {
+                Write-Error "Failed getting metadata from`n$($string | ConvertTo-Json -Depth 3)"
+            }
+
+            $value_table | Add-Member -MemberType NoteProperty -Name $key -Value $value
         }
     }
+    else {
+        $values = ""
+    }
+    if (!$desc) { $desc = "" }
+    return @($desc, $value_table)
+}
 
-    #>
+
+function buildManifests2 {
     param(
-        $Header
+        $Path = (Get-ChildItem ./modules/ -File -Recurse -Include *.ps1)
     )
+    $ManifestList = [PSCustomObject]::new()
 
-    $Header = $Header -Split "`n"
+    foreach($i in $Path){
 
-    $ret = [Ordered]@{}
+        $filepath = Get-Item $i -ErrorAction Stop
 
-    $KeyValues   = $Header | Where-Object {$_ -Like "*: *"}
-    $Description = $Header | Where-Object {$_ -NotLike "*: *"}
-    
-    ForEach($Line in $KeyValues){
-        $Key, $Value = $Line -Split ': '
 
-        if ((!$Key -or !$Value) -or ($Value -isnot [String])){
-            Write-Host "Skipping: $Line" -ForegroundColor Red
+        $funcName = $filepath.BaseName        
+        . $filepath.FullName -ErrorAction Stop
+        $HelpInfo = Get-Help $funcName -ErrorAction Stop
+
+        $Manifest = [PSCustomObject]::new()
+
+        $relativePath = $filepath.FullName.Replace($PSScriptRoot,'') -replace '\\', '/'
+
+        $Manifest | Add-Member -MemberType NoteProperty -Name path -Value $relativePath
+        
+        
+        if ($desc = $HelpInfo.description.Text) {
+            # .DESCRIPTION
+            
+            $Manifest | Add-Member -MemberType NoteProperty -Name description -Value $desc
+        }
+        else {
+            # function is not documented, skip
             continue
         }
 
-        if ($Value -Like '*; *'){
-            $Value = $Value -split '; '
-        }
-        $ret.$Key = $Value
-    }
-
-    return @{
-        Description = $Description
-        KeyValues = $ret
-    }
-}
-
-
-Set-Location $PSScriptRoot
-
-$Manifests = [System.Collections.ArrayList]@()
-
-Get-ChildItem ./modules -Recurse -Include "*.ps1" | ForEach-Object {
-
-    Remove-Variable -Name Parsed, Failed, HelpInfo, Entries, FuncName, Manifest, Parameters, Description -ErrorAction Ignore
-    $FuncName = $PSItem.BaseName # E.g 'Optimize-LunarClient'
-
-    Try {
-        . $PSItem -ErrorAction Stop
-        $HelpInfo = Get-Help $FuncName -ErrorAction Stop
-    } Catch {
-        $_
-        Write-Warning "Failed to get help info from $FuncName, skipping"
-    }
-
-    if ($HelpInfo.Description){ # .DESCRIPTION
-        # Then such value has been properly documented and will be added to the Manifests
-
-        $Manifest = [Ordered]@{}
-        $Manifest += @{
-            Name = $FuncName
-            Description = $HelpInfo.Description.Text
-            Parameters = [System.Collections.ArrayList]@()
-            Path = $PSItem.FullName.Replace($PSScriptRoot,'')
-        }
-
-        if ($HelpInfo.details){ # .SYNOPSIS
-
-            $Parsed = (ParseTable $HelpInfo.details.description.text)
-            if ($Parsed.KeyValues){
-                $Manifest += $Parsed.KeyValues
-            }
-            if ($Parsed.Description){
-                $Manifest.Description += ($Parsed.Description -join "`n")
+        if ($null, $values = Get-Metadata $HelpInfo.details.description.Text) {
+            foreach ($object in $values.psobject.properties) {
+                $key, $value = $object.name, $object.value
+                $Manifest | Add-Member -MemberType NoteProperty -Name $key -Value $value
             }
         }
 
-        if(!$Manifest."Display Name"){
-            $Manifest."Display Name" = $FuncName -replace '-',' '
+        if (!$Manifest.display) {
+            $Manifest | Add-Member -MemberType NoteProperty -Name display -Value ($FuncName -replace '-', ' ')
         }
 
-        ForEach($Parameter in $HelpInfo.Parameters.Parameter){
+        $Manifest | Add-Member -MemberType NoteProperty -Name parameters -Value ([PSCustomObject]::new())
 
-            $Description = ($Parameter.Description.Text -split "`n" | Where-Object {$PSItem -NotLike "//*"}) -join "`n"
+        foreach ($parameter in $HelpInfo.parameters.parameter) {
 
-            if ($Description){ # Therefore it has been documented and shall be added to the manifest
 
-                $ParamToAdd = [Ordered]@{} # Mind it's name, couldn't also have named it Parameter
-                $ParamToAdd += @{
-                    Name = $Parameter.Name
-                    Required = $Parameter.required
-                    # Description = $Description
-                    Type = $Parameter.type.name
-                }
-                $Parsed = (ParseTable $Description)
-                if ($Parsed.KeyValues){
-                    $ParamToAdd.KeyValues = $Parsed.KeyValues
-                }
-                if ($Parsed.Description){
-                    $ParamToAdd.Description = $Parsed.Description
-                }else{
-                    Write-Host "No description for parameter [$($Parameter.Name)] in function [$($Manifest.Name)]" -ForegroundColor Red
+            [PSCustomObject]$param = [PSCustomObject]::new()
+
+            # if ($parameter.name -in @('misctweaks')){wait-debugger}
+
+            if ($desc, $values = Get-Metadata $parameter.description.Text) {
+
+                if ($desc) {
+                    $param | Add-Member -MemberType NoteProperty -Name description -Value $desc
                 }
 
-                $ValidateSets = (Get-Command $FuncName).Parameters.$($Parameter.Name).Attributes.ValidValues
-                if ($ValidateSets){
-                    $ParamToAdd += @{
-                        ValidateSet = $ValidateSets
+                if ($values.PSObject.Properties.Count) {
+                    if ($values -is [String]){
+                        $values = @($values)
                     }
+                    $param | Add-Member -MemberType NoteProperty -Name values -Value $values
                 }
-
-
-                $Manifest.Parameters += $ParamToAdd
             }
-        }
-        $Manifests += $Manifest
-    }
-}
+            if (!$param.values) {
 
-$Manifests | ConvertTo-Json -Depth 15 | Out-File ./Manifests.json
+                if ($ValidateSets = (Get-Command $funcName).Parameters.$($Parameter.Name).Attributes.ValidValues) {
+                    if ($ValidateSets -is [String]){
+                        $ValidateSets = @($ValidateSets)
+                    }
+                    $param | Add-Member -MemberType NoteProperty -Name values -Value $ValidateSets
+                }
+            }
+            if ($parameter.defaultValue -and $parameter.type.name -ne "Array") {
+                $param | Add-Member -MemberType NoteProperty -Name default -Value $parameter.defaultValue
+            }
+
+            $param | Add-Member -MemberType NoteProperty -Name type -Value $(switch ($parameter.type.name) {
+                    Array {
+                        if ($param.values) {
+                            "enum[]"
+                        }
+                        else {
+                            Wait-Debugger
+                        }
+                    }
+                    String {
+                        if ($param.values) {
+                            "enum"
+                        }
+                        else {
+                            "String"
+                        }
+                    }
+                    SwitchParameter {
+                        "boolean"
+                    }
+                    default {
+                        Write-Warning "Unknown type $()"
+                    }
+                })
+
+            if ($parameter.required -eq "true") {
+                $param | Add-Member -MemberType NoteProperty -Name required -Value $true
+            }
+            
+            $Manifest.parameters | Add-Member -MemberType NoteProperty -Name $parameter.name -Value $param
+        } # foreach param
+
+        $ManifestList | Add-Member -MemberType NoteProperty -Name $funcName -Value $Manifest
+    } # foreach file
+
+    return $ManifestList
+}
+buildManifests2
