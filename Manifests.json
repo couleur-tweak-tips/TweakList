@@ -36,7 +36,7 @@
       },
       "LCDirectory": {
         "default": "\"$HOME\\.lunarclient\"",
-        "type": "String"
+        "type": "string"
       },
       "NoBetaWarning": {
         "default": "False",
@@ -72,7 +72,7 @@
       },
       "OBS64Path": {
         "description": "If you've got a portable install or something, pass in the main OBS binary's path here",
-        "type": "String"
+        "type": "string"
       },
       "Preset": {
         "values": [
@@ -89,7 +89,7 @@
         "type": "enum[]"
       },
       "OBSProfile": {
-        "type": "String"
+        "type": "string"
       }
     }
   }
