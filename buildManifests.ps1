@@ -128,7 +128,7 @@ function buildManifests2 {
                             "enum"
                         }
                         else {
-                            "String"
+                            "string"
                         }
                     }
                     SwitchParameter {
