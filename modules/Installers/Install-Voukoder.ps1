@@ -217,7 +217,8 @@ function Install-Voukoder {
         $NLEBin = $NLE.Path
     }else{
         $AvailableNLETemplates = @{
-            "Vegas Pro" = "vegas200.exe"
+            "Vegas Pro 18+" = "vegas180.exe"
+            "Vegas Pro 14" = "vegas140.exe"
             "Premiere Pro" = "Adobe Premiere Pro.exe"
             "After Effects" = "AfterFX.exe"
         }
@@ -266,7 +267,12 @@ function Install-Voukoder {
         {($NLEBin | Split-Path -Leaf).StartsWith('vegas')}{
 
             $NLETerm = "Vegas"
-            $TemplatesFolder = "$env:APPDATA\VEGAS\Render Templates\voukoder"
+
+            $TemplatesFolder = if (($NLEBin | Split-Path -Leaf) -like ("*140.exe")){
+                "$env:APPDATA\Sony\Render Templates\voukoder"
+            } else {
+                "$env:APPDATA\VEGAS\Render Templates\voukoder"
+            }
 
             if (-Not(Test-Path $TemplatesFolder)){
                 New-Item -ItemType Directory -Path $TemplatesFolder -Force | Out-Null
