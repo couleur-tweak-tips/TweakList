@@ -68,7 +68,12 @@ CTT Upscaler has been installed! Find it in the options when right clicking a vi
             {$_ -in 'Afterburner','MSIAfterburner'}{Get-ScoopApp utils/msiafterburner}
             {$_ -in 'Everything','Everything-Alpha','Everything-Beta'}{Get-ScoopApp extras/everything-alpha}
             {$_ -In '7-Zip','7z','7Zip'}{Get-ScoopApp 7zip}
-            {$_ -In 'Smoothie','sm'}{Install-FFmpeg ;Get-ScoopApp utils/Smoothie}
+            {$_ -In 'Smoothie','sm'}{
+                Install-FFmpeg
+                Get-ScoopApp main/git
+                scoop.cmd bucket add utils https://github.com/couleur-tweak-tips/utils
+                scoop.cmd install utils/smoothie
+            }
             {$_ -In 'OBS','OBSstudio','OBS-Studio'}{Get-ScoopApp extras/obs-studio}
             {$_ -In 'UTVideo'}{Get-ScoopApp utils/utvideo}
             {$_ -In 'Nmkoder'}{Get-ScoopApp utils/nmkoder}
