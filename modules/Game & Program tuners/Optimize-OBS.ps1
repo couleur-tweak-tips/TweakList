@@ -31,12 +31,13 @@ function Optimize-OBS {
         [String]$Preset = 'HighPerformance',
 
         [ValidateSet(
-            'EnableStatsDock', 'OldDarkTheme')]
+            'EnableStatsDock', 'OldDarkTheme','CouleursHotkeys')]
         [Array]$MiscTweaks = (Invoke-CheckBox -Title "Select misc tweaks to apply" -Items (
-            'EnableStatsDock', 'OldDarkTheme')),
+            'EnableStatsDock', 'OldDarkTheme','CouleursHotkeys')),
 
         [ValidateScript({ Test-Path -Path $_ -PathType Container })]
         [String]$OBSProfile = $null
+
     )
 
     if (!$Encoder){
@@ -56,17 +57,19 @@ function Optimize-OBS {
             NVENC = @{
                 basic = @{
                     AdvOut = @{
-                        RecEncoder = 'jim_nvenc'
+                        RecEncoder = 'obs_nvenc_h264_tex'
                     }
                 }
                 recordEncoder = @{
                     bf=0
                     cqp=18
                     multipass='disabled'
-                    preset2='p2'
+                    preset='p2'
                     profile='main'
                     psycho_aq='false'
                     rate_control='CQP'
+                    lookahead= 'false'
+                    adaptive_quantization= 'false'
                 }
             }
             AMF = @{
@@ -300,6 +303,14 @@ OutputCY=$DefaultHeight
             $glob.General.CurrentTheme3 = 'Dark'
         }
 
+        if ('CouleursHotkeys' -in $MiscTweaks){
+            if (!$glob.Hotkeys){$glob.Hotkeys = @{}}
+            $glob.Hotkeys.'OBSBasic.EnablePreview'  = '{"bindings":[{"control":true,"key":"OBS_KEY_RETURN"}]}'
+            $glob.Hotkeys.'OBSBasic.DisablePreview' = '{"bindings":[{"control":true,"key":"OBS_KEY_RETURN"}]}'
+            $glob.Hotkeys.'ReplayBuffer'            = '{"ReplayBuffer.Save":[{"alt":true,"key":"OBS_KEY_NONE","shift":true}]}'
+            $glob.Hotkeys.'OBSBasic.ResetStats'     = '{"bindings":[{"control":true,"key":"OBS_KEY_NONE","shift":true}]}'
+        }
+
         if ('OldDarkTheme' -in $MiscTweaks){
 
             $glob.BasicWindow.geometry = 'AdnQywADAAAAAAe/////uwAADJ0AAAKCAAAHv////9oAAAydAAACggAAAAEAAAAACgAAAAe/////2gAADJ0AAAKC'
@@ -309,4 +320,6 @@ OutputCY=$DefaultHeight
         $glob | Out-IniFile -FilePath $global -Force
     }
     Write-Host "Finished patching OBS, yay! Please switch profiles or reload OBS to see changes" -ForegroundColor Green
+    Write-Host "You can find more information about OBS configuration at " -ForegroundColor Green -NoNewline
+    Write-Host "ctt.cx/obs"
 }
