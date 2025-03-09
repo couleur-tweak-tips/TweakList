@@ -1874,6 +1874,217 @@ function Write-Menu {
     } while ($inputLoop)
 }
 
+Function ConvertFrom-VDF {
+<# 
+.Synopsis 
+    Reads a Valve Data File (VDF) formatted string into a custom object.
+
+.Description 
+    The ConvertFrom-VDF cmdlet converts a VDF-formatted string to a custom object (PSCustomObject) that has a property for each field in the VDF string. VDF is used as a textual data format for Valve software applications, such as Steam.
+
+.Parameter InputObject
+    Specifies the VDF strings to convert to PSObjects. Enter a variable that contains the string, or type a command or expression that gets the string. 
+
+.Example 
+    $vdf = ConvertFrom-VDF -InputObject (Get-Content ".\SharedConfig.vdf")
+
+    Description 
+    ----------- 
+    Gets the content of a VDF file named "SharedConfig.vdf" in the current location and converts it to a PSObject named $vdf
+
+.Inputs 
+    System.String
+
+.Outputs 
+    PSCustomObject
+
+
+#>
+    param
+    (
+        [Parameter(Position=0, Mandatory=$true)]
+        [AllowEmptyString()]
+        [String[]]
+        $InputObject
+    )
+
+    $root = New-Object -TypeName PSObject
+    $chain = [ordered]@{}
+    $depth = 0
+    $parent = $root
+    $element = $null
+
+    #Magic PowerShell Switch Enumrates Arrays
+    switch -Regex ($InputObject) {
+        #Case: ValueKey
+        '^\t*"(\S+)"\t\t"(.+)"$' {
+            Add-Member -InputObject $element -MemberType NoteProperty -Name $Matches[1] -Value $Matches[2]
+            continue
+        }
+        #Case: ParentKey
+        '^\t*"(\S+)"$' { 
+            $element = New-Object -TypeName PSObject
+            Add-Member -InputObject $parent -MemberType NoteProperty -Name $Matches[1] -Value $element
+            continue
+        }
+        #Case: Opening ParentKey Scope
+        '^\t*{$' {
+            $parent = $element
+            $chain.Add($depth, $element)
+            $depth++
+            continue
+        }
+        #Case: Closing ParentKey Scope
+        '^\t*}$' {
+            $depth--
+            $parent = $chain.($depth - 1)
+            $element = $parent
+            $chain.Remove($depth)
+            continue
+        }
+        #Case: Comments or unsupported lines
+        Default {
+            Write-Debug "Ignored line: $_"
+            continue
+        }
+    }
+
+    return $root
+}
+
+Function ConvertTo-VDF
+{
+<# 
+.Synopsis 
+    Converts a custom object into a Valve Data File (VDF) formatted string.
+
+.Description 
+    The ConvertTo-VDF cmdlet converts any object to a string in Valve Data File (VDF) format. The properties are converted to field names, the field values are converted to property values, and the methods are removed.
+
+.Parameter InputObject
+    Specifies PSObject to be converted into VDF strings.  Enter a variable that contains the object. You can also pipe an object to ConvertTo-Json.
+
+.Example 
+    ConvertTo-VDF -InputObject $VDFObject | Out-File ".\SharedConfig.vdf"
+
+    Description 
+    ----------- 
+    Converts the PS object to VDF format and pipes it into "SharedConfig.vdf" in the current directory
+
+.Inputs 
+    PSCustomObject
+
+.Outputs 
+    System.String
+
+
+#>
+    param
+    (
+        [Parameter(Position=0, Mandatory=$true)]
+        [ValidateNotNullOrEmpty()]
+        [PSObject]
+        $InputObject,
+
+        [Parameter(Position=1, Mandatory=$false)]
+        [int]
+        $Depth = 0
+    )
+    $output = [string]::Empty
+    
+    foreach ( $property in ($InputObject.psobject.Properties) ) {
+        switch ($property.TypeNameOfValue) {
+            "System.String" { 
+                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`t`t`"" + $property.Value + "`"`n"
+                break
+            }
+            "System.Management.Automation.PSCustomObject" {
+                $element = $property.Value
+                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`n"
+                $output += ("`t" * $Depth) + "{`n"
+                $output += ConvertTo-VDF -InputObject $element -Depth ($Depth + 1)
+                $output += ("`t" * $Depth) + "}`n"
+                break
+            }
+            Default {
+                Write-Error ("Unsupported Property of type {0}" -f $_) -ErrorAction Stop
+                break
+            }
+        }
+    }
+
+    return $output
+}
+
+function Get-SteamGameInstallDir (
+    [Parameter(Mandatory = $true)][string]$Game, 
+    [array]$LibraryFolders = (Get-SteamLibraryFolders)) {
+
+    # Get the installation directory of a Steam game.
+    foreach ($LibraryFolder in $LibraryFolders) {
+        $GameInstallDir = "$LibraryFolder\steamapps\common\$Game"
+        if (Test-Path "$($GameInstallDir.ToLower())") {
+            return "$GameInstallDir"
+        }
+    }
+}
+Function Get-SteamLibraryFolders()
+{
+<#
+.Synopsis 
+	Retrieves library folder paths from .\SteamApps\libraryfolders.vdf
+.Description
+	Reads .\SteamApps\libraryfolders.vdf to find the paths of all the library folders set up in steam
+.Example 
+	$libraryFolders = Get-LibraryFolders
+	Description 
+	----------- 
+	Retrieves a list of the library folders set up in steam
+#>
+	$steamPath = Get-SteamPath
+	
+	$vdfPath = "$($steamPath)\SteamApps\libraryfolders.vdf"
+	
+	[array]$libraryFolderPaths = @()
+	
+	if (Test-Path $vdfPath)
+	{
+		$libraryFolders = ConvertFrom-VDF (Get-Content $vdfPath -Encoding UTF8) | Select-Object -ExpandProperty libraryfolders
+		
+		$libraryFolderIds = $libraryFolders | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
+		
+		ForEach ($libraryId in $libraryFolderIds)
+		{
+			$libraryFolder = $libraryFolders.($libraryId)
+			
+			$libraryFolderPaths += $libraryFolder.path.Replace('\\','\')
+		}
+	}
+	
+	return $libraryFolderPaths
+}
+
+
+function Get-SteamPath {
+    # Get the Steam installation directory.
+
+    $MUICache = "Registry::HKCR\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
+    $Protocol = "Registry::HKCR\steam\Shell\Open\Command"
+    $Steam = Get-ItemPropertyValue "Registry::HKCU\Software\Valve\Steam" -Name "SteamPath" -ErrorAction SilentlyContinue
+    
+    # MUICache
+    if (!$Steam) {
+        $Steam = Split-Path (((Get-Item "$MUICache").Property | Where-Object { $PSItem -Like "*Steam*" } |
+                Where-Object { (Get-ItemPropertyValue "$MUICache" -Name $PSItem) -eq "Steam" }).TrimEnd(".FriendlyAppName"))
+    }
+
+    # Steam Browser Protocol
+    if (!$Steam) {
+        $Steam = Split-Path (((Get-ItemPropertyValue "$Protocol" -Name "(Default)" -ErrorAction SilentlyContinue) -Split "--", 2, "SimpleMatch")[0]).Trim('"')
+    }
+
+    return $Steam.ToLower()
+}
 function Get-IniContent {
     <#
     .Synopsis
@@ -2291,217 +2502,6 @@ Function Out-IniFile {
 
 Set-Alias oif Out-IniFile
 
-Function ConvertFrom-VDF {
-<# 
-.Synopsis 
-    Reads a Valve Data File (VDF) formatted string into a custom object.
-
-.Description 
-    The ConvertFrom-VDF cmdlet converts a VDF-formatted string to a custom object (PSCustomObject) that has a property for each field in the VDF string. VDF is used as a textual data format for Valve software applications, such as Steam.
-
-.Parameter InputObject
-    Specifies the VDF strings to convert to PSObjects. Enter a variable that contains the string, or type a command or expression that gets the string. 
-
-.Example 
-    $vdf = ConvertFrom-VDF -InputObject (Get-Content ".\SharedConfig.vdf")
-
-    Description 
-    ----------- 
-    Gets the content of a VDF file named "SharedConfig.vdf" in the current location and converts it to a PSObject named $vdf
-
-.Inputs 
-    System.String
-
-.Outputs 
-    PSCustomObject
-
-
-#>
-    param
-    (
-        [Parameter(Position=0, Mandatory=$true)]
-        [AllowEmptyString()]
-        [String[]]
-        $InputObject
-    )
-
-    $root = New-Object -TypeName PSObject
-    $chain = [ordered]@{}
-    $depth = 0
-    $parent = $root
-    $element = $null
-
-    #Magic PowerShell Switch Enumrates Arrays
-    switch -Regex ($InputObject) {
-        #Case: ValueKey
-        '^\t*"(\S+)"\t\t"(.+)"$' {
-            Add-Member -InputObject $element -MemberType NoteProperty -Name $Matches[1] -Value $Matches[2]
-            continue
-        }
-        #Case: ParentKey
-        '^\t*"(\S+)"$' { 
-            $element = New-Object -TypeName PSObject
-            Add-Member -InputObject $parent -MemberType NoteProperty -Name $Matches[1] -Value $element
-            continue
-        }
-        #Case: Opening ParentKey Scope
-        '^\t*{$' {
-            $parent = $element
-            $chain.Add($depth, $element)
-            $depth++
-            continue
-        }
-        #Case: Closing ParentKey Scope
-        '^\t*}$' {
-            $depth--
-            $parent = $chain.($depth - 1)
-            $element = $parent
-            $chain.Remove($depth)
-            continue
-        }
-        #Case: Comments or unsupported lines
-        Default {
-            Write-Debug "Ignored line: $_"
-            continue
-        }
-    }
-
-    return $root
-}
-
-Function ConvertTo-VDF
-{
-<# 
-.Synopsis 
-    Converts a custom object into a Valve Data File (VDF) formatted string.
-
-.Description 
-    The ConvertTo-VDF cmdlet converts any object to a string in Valve Data File (VDF) format. The properties are converted to field names, the field values are converted to property values, and the methods are removed.
-
-.Parameter InputObject
-    Specifies PSObject to be converted into VDF strings.  Enter a variable that contains the object. You can also pipe an object to ConvertTo-Json.
-
-.Example 
-    ConvertTo-VDF -InputObject $VDFObject | Out-File ".\SharedConfig.vdf"
-
-    Description 
-    ----------- 
-    Converts the PS object to VDF format and pipes it into "SharedConfig.vdf" in the current directory
-
-.Inputs 
-    PSCustomObject
-
-.Outputs 
-    System.String
-
-
-#>
-    param
-    (
-        [Parameter(Position=0, Mandatory=$true)]
-        [ValidateNotNullOrEmpty()]
-        [PSObject]
-        $InputObject,
-
-        [Parameter(Position=1, Mandatory=$false)]
-        [int]
-        $Depth = 0
-    )
-    $output = [string]::Empty
-    
-    foreach ( $property in ($InputObject.psobject.Properties) ) {
-        switch ($property.TypeNameOfValue) {
-            "System.String" { 
-                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`t`t`"" + $property.Value + "`"`n"
-                break
-            }
-            "System.Management.Automation.PSCustomObject" {
-                $element = $property.Value
-                $output += ("`t" * $Depth) + "`"" + $property.Name + "`"`n"
-                $output += ("`t" * $Depth) + "{`n"
-                $output += ConvertTo-VDF -InputObject $element -Depth ($Depth + 1)
-                $output += ("`t" * $Depth) + "}`n"
-                break
-            }
-            Default {
-                Write-Error ("Unsupported Property of type {0}" -f $_) -ErrorAction Stop
-                break
-            }
-        }
-    }
-
-    return $output
-}
-
-function Get-SteamGameInstallDir (
-    [Parameter(Mandatory = $true)][string]$Game, 
-    [array]$LibraryFolders = (Get-SteamLibraryFolders)) {
-
-    # Get the installation directory of a Steam game.
-    foreach ($LibraryFolder in $LibraryFolders) {
-        $GameInstallDir = "$LibraryFolder\steamapps\common\$Game"
-        if (Test-Path "$($GameInstallDir.ToLower())") {
-            return "$GameInstallDir"
-        }
-    }
-}
-Function Get-SteamLibraryFolders()
-{
-<#
-.Synopsis 
-	Retrieves library folder paths from .\SteamApps\libraryfolders.vdf
-.Description
-	Reads .\SteamApps\libraryfolders.vdf to find the paths of all the library folders set up in steam
-.Example 
-	$libraryFolders = Get-LibraryFolders
-	Description 
-	----------- 
-	Retrieves a list of the library folders set up in steam
-#>
-	$steamPath = Get-SteamPath
-	
-	$vdfPath = "$($steamPath)\SteamApps\libraryfolders.vdf"
-	
-	[array]$libraryFolderPaths = @()
-	
-	if (Test-Path $vdfPath)
-	{
-		$libraryFolders = ConvertFrom-VDF (Get-Content $vdfPath -Encoding UTF8) | Select-Object -ExpandProperty libraryfolders
-		
-		$libraryFolderIds = $libraryFolders | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
-		
-		ForEach ($libraryId in $libraryFolderIds)
-		{
-			$libraryFolder = $libraryFolders.($libraryId)
-			
-			$libraryFolderPaths += $libraryFolder.path.Replace('\\','\')
-		}
-	}
-	
-	return $libraryFolderPaths
-}
-
-
-function Get-SteamPath {
-    # Get the Steam installation directory.
-
-    $MUICache = "Registry::HKCR\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
-    $Protocol = "Registry::HKCR\steam\Shell\Open\Command"
-    $Steam = Get-ItemPropertyValue "Registry::HKCU\Software\Valve\Steam" -Name "SteamPath" -ErrorAction SilentlyContinue
-    
-    # MUICache
-    if (!$Steam) {
-        $Steam = Split-Path (((Get-Item "$MUICache").Property | Where-Object { $PSItem -Like "*Steam*" } |
-                Where-Object { (Get-ItemPropertyValue "$MUICache" -Name $PSItem) -eq "Steam" }).TrimEnd(".FriendlyAppName"))
-    }
-
-    # Steam Browser Protocol
-    if (!$Steam) {
-        $Steam = Split-Path (((Get-ItemPropertyValue "$Protocol" -Name "(Default)" -ErrorAction SilentlyContinue) -Split "--", 2, "SimpleMatch")[0]).Trim('"')
-    }
-
-    return $Steam.ToLower()
-}
 function Add-ContextMenu {
     #! TODO https://www.tenforums.com/tutorials/69524-add-remove-drives-send-context-menu-windows-10-a.html
     param(
@@ -3196,6 +3196,153 @@ tl ui opens the UI
 
 "@
 }
+function CB-CleanTaskbar {
+	if (-Not(Get-Module -Name "Sophia Script (TL)" -Ea 0)){
+		Import-Sophia
+	}
+	CortanaButton -Hide
+	PeopleTaskbar -Hide
+	TaskBarSearch -Hide
+	TaskViewButton -Hide
+	UnpinTaskbarShortcuts Edge, Store, Mail
+
+	# Remove "Meet now" from the taskbar, s/o privacy.sexy
+	Set-ItemProperty -Path "Registry::HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "HideSCAMeetNow" -Value 1
+}
+function Remove-DesktopShortcuts {
+    param(
+        [Switch]$ConfirmEach
+    )
+    
+    if($ConfirmEach){
+        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
+    }else{
+        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item
+    }
+}
+
+<#
+
+List of commonly used Appx packages:
+
+Windows.PrintDialog
+Microsoft.WindowsCalculator
+Microsoft.ZuneVideo
+Microsoft.Windows.Photos
+
+I did not add them, but you can opt in by calling the function, e.g:
+
+    Remove-KnownAppxPackages -Add @('Windows.PrintDialog','Microsoft.WindowsCalculator')
+
+Don't forget to surround them by a ' so PowerShell considers them as a string
+
+#>
+
+function Remove-KnownAppxPackages ([array]$Add,[array]$Exclude) {
+
+    $AppxPackages = @(
+        "Microsoft.Windows.NarratorQuickStart"
+        "Microsoft.Wallet"
+        "3DBuilder"
+        "Microsoft.Microsoft3DViewer"
+        "WindowsAlarms"
+        "BingSports"
+        "WindowsCommunicationsapps"
+        "WindowsCamera"
+        "Feedback"
+        "Microsoft.GetHelp"
+        "GetStarted"
+        "ZuneMusic"
+        "WindowsMaps"
+        "Microsoft.Messaging"
+        "Microsoft.MixedReality.Portal"
+        "Microsoft.OneConnect"
+        "BingFinance"
+        "Microsoft.MSPaint"
+        "People"
+        "WindowsPhone"
+        "Microsoft.YourPhone"
+        "Microsoft.Print3D"
+        "Microsoft.ScreenSketch"
+        "Microsoft.MicrosoftStickyNotes"
+        "SoundRecorder"
+        
+        ) | Where-Object { $_ -notin $Exclude }
+
+        $AppxPackages += $Add # Appends the Appx packages given by the user (if any)
+
+        if (-Not($KeepXboxPackages)){
+            $AppxPackages += @(
+                "XboxApp"
+                "Microsoft.XboxGameOverlay"
+                "Microsoft.XboxGamingOverlay"
+                "Microsoft.XboxSpeechToTextOverlay"
+                "Microsoft.XboxIdentityProvider"
+                "Microsoft.XboxGameCallableUI"
+            )
+        }
+
+
+        ForEach ($Package in $AppxPackages){
+        
+        if ($PSVersionTable.PSEdition -eq 'Core'){ # Newer PowerShell versions don't have Appx cmdlets, manually calling PowerShell to 
+        
+            powershell.exe -command "Get-AppxPackage `"*$Package*`" | Remove-AppxPackage"
+        
+        }else{
+            Get-AppxPackage "*$Package*" | Remove-AppxPackage
+        }
+        
+        }
+
+}
+
+
+function Remove-UselessFiles {
+    
+    @(
+        "$env:TEMP"
+        "$env:WINDIR\TEMP"
+        "$env:HOMEDRIVE\TEMP"
+    ) | ForEach-Object { Remove-Item (Convert-Path $_\*) -Force -ErrorAction SilentlyContinue }
+
+}
+function Set-PowerPlan {
+    param (
+        [string]$URL,
+        [switch]$Ultimate
+        )
+
+    if ($Ultimate){
+        powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
+        powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61
+    }elseif($URL){
+        if ($URL -Like "http*://cdn.discordapp.com/attachments/*.pow"){
+            $DotPow = "$env:TMP\{0}" -f (Split-Path $URL -Leaf)
+        }else{
+            $DotPow = "$env:TMP\Powerplan $(Get-Random).pow"
+        }
+        Invoke-WebRequest -Uri $PowURL -OutFile $DotPow
+        powercfg -duplicatescheme $DotPow
+        powercfg /s $DotPow
+    }
+}
+
+function Set-Win32PrioritySeparation {
+    param(
+        [int]$DWord
+    )
+
+    $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
+    $current = (Get-ItemProperty $Path).Win32PrioritySeparation
+
+    Set-ItemProperty -Path ($Path).Win32PrioritySeparation -Value $Value -Type DWord -Force -ErrorAction Inquire
+
+    Write-Verbose "Set-Win32ProritySeparation: Changed from $current to $((Get-ItemProperty $Path).Win32PrioritySeparation)"
+
+}
+
+
 function Get-GraalVM {
     param(
         [Switch]$Reinstall
@@ -4291,31 +4438,6 @@ function Install-ZetaLoader {
     Write-Output "ZetaLoader has been installed."
 }
 
-function Remove-DesktopShortcuts {
-    param(
-        [Switch]$ConfirmEach
-    )
-    
-    if($ConfirmEach){
-        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item -Confirm
-    }else{
-        Get-ChildItem -Path "$HOME\Desktop" | Where-Object Extension -eq ".lnk" | Remove-Item
-    }
-}
-
-function CB-CleanTaskbar {
-	if (-Not(Get-Module -Name "Sophia Script (TL)" -Ea 0)){
-		Import-Sophia
-	}
-	CortanaButton -Hide
-	PeopleTaskbar -Hide
-	TaskBarSearch -Hide
-	TaskViewButton -Hide
-	UnpinTaskbarShortcuts Edge, Store, Mail
-
-	# Remove "Meet now" from the taskbar, s/o privacy.sexy
-	Set-ItemProperty -Path "Registry::HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "HideSCAMeetNow" -Value 1
-}
 function 4K-Notifier {
     param(
         [Parameter(Mandatory)]
@@ -4439,128 +4561,6 @@ if %ERRORLEVEL% == 0 (exit) else (pause)
     return
 
 }
-<#
-
-List of commonly used Appx packages:
-
-Windows.PrintDialog
-Microsoft.WindowsCalculator
-Microsoft.ZuneVideo
-Microsoft.Windows.Photos
-
-I did not add them, but you can opt in by calling the function, e.g:
-
-    Remove-KnownAppxPackages -Add @('Windows.PrintDialog','Microsoft.WindowsCalculator')
-
-Don't forget to surround them by a ' so PowerShell considers them as a string
-
-#>
-
-function Remove-KnownAppxPackages ([array]$Add,[array]$Exclude) {
-
-    $AppxPackages = @(
-        "Microsoft.Windows.NarratorQuickStart"
-        "Microsoft.Wallet"
-        "3DBuilder"
-        "Microsoft.Microsoft3DViewer"
-        "WindowsAlarms"
-        "BingSports"
-        "WindowsCommunicationsapps"
-        "WindowsCamera"
-        "Feedback"
-        "Microsoft.GetHelp"
-        "GetStarted"
-        "ZuneMusic"
-        "WindowsMaps"
-        "Microsoft.Messaging"
-        "Microsoft.MixedReality.Portal"
-        "Microsoft.OneConnect"
-        "BingFinance"
-        "Microsoft.MSPaint"
-        "People"
-        "WindowsPhone"
-        "Microsoft.YourPhone"
-        "Microsoft.Print3D"
-        "Microsoft.ScreenSketch"
-        "Microsoft.MicrosoftStickyNotes"
-        "SoundRecorder"
-        
-        ) | Where-Object { $_ -notin $Exclude }
-
-        $AppxPackages += $Add # Appends the Appx packages given by the user (if any)
-
-        if (-Not($KeepXboxPackages)){
-            $AppxPackages += @(
-                "XboxApp"
-                "Microsoft.XboxGameOverlay"
-                "Microsoft.XboxGamingOverlay"
-                "Microsoft.XboxSpeechToTextOverlay"
-                "Microsoft.XboxIdentityProvider"
-                "Microsoft.XboxGameCallableUI"
-            )
-        }
-
-
-        ForEach ($Package in $AppxPackages){
-        
-        if ($PSVersionTable.PSEdition -eq 'Core'){ # Newer PowerShell versions don't have Appx cmdlets, manually calling PowerShell to 
-        
-            powershell.exe -command "Get-AppxPackage `"*$Package*`" | Remove-AppxPackage"
-        
-        }else{
-            Get-AppxPackage "*$Package*" | Remove-AppxPackage
-        }
-        
-        }
-
-}
-
-
-function Remove-UselessFiles {
-    
-    @(
-        "$env:TEMP"
-        "$env:WINDIR\TEMP"
-        "$env:HOMEDRIVE\TEMP"
-    ) | ForEach-Object { Remove-Item (Convert-Path $_\*) -Force -ErrorAction SilentlyContinue }
-
-}
-function Set-PowerPlan {
-    param (
-        [string]$URL,
-        [switch]$Ultimate
-        )
-
-    if ($Ultimate){
-        powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
-        powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61
-    }elseif($URL){
-        if ($URL -Like "http*://cdn.discordapp.com/attachments/*.pow"){
-            $DotPow = "$env:TMP\{0}" -f (Split-Path $URL -Leaf)
-        }else{
-            $DotPow = "$env:TMP\Powerplan $(Get-Random).pow"
-        }
-        Invoke-WebRequest -Uri $PowURL -OutFile $DotPow
-        powercfg -duplicatescheme $DotPow
-        powercfg /s $DotPow
-    }
-}
-
-function Set-Win32PrioritySeparation {
-    param(
-        [int]$DWord
-    )
-
-    $Path = 'REGISTRY::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\PriorityControl'
-    $current = (Get-ItemProperty $Path).Win32PrioritySeparation
-
-    Set-ItemProperty -Path ($Path).Win32PrioritySeparation -Value $Value -Type DWord -Force -ErrorAction Inquire
-
-    Write-Verbose "Set-Win32ProritySeparation: Changed from $current to $((Get-ItemProperty $Path).Win32PrioritySeparation)"
-
-}
-
-
 function Optimize-Bedrock {
     [alias('optmcbe')]
     [CmdletBinding()]
@@ -5069,12 +5069,13 @@ function Optimize-OBS {
         [String]$Preset = 'HighPerformance',
 
         [ValidateSet(
-            'EnableStatsDock', 'OldDarkTheme')]
+            'EnableStatsDock', 'OldDarkTheme','CouleursHotkeys')]
         [Array]$MiscTweaks = (Invoke-CheckBox -Title "Select misc tweaks to apply" -Items (
-            'EnableStatsDock', 'OldDarkTheme')),
+            'EnableStatsDock', 'OldDarkTheme','CouleursHotkeys')),
 
         [ValidateScript({ Test-Path -Path $_ -PathType Container })]
         [String]$OBSProfile = $null
+
     )
 
     if (!$Encoder){
@@ -5094,17 +5095,19 @@ function Optimize-OBS {
             NVENC = @{
                 basic = @{
                     AdvOut = @{
-                        RecEncoder = 'jim_nvenc'
+                        RecEncoder = 'obs_nvenc_h264_tex'
                     }
                 }
                 recordEncoder = @{
                     bf=0
                     cqp=18
                     multipass='disabled'
-                    preset2='p2'
+                    preset='p2'
                     profile='main'
                     psycho_aq='false'
                     rate_control='CQP'
+                    lookahead= 'false'
+                    adaptive_quantization= 'false'
                 }
             }
             AMF = @{
@@ -5338,6 +5341,14 @@ OutputCY=$DefaultHeight
             $glob.General.CurrentTheme3 = 'Dark'
         }
 
+        if ('CouleursHotkeys' -in $MiscTweaks){
+            if (!$glob.Hotkeys){$glob.Hotkeys = @{}}
+            $glob.Hotkeys.'OBSBasic.EnablePreview'  = '{"bindings":[{"control":true,"key":"OBS_KEY_RETURN"}]}'
+            $glob.Hotkeys.'OBSBasic.DisablePreview' = '{"bindings":[{"control":true,"key":"OBS_KEY_RETURN"}]}'
+            $glob.Hotkeys.'ReplayBuffer'            = '{"ReplayBuffer.Save":[{"alt":true,"key":"OBS_KEY_NONE","shift":true}]}'
+            $glob.Hotkeys.'OBSBasic.ResetStats'     = '{"bindings":[{"control":true,"key":"OBS_KEY_NONE","shift":true}]}'
+        }
+
         if ('OldDarkTheme' -in $MiscTweaks){
 
             $glob.BasicWindow.geometry = 'AdnQywADAAAAAAe/////uwAADJ0AAAKCAAAHv////9oAAAydAAACggAAAAEAAAAACgAAAAe/////2gAADJ0AAAKC'
@@ -5347,6 +5358,8 @@ OutputCY=$DefaultHeight
         $glob | Out-IniFile -FilePath $global -Force
     }
     Write-Host "Finished patching OBS, yay! Please switch profiles or reload OBS to see changes" -ForegroundColor Green
+    Write-Host "You can find more information about OBS configuration at " -ForegroundColor Green -NoNewline
+    Write-Host "ctt.cx/obs"
 }
 function Optimize-OptiFine {
     [alias('optof')]

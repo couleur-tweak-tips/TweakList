@@ -84,7 +84,8 @@
       "MiscTweaks": {
         "values": [
           "EnableStatsDock",
-          "OldDarkTheme"
+          "OldDarkTheme",
+          "CouleursHotkeys"
         ],
         "type": "enum[]"
       },
